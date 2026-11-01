@@ -11,8 +11,8 @@
 
 namespace {
 
-const char *BEGIN_TAG = "*BEGIN Odette 5.02 message, valid char:";
-const char *END_TAG = "*END Odette 5.02 message, CRC:";
+const char *BEGIN_TAG = "*BEGIN Odette 5.03 message, valid char:";
+const char *END_TAG = "*END Odette 5.03 message, CRC:";
 
 }  // namespace
 

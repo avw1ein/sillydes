@@ -145,7 +145,7 @@ KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams
     wipe(dk.data(), dk.size());
   } else {
     memcpy(km.key, in.key, NL * 8);
-    static const char label[] = "Odette 5.02 mac";
+    static const char label[] = "Odette 5.03 mac";
     Hmac512(&km.key[0][0], NL * 8).mac((const uint8_t *)label, sizeof label - 1, km.mackey);
   }
   km.lenmask = length_mask(km.key);

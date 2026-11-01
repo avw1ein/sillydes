@@ -1,4 +1,4 @@
-# Odette 5.02
+# Odette 5.03
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).
@@ -21,7 +21,7 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 10. [Error levels](#10-error-levels)
 11. [Disclaimer](#11-disclaimer)
 
-See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout.
+See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
 
 ---
 
@@ -40,6 +40,7 @@ Features:
 - HMAC-SHA-512 authentication (512-bit key and tag), checked before decryption.
 - CRC-32 check on e-mail output.
 - Key phrase (scrypt, salted) or key file.
+- Constant-time DES: no key- or data-dependent memory access or branch during encryption.
 - Easy to use.
 - Slow! Which is good!
 
@@ -89,7 +90,7 @@ To get help:
 ./odette
 ```
 
-Files made by Odette 5.02 cannot be read by older versions, and the other way around.
+Files made by Odette 5.03 cannot be read by older versions, and the other way around.
 
 ---
 
@@ -206,7 +207,7 @@ At decryption, type the phrase exactly the way you did at encryption. You can us
 
 ## 8. Intramural security
 
-This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. Also read the remark in [ANALYSIS.md](ANALYSIS.md) about cache timing attacks during encryption.
+This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the scrypt phrase derivation does read memory at data-dependent addresses, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
 
 ---
 

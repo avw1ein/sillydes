@@ -23,7 +23,14 @@ test: odette test/test_primitives
 	./test/test_primitives
 	bash test/test.sh
 
-clean:
-	rm -rf obj odette test/test_primitives
+# Regenerates the S-box circuits; the output is committed, so this is not part of a normal build.
+gen: tools/gen_des_sbox
+	./tools/gen_des_sbox > src/des_sbox_ct.h
 
-.PHONY: test clean
+tools/gen_des_sbox: tools/gen_des_sbox.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $<
+
+clean:
+	rm -rf obj odette test/test_primitives tools/gen_des_sbox
+
+.PHONY: test gen clean

@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "container.h"
+#include "des.h"
 #include "kdf.h"
 #include "odette_cipher.h"
 #include "sha256.h"
@@ -18,6 +19,11 @@ static std::string hex(const uint8_t *p, size_t n)
   std::string s;
   for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 15]; }
   return s;
+}
+
+static void unhex(const char *s, uint8_t *out, size_t n)
+{
+  for (size_t i = 0; i < n; i++) sscanf(s + 2 * i, "%2hhx", &out[i]);
 }
 
 static int fails;
@@ -138,6 +144,67 @@ int main()
   check("scrypt rfc7914 #3", sc("pleaseletmein", "SodiumChloride", 16384, 8, 1),
         "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887");
 
+  // Single DES against published vectors (FIPS 46 / SP 800-17), both directions.
+  {
+    struct { const char *k, *p, *c; } v[] = {
+      { "0000000000000000", "0000000000000000", "8ca64de9c1b123a7" },
+      { "133457799bbcdff1", "0123456789abcdef", "85e813540f0ab405" },
+      { "0123456789abcdef", "4e6f772069732074", "3fa40e8a984d4815" },
+      { "ffffffffffffffff", "ffffffffffffffff", "7359b2163e4edc58" },
+    };
+    for (auto &t : v) {
+      uint8_t k[8], x[8];
+      unhex(t.k, k, 8);
+      unhex(t.p, x, 8);
+      Des d;
+      d.setkey(k);
+      d.block(x, true);
+      check((std::string("des encrypt ") + t.k).c_str(), hex(x, 8), t.c);
+      d.block(x, false);
+      check((std::string("des decrypt ") + t.k).c_str(), hex(x, 8), t.p);
+    }
+  }
+
+  // The bitsliced layer must treat its 32 lanes as 32 independent DES words.
+  {
+    uint8_t k[8], x[256], y[256], z[256];
+    randbytes(k, 8);
+    randbytes(x, 256);
+    Des d;
+    d.setkey(k);
+    memcpy(y, x, 256);
+    d.layer(y, true);
+    memcpy(z, x, 256);
+    for (int w = 0; w < 32; w++) d.block(z + 8 * w, true);
+    if (memcmp(y, z, 256)) { puts("FAIL: layer differs from 32 single words"); fails++; }
+    memcpy(z, y, 256);
+    d.layer(z, false);
+    if (memcmp(x, z, 256)) { puts("FAIL: layer decrypt is not the inverse"); fails++; }
+    memcpy(z, x, 256);
+    z[8 * 13 + 2] ^= 0x10;
+    d.layer(z, true);
+    if (activewords(y, z) != 1 || !memcmp(y + 8 * 13, z + 8 * 13, 8)) { puts("FAIL: lanes not independent"); fails++; }
+  }
+
+  // One block through the core with a fixed key and salt: pins the whitening and the DES layers.
+  {
+    uint8_t k[NL][8], s[SALT_LEN], x[256];
+    for (int i = 0; i < NL * 8; i++) k[i / 8][i % 8] = (uint8_t)i;
+    for (int i = 0; i < SALT_LEN; i++) s[i] = (uint8_t)(0xa0 + i);
+    for (int i = 0; i < 256; i++) x[i] = (uint8_t)(255 - i);
+    OdetteCipher c(k, s);
+    c.encrypt_block(x);
+    check("encrypt_block known answer", hex(x, 256),
+          "57c405149d25e79e1df74953b9e0d09304f3b9c199698bc201ef77ff1658e3a66455eaa8eaa73f0cef146eab6c6b522f3660e00728c38971ebaef87cb4199792"
+          "78c6c9e0c9ca3c75f9cdd97fb77653e5f4f797549f315456985f982fa6307a133c40767cd28bc745a22a996236972798e0cf67bd130e67672dfa42a6b1e827c0"
+          "382e1b4015d6ff8f436a781bb5acb7dc1527edf806bbc8f2668c99d7ce968eac8c91720cd2ed14dd8abb17017a70ac5d416e653b85d84211ea46998897527690"
+          "278d5bcaa808dc50cb9f08f86540e1fb11151e9c4426fb2e3cc1354f9ee7dc6fdf0f0eb87868d0856a1b11c941702c7bd46a1d57e5a2987c9429a8f405b01072");
+    c.decrypt_block(x);
+    bool id = true;
+    for (int i = 0; i < 256; i++) id &= x[i] == (uint8_t)(255 - i);
+    if (!id) { puts("FAIL: decrypt_block known answer"); fails++; }
+  }
+
   uint8_t key[NL][8], iv[IV_LEN], salt[SALT_LEN];
   randbytes(&key[0][0], NL * 8);
   randbytes(iv, IV_LEN);
@@ -232,7 +299,8 @@ int main()
   }
 
   if (fails) return 1;
-  puts("ok: SHA-256/512, HMAC, PBKDF2, scrypt known answers; cipher round trips; whitening, salt, tweak and key-bit dependence; "
+  puts("ok: SHA-256/512, HMAC, PBKDF2, scrypt and DES known answers; bitsliced lanes independent; core block known answer; "
+       "cipher round trips; whitening, salt, tweak and key-bit dependence; "
        "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container");
   return 0;
 }

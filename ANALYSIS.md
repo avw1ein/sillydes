@@ -1,4 +1,4 @@
-# Mathematical analysis of Odette 5.02
+# Mathematical analysis of Odette 5.03
 
 This analyses the wrapping scheme around DES, not DES itself. DES is treated as a keyed random permutation on 64-bit words. Everything below refers to the current code in [src/](src/) (the cipher is in [src/odette_cipher.cpp](src/odette_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 11). Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
@@ -18,7 +18,7 @@ This analyses the wrapping scheme around DES, not DES itself. DES is treated as 
 | Integrity | HMAC-SHA-512 (512-bit key, 512-bit tag) over header and ciphertext, verified before decryption |
 | Passphrase | scrypt (N=2^17, r=8, p=1, 128 MiB per guess), random salt; strength is the phrase entropy |
 | 64-bit word collisions | occur at the random rate (about $2^{30}$ blocks) and carry no information, because the tweak masks every ciphertext word with a block-specific secret (section 8) |
-| Speed | 1 MiB in 0.13 s each way; 16 MiB in 2.01 s each way, about 8 MB/s **(measured)** |
+| Speed | 1 MiB in 0.09 s each way; 16 MiB in 1.27 s each way, about 13 MB/s **(measured)** |
 | Post-quantum | about $2^{256}$ Grover iterations for the cipher and the MAC, against $2^{128}$ for AES-256 (section 12); heuristic. Quantum differential, linear, slide and Simon-type attacks gain nothing on the deployed scheme because no permutation instance is ever used twice; the bare core under a fixed instance would fall in about $2^{144}$ (section 12.8) |
 
 The key-search bound rests on one structural fact: every layer input, including the first and the last, is XORed with a pseudorandom function of **all** 512 key bits, so there is no partial-key test anywhere in the cipher. The tweak adds a second fact: no permutation instance is ever used for more than one block, so there is nothing for a multi-pair attack to compare.
@@ -31,8 +31,8 @@ $$s_0 = P_{256}(u),\qquad s_{l+1} = P_{g_l}\big(D_{k_l}(s_l \oplus W_l)\big)\ (l
 
 with $g_l = 16\cdot 2^{\,l \bmod 5}$ bytes, that is 16, 32, 64, 128, 256, 16, 32 for $l=0,\dots,6$. With $K = k_0\|\cdots\|k_7$ (all 64 bytes) and the 16-byte salt from the file header, the whitening and the per-block tweak are
 
-$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.02 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
-\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.02 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
+$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.03 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
+\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.03 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
 
 four 64-byte outputs each, $i$ the 8-byte big-endian block index. The whitening costs 36 HMAC calls once per file; the tweak costs 4 per block, with the HMAC pad states computed once.
 
@@ -49,7 +49,7 @@ Key material by mode:
 | | Key-file mode | Phrase mode |
 |---|---|---|
 | $K$ (DES keys) | the 64 bytes of the file | scrypt output bytes 0..63 |
-| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"Odette 5.02 mac"})$ | scrypt output bytes 64..127 |
+| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"Odette 5.03 mac"})$ | scrypt output bytes 64..127 |
 | Salt | input to $W_j$ and $\Delta_i$ | input to scrypt, $W_j$ and $\Delta_i$ |
 | Varies per file | salt, hence all $W_j$ and $\Delta_i$, and IV | salt, hence $K$, $K_{mac}$, all $W_j$, $\Delta_i$, and IV |
 
@@ -210,6 +210,7 @@ These are heuristic arguments assuming independent layers, not proofs.
 | Repeated blocks | Nine identical blocks give nine distinct blocks with no repeated 8-byte word **(measured)**. |
 | Padding | Always at least one byte: random fill plus a length byte `cnt ^ tbtmtd`, where `tbtmtd` is a key-derived mask. The mask adds nothing, since the length byte is inside the encrypted and authenticated block. The output is $256(\lfloor n/256\rfloor + 1)$ bytes plus 344 bytes of header and tag. |
 | Integrity | Encrypt-then-MAC with HMAC-SHA-512, constant-time compare, checked before any decryption. Truncation, block edits, header edits and a wrong key all fail with error 13 **(measured)**. A 1-byte message gives a 600-byte file **(measured)**. |
+| Timing of the cipher | DES is bitsliced ([src/des.cpp](src/des.cpp)): the S-boxes are boolean circuits, every array index is a compile-time or loop constant, and no branch depends on key or data. Encryption and decryption time depends only on the file size. |
 | Oracles | Every failure returns the same error 13, so there is no padding or length oracle. Format checks (magic, size, KDF bounds) fail before the KDF runs and are therefore faster, but they depend only on public data. |
 | Denial of service | In phrase mode the KDF runs before the tag can be checked, since the MAC key comes from it. The header bounds cap this at 256 MiB of memory and about $2^{25}$ Salsa20/8 calls per attempt, eight times the default cost. |
 | Error propagation | Moot: damaged data is rejected whole. At the cipher level, as in any CBC, one flipped bit in $c_i$ garbles $m_i$ fully and flips exactly the same bit in $m_{i+1}$, which is why the MAC is required. |
@@ -232,7 +233,7 @@ Passphrase derivation:
 - scrypt (RFC 7914) over the padded phrase and a random 16-byte salt yields 128 bytes: 64 for the eight DES keys and 64 for the MAC key.
 - **Memory:** $128\,r\,N = 2^{27}$ bytes (128 MiB) of working memory per guess, with N=2^17, r=8, p=1.
 - **Work per guess:** $2N\cdot 2r = 2^{22}$ Salsa20/8 core calls, plus two single-iteration PBKDF2 passes that cost almost nothing. All 128 output bytes come from the same memory-hard pass, so verifying a guess through plaintext structure saves nothing.
-- **Memory-hardness:** an attacker who keeps less than the full table pays extra time for it, roughly in proportion to the square of the shortfall. A GPU or ASIC must give every parallel guess its own 128 MiB, which removes most of the advantage over a CPU that a cheap hash-based KDF would give. Encrypting 1 MiB in phrase mode takes 0.37 s against 0.13 s with a key file, so the KDF costs about 0.24 s **(measured)**.
+- **Memory-hardness:** an attacker who keeps less than the full table pays extra time for it, roughly in proportion to the square of the shortfall. A GPU or ASIC must give every parallel guess its own 128 MiB, which removes most of the advantage over a CPU that a cheap hash-based KDF would give. Encrypting 1 MiB in phrase mode takes 0.32 s against 0.09 s with a key file, so the KDF costs about 0.23 s **(measured)**.
 - **Strength:** guess count times that cost. English text carries about 1 to 1.5 bits per character, so a 48-character phrase gives roughly $2^{50}$ to $2^{70}$ guesses, or $2^{72}$ to $2^{92}$ Salsa20/8 calls, each with 128 MiB resident. The 512-bit key bound only applies to random keys.
 - **Side channel:** scrypt's second loop indexes memory by data derived from the phrase; on a shared machine, cache observation of that access pattern can test phrase guesses offline. This is a known property of scrypt and of every memory-hard KDF with data-dependent addressing.
 - **Header limits:** log2 N, r and p are stored in the header. When reading a file they must satisfy $4\le\log_2 N\le 20$, $1\le r\le 16$, $1\le p\le 4$ and $128\,r\,N\le 2^{28}$ (256 MiB), and the fourth byte must be zero; anything else fails with error 13 ([src/keys.cpp](src/keys.cpp), `kdf_ok`). Changing them changes the derived keys, so a modified header also fails authentication. In key-file mode the parameters are written and authenticated but not used.
@@ -245,9 +246,9 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 - **Secret, not public, masks.** A public per-block value (a counter, a hash of the index) would leave $G$'s input and output differences known to the attacker and change nothing. The mask must be a PRF of the key.
 - **Independent masks, not a geometric sequence.** XTS derives its masks as $\Delta_i = \Delta_0\cdot\alpha^i$ in $\mathrm{GF}(2^{128})$, so that consecutive masks are related by a public linear map. Here every $\Delta_i$ is a fresh PRF output, so $\Delta_i\oplus\Delta_j$ is unknown for every pair. This costs four HMAC calls per block instead of one multiplication, and it is why section 6.1 can say that no two blocks have a known difference.
 - **Salt in the tweak and the whitening.** The salt is random per file and authenticated. Feeding it to both PRFs means that two files made with the same key file share no mask at all, so blocks at equal positions in different files are as unrelated as blocks in one file. In phrase mode the salt already changes $K$; including it again is harmless.
-- **Domain separation.** The labels `Odette 5.02 white`, `Odette 5.02 tweak` and `Odette 5.02 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
+- **Domain separation.** The labels `Odette 5.03 white`, `Odette 5.03 tweak` and `Odette 5.03 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
 - **Chaining retained.** CBC inside the tweak costs one XOR and makes $c_i$ depend on the whole message prefix (section 7).
-- **Cost.** About 9 percent of the running time: 16 MiB takes 2.01 s each way, 256 DES operations and 8 SHA-512 compressions per block **(measured)**.
+- **Cost.** About 14 percent of the running time: 16 MiB takes 1.27 s each way, 256 DES operations and 8 SHA-512 compressions per block **(measured)**.
 - **Superposition queries (Q2).** Simon-style attacks on XOR-masked constructions query one fixed instance in superposition. Every instance here is used once, with a mask that is a PRF of the block index, which gives such an attack nothing to query. This is an observation, not a proof, and no file-encryption attacker has a superposition oracle anyway.
 
 ## 10. Recommendations
@@ -270,6 +271,8 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 | Split-cost model, 8 layers with whitening | minimum over cuts $2^{2264}$ |
 | Split-cost model, hypothetical 6 layers without whitening | minimum $2^{168}$ at the 3\|3 cut, matching $2^{56\lceil r/2\rceil}$ |
 | SHA-256, SHA-512, HMAC-SHA-256, HMAC-SHA-512 (RFC 4231 cases 2 and 6), PBKDF2, scrypt known-answer vectors (RFC 7914 vectors 1 to 3) | pass ([test/test_primitives.cpp](test/test_primitives.cpp)) |
+| DES against four published vectors, both directions; the bitsliced layer equals 32 single-word calls, inverts itself, and a change in one word stays in that word | pass |
+| One core block with a fixed key and salt against a stored answer, and back | pass |
 | Wrong phrase, oversized KDF parameters in the header | error 13 |
 | Cipher and CBC round trips, padding for 0, 1, 255, 256, 257, 700 bytes | pass |
 | Equal blocks $A,B,A$, unit test | blocks 0 and 2 unrelated |
@@ -279,7 +282,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 | One flipped input bit or one changed input word, 64 trials each way through the core | all 32 output words change, 896 to 1152 output bits flip, unit test |
 | Eight identical DES keys: avalanche holds, output unrelated to input, encrypting twice is not the identity, unit test | pass |
 | Same plaintext sealed twice: salt, IV and first block all differ, both unseal correctly, unit test | pass |
-| Container magic `OD 5 2`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
+| Container magic `OD 5 3`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
 | Version byte changed to 1; e-mail tags rewritten to another version | error 13; error 8 |
 | Salt bytes of two encryptions of one file | differ |
 | Round trips through the program, sizes 0, 1, 255, 256, 257, 1000, 5000, both modes | pass |
@@ -288,9 +291,9 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 | Same data encrypted twice with one key file | every byte of ciphertext differs |
 | Bit flip, truncation, version byte changed to 0, wrong key | error 13 |
 | Container size for a 1-byte message | 600 bytes = 280 header + 256 block + 64 tag |
-| 1 MiB file, key file | 0.13 s encrypt, 0.13 s decrypt |
-| 1 MiB file, phrase | 0.37 s encrypt (0.24 s of it scrypt) |
-| 16 MiB file | 2.01 s encrypt, 2.01 s decrypt (about 8 MB/s) |
+| 1 MiB file, key file | 0.09 s encrypt, 0.09 s decrypt |
+| 1 MiB file, phrase | 0.32 s encrypt (0.23 s of it scrypt) |
+| 16 MiB file | 1.27 s encrypt, 1.27 s decrypt (about 13 MB/s); 2.01 s with the table-based DES of 5.02 |
 | OpenSSL 3.5.5 on the same CPU (AES-NI) | AES-256-CBC 1.8 GB/s, AES-256-GCM 9.2 GB/s |
 
 ## 12. Post-quantum comparison with AES
@@ -305,7 +308,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 Grover finds a $k$-bit key in about $2^{k/2}$ iterations, each running the whole cipher in superposition. It parallelises poorly: $S$ machines give only a factor $\sqrt{S}$.
 
-| | AES-256 | Odette 5.02, key file | Hypothetical 512-bit cipher |
+| | AES-256 | Odette 5.03, key file | Hypothetical 512-bit cipher |
 |---|---|---|---|
 | Key bits | 256 | 512 (448 DES bits, 64 bits that only feed whitening and tweak) | 512 |
 | Grover iterations | $2^{128}$ | $2^{256}$ | $2^{256}$ |
@@ -346,23 +349,23 @@ With the whitening there is no half to meet in the middle, so $2^{256}$ Grover i
 
 ### 12.5 Other parameters
 
-| | AES-256 | Odette 5.02 |
+| | AES-256 | Odette 5.03 |
 |---|---|---|
 | Block size | 128 bits | 2048 bits (64-bit DES words inside) |
 | Birthday limit on observed data | $2^{64}$ blocks, in practice kept well below | $2^{1024}$ blocks, and the tweak masks even that leak (section 8) |
 | Hash used | SHA-256 in HMAC | HMAC-SHA-512 for the tag, the whitening and the tweak; SHA-256 only inside scrypt |
-| Side channels | AES-NI is constant-time | table-based DES with key-dependent table indices, open to cache-timing attacks |
+| Side channels | AES-NI is constant-time | bitsliced DES with no key- or data-dependent memory access or branch; scrypt in phrase mode remains data-dependent (section 8) |
 
 Quantum collision finding applies to data an attacker can query, not to stored ciphertext, so it changes little for file encryption.
 
 ### 12.6 Practical comparison
 
-| Criterion | AES-256-GCM or AES-256-CBC + HMAC | Odette 5.02 |
+| Criterion | AES-256-GCM or AES-256-CBC + HMAC | Odette 5.03 |
 |---|---|---|
 | Quantum key search (Q1) | $2^{128}$ iterations | $2^{256}$ for the cipher and for the MAC (heuristic) |
 | Overall quantum level, key file | about $2^{128}$ | about $2^{256}$ (heuristic) |
 | Review | standardised (FIPS 197), decades of analysis | custom, unreviewed, estimates only |
-| Throughput on this CPU | 1.8 GB/s (CBC), 9.2 GB/s (GCM) **(measured)** | about 8 MB/s **(measured)**, roughly 200 to 1000 times slower |
+| Throughput on this CPU | 1.8 GB/s (CBC), 9.2 GB/s (GCM) **(measured)** | about 13 MB/s **(measured)**, roughly 100 to 700 times slower |
 | Hardware support | AES-NI | none |
 | Key material | 32 bytes | 64 bytes, plus a 64-byte MAC key derived from it |
 

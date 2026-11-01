@@ -94,7 +94,7 @@ echo "ok: bit flip, truncation, header change and oversized KDF parameters fail"
 cp "$T/rep.enc" "$T/t5"
 printf '\x01' | dd of="$T/t5" bs=1 seek=3 conv=notrunc 2>/dev/null
 fail13 ./odette act=d in="$T/t5" out="$T/x" key=sample.key
-sed 's/Odette 5\.02/Odette 5.00/' "$T/p.txt" > "$T/old.txt"
+sed 's/Odette 5\.03/Odette 5.00/' "$T/p.txt" > "$T/old.txt"
 rc=0; ./odette act=dm in="$T/old.txt" out="$T/x" key=sample.key 2>/dev/null || rc=$?
 [ "$rc" -eq 8 ] || { echo "FAIL: e-mail tags of another version accepted"; exit 1; }
 echo "ok: files of another version are rejected"

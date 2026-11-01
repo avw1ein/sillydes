@@ -1,4 +1,4 @@
-# Odette 5.02 in pictures: one block, layer by layer
+# Odette 5.03 in pictures: one block, layer by layer
 
 This document draws what happens to a single 256-byte block on its way from plaintext to ciphertext. It shows *where* every byte comes from and *where* it goes; the reasons why the construction is built this way are in [ANALYSIS.md](ANALYSIS.md), and the code that does it is described in [STRUCTURE.md](STRUCTURE.md). Only encryption is drawn: decryption is the same ladder climbed downwards. All positions and offsets were read from [src/odette_cipher.cpp](src/odette_cipher.cpp).
 
@@ -107,7 +107,7 @@ HMAC message for Δ_i, slice c            (42 bytes)
 
 offset    0                     17               33                             41
          ┌─────────────────────┬─────────────────┬───────────────────────────────┬───┐
-         │ "Odette 5.02 tweak" │ salt            │ block index i                 │ c │
+         │ "Odette 5.03 tweak" │ salt            │ block index i                 │ c │
          │ 17 bytes            │ 16 bytes        │ 8 bytes, big-endian           │ 1 │
          └─────────────────────┴─────────────────┴───────────────────────────────┴───┘
                                                                                  c = 0, 1, 2, 3
@@ -198,7 +198,7 @@ HMAC message for W_j, slice c            (35 bytes)
 
 offset    0                     17               33   34
          ┌─────────────────────┬─────────────────┬─────┬───┐
-         │ "Odette 5.02 white" │ salt            │  j  │ c │
+         │ "Odette 5.03 white" │ salt            │  j  │ c │
          │ 17 bytes            │ 16 bytes        │  1  │ 1 │
          └─────────────────────┴─────────────────┴─────┴───┘
 
@@ -475,7 +475,7 @@ Reading the right-hand column: 2, 4, 8, 16, 32 words. Five swaps with five diffe
 
 ## 8. Inside one DES box
 
-Each red box in section 6 is 32 copies of the diagram below, one per word, all with the same key schedule. The schedule is prepared once per file.
+Each red box in section 6 is 32 copies of the diagram below, one per word, all with the same key schedule. The schedule is prepared once per file. In the code the 32 copies run at once: `Des::layer` is bitsliced, holding bit position $p$ of all 32 words in one 32-bit value, so one boolean operation advances all 32 words by one gate and the S-boxes are evaluated as logic rather than looked up. The picture is the same; only the order of evaluation differs.
 
 ```mermaid
 flowchart TD
@@ -517,7 +517,7 @@ per file, before the first block
   HMAC pad states     2   (inner and outer, reused by all 40 calls)
 ```
 
-One bar cell is roughly eight operations. The DES calls dominate, which is where the measured throughput of about 8 MB/s comes from.
+One bar cell is roughly eight operations. The DES calls dominate, which is where the measured throughput of about 13 MB/s comes from.
 
 ---
 

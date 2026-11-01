@@ -27,8 +27,8 @@ void swap_groups(uint8_t *blk, size_t bs)
   for (size_t off = 0; off < 256; off += bs) swap_nibbles(blk + off, bs);
 }
 
-const char WHITE_LABEL[] = "Odette 5.02 white";
-const char TWEAK_LABEL[] = "Odette 5.02 tweak";
+const char WHITE_LABEL[] = "Odette 5.03 white";
+const char TWEAK_LABEL[] = "Odette 5.03 tweak";
 
 }  // namespace
 
@@ -70,7 +70,7 @@ void OdetteCipher::encrypt_block(uint8_t *b) const
   swap_nibbles(b, 256);
   for (int l = 0; l < NL; l++) {
     xor256(b, white_[l]);
-    for (int i = 0; i < 256; i += 8) des_[l].block(b + i, true);
+    des_[l].layer(b, true);
     if (l < NL - 1) swap_groups(b, (size_t)16 << (l % 5));
   }
   xor256(b, white_[NL]);
@@ -80,7 +80,7 @@ void OdetteCipher::decrypt_block(uint8_t *b) const
 {
   xor256(b, white_[NL]);
   for (int l = NL - 1; l >= 0; l--) {
-    for (int i = 0; i < 256; i += 8) des_[l].block(b + i, false);
+    des_[l].layer(b, false);
     xor256(b, white_[l]);
     if (l > 0) swap_groups(b, (size_t)16 << ((l - 1) % 5));
     else swap_nibbles(b, 256);
