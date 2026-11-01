@@ -89,50 +89,51 @@ void OdetteCipher::decrypt_block(uint8_t *b) const
 
 // CBC around all layers, with an XEX tweak per block: every block is its own permutation instance,
 // and no single layer sees a known input difference.
-Buf OdetteCipher::cbc_encrypt(const Buf &in, const uint8_t *iv) const
+void OdetteCipher::cbc_encrypt(uint8_t *p, size_t n, const uint8_t *iv) const
 {
-  Buf out(in.size());
-  uint8_t prev[256], work[256], tw[256];
+  uint8_t prev[256], tw[256];
   memcpy(prev, iv, 256);
-  for (size_t b = 0; b + 256 <= in.size(); b += 256) {
+  for (size_t b = 0; b + 256 <= n; b += 256) {
+    uint8_t *blk = p + b;
     tweak(b / 256, tw);
-    for (int i = 0; i < 256; i++) work[i] = in[b + i] ^ prev[i] ^ tw[i];
-    encrypt_block(work);
-    for (int i = 0; i < 256; i++) work[i] ^= tw[i];
-    memcpy(&out[b], work, 256);
-    memcpy(prev, work, 256);
+    for (int i = 0; i < 256; i++) blk[i] ^= prev[i] ^ tw[i];
+    encrypt_block(blk);
+    for (int i = 0; i < 256; i++) blk[i] ^= tw[i];
+    memcpy(prev, blk, 256);
   }
-  return out;
+  wipe(tw, sizeof tw);
 }
 
-Buf OdetteCipher::cbc_decrypt(const Buf &in, const uint8_t *iv) const
+void OdetteCipher::cbc_decrypt(uint8_t *p, size_t n, const uint8_t *iv) const
 {
-  Buf out(in.size());
-  uint8_t prev[256], work[256], tw[256];
+  uint8_t prev[256], cur[256], tw[256];
   memcpy(prev, iv, 256);
-  for (size_t b = 0; b + 256 <= in.size(); b += 256) {
+  for (size_t b = 0; b + 256 <= n; b += 256) {
+    uint8_t *blk = p + b;
     tweak(b / 256, tw);
-    for (int i = 0; i < 256; i++) work[i] = in[b + i] ^ tw[i];
-    decrypt_block(work);
-    for (int i = 0; i < 256; i++) out[b + i] = work[i] ^ prev[i] ^ tw[i];
-    memcpy(prev, &in[b], 256);
+    memcpy(cur, blk, 256);
+    for (int i = 0; i < 256; i++) blk[i] ^= tw[i];
+    decrypt_block(blk);
+    for (int i = 0; i < 256; i++) blk[i] ^= prev[i] ^ tw[i];
+    memcpy(prev, cur, 256);
   }
-  return out;
+  wipe(tw, sizeof tw);
 }
 
-Buf pad256(const Buf &in, uint8_t lenmask)
+void pad256(Buf &b, uint8_t lenmask)
 {
-  size_t cnt = in.size() % 256;
-  Buf out(in);
-  out.resize(in.size() - cnt + 256);
-  if (cnt + 1 < 256) randbytes(&out[in.size()], 255 - cnt);
-  out[out.size() - 1] = (uint8_t)(cnt ^ lenmask);
-  return out;
+  size_t cnt = b.size() % 256, len = b.size();
+  reserve_wiped(b, len - cnt + 256);
+  b.resize(len - cnt + 256);
+  if (cnt + 1 < 256) randbytes(&b[len], 255 - cnt);
+  b[b.size() - 1] = (uint8_t)(cnt ^ lenmask);
 }
 
-Buf unpad256(const Buf &in, uint8_t lenmask)
+void unpad256(Buf &b, uint8_t lenmask)
 {
-  size_t cnt = (uint8_t)(in[in.size() - 1] ^ lenmask);
+  size_t cnt = (uint8_t)(b[b.size() - 1] ^ lenmask);
   if (cnt > 255) cnt = 255;
-  return Buf(in.begin(), in.end() - 256 + cnt);
+  size_t len = b.size() - 256 + cnt;
+  wipe(b.data() + len, b.size() - len);
+  b.resize(len);
 }

@@ -11,6 +11,7 @@
 #include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 std::string errarg;
@@ -38,18 +39,35 @@ std::string errarg;
   exit(numer);
 }
 
+// Unbuffered, so no stdio copy of the data exists; a regular file is read straight into a
+// buffer of its size, anything else grows by doubling with the old storage wiped.
 Buf readfile(const std::string &name)
 {
   errarg = name;
-  FILE *fh = fopen(name.c_str(), "rb");
-  if (!fh) errorexit(1);
+  int fd = open(name.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) errorexit(1);
+  struct stat st;
+  if (fstat(fd, &st) != 0 || S_ISDIR(st.st_mode)) { close(fd); errorexit(1); }
   Buf data;
-  uint8_t chunk[65536];
-  size_t n;
-  while ((n = fread(chunk, 1, sizeof chunk, fh)) > 0) data.insert(data.end(), chunk, chunk + n);
-  bool bad = ferror(fh) != 0;
-  fclose(fh);
-  if (bad) errorexit(1);
+  if (S_ISREG(st.st_mode) && st.st_size >= 0) data.resize((size_t)st.st_size + 1);  // +1: EOF read fits without growing
+  size_t n = 0;
+  for (;;) {
+    if (n == data.size()) {
+      reserve_wiped(data, data.size() < 65536 ? 65536 : 2 * data.size());
+      data.resize(data.capacity());
+    }
+    ssize_t k = read(fd, data.data() + n, data.size() - n);
+    if (k < 0) {
+      if (errno == EINTR) continue;
+      wipe(data.data(), n);
+      close(fd);
+      errorexit(1);
+    }
+    if (k == 0) break;
+    n += (size_t)k;
+  }
+  close(fd);
+  data.resize(n);
   return data;
 }
 
@@ -58,10 +76,26 @@ void writefile(const std::string &name, const Buf &data)
   errarg = name;
   int fd = open(name.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
   if (fd < 0) errorexit(2);
-  FILE *fh = fdopen(fd, "wb");
-  if (!fh) { close(fd); errorexit(2); }
-  if (!data.empty() && fwrite(data.data(), 1, data.size(), fh) != data.size()) { fclose(fh); errorexit(2); }
-  if (fclose(fh) != 0) errorexit(2);
+  for (size_t off = 0; off < data.size();) {
+    ssize_t k = write(fd, data.data() + off, data.size() - off);
+    if (k < 0) {
+      if (errno == EINTR) continue;
+      close(fd);
+      errorexit(2);
+    }
+    off += (size_t)k;
+  }
+  if (close(fd) != 0) errorexit(2);
+}
+
+void reserve_wiped(Buf &b, size_t cap)
+{
+  if (cap <= b.capacity()) return;
+  Buf next;
+  next.reserve(cap);
+  next.assign(b.begin(), b.end());
+  wipe(b.data(), b.size());
+  b.swap(next);
 }
 
 void randbytes(uint8_t *p, size_t n)
@@ -79,7 +113,7 @@ void randbytes(uint8_t *p, size_t n)
 
 void wipe(void *p, size_t n)
 {
-  explicit_bzero(p, n);
+  if (n) explicit_bzero(p, n);
 }
 
 void lockdown()

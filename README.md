@@ -207,7 +207,7 @@ At decryption, type the phrase exactly the way you did at encryption. You can us
 
 ## 8. Intramural security
 
-This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the scrypt phrase derivation does read memory at data-dependent addresses, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
+This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the scrypt phrase derivation does read memory at data-dependent addresses, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
 
 ---
 

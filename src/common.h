@@ -24,6 +24,8 @@ extern std::string errarg;
 
 Buf readfile(const std::string &name);
 void writefile(const std::string &name, const Buf &data);
+// Like Buf::reserve, but the old storage is wiped before it is freed.
+void reserve_wiped(Buf &b, size_t cap);
 // Exits with error 14 if the system random generator fails.
 void randbytes(uint8_t *p, size_t n);
 // Zeroises memory in a way the compiler will not remove.

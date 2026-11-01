@@ -21,7 +21,7 @@ bool all_zero(const uint8_t *p, size_t n)
 
 // Salt and IV are always drawn here; no caller can supply them. A fixed salt or IV would let two
 // files share a permutation instance, which is the one thing the analysis requires never happens.
-Buf seal(const Buf &plain, const KeyInput &keys, const KdfParams &kdf)
+void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
 {
   uint8_t iv[IV_LEN], salt[SALT_LEN];
   randbytes(salt, SALT_LEN);
@@ -30,23 +30,23 @@ Buf seal(const Buf &plain, const KeyInput &keys, const KdfParams &kdf)
   KeyMaterial km = derive_keys(keys, salt, kdf);
   OdetteCipher cipher(km.key, salt);
 
-  Buf ct = cipher.cbc_encrypt(pad256(plain, km.lenmask), iv);
+  // One allocation for the whole container, so the plaintext is never copied.
+  reserve_wiped(data, HDR_LEN + data.size() + 256 + TAG_LEN);
+  pad256(data, km.lenmask);
+  cipher.cbc_encrypt(data.data(), data.size(), iv);
 
-  Buf out(MAGIC, MAGIC + 4);
-  out.push_back((uint8_t)kdf.logn);
-  out.push_back((uint8_t)kdf.r);
-  out.push_back((uint8_t)kdf.p);
-  out.push_back(0);
-  out.insert(out.end(), salt, salt + SALT_LEN);
-  out.insert(out.end(), iv, iv + IV_LEN);
-  out.insert(out.end(), ct.begin(), ct.end());
+  uint8_t hdr[HDR_LEN] = {};
+  memcpy(hdr, MAGIC, 4);
+  hdr[4] = (uint8_t)kdf.logn; hdr[5] = (uint8_t)kdf.r; hdr[6] = (uint8_t)kdf.p;
+  memcpy(hdr + 8, salt, SALT_LEN);
+  memcpy(hdr + 8 + SALT_LEN, iv, IV_LEN);
+  data.insert(data.begin(), hdr, hdr + HDR_LEN);
   uint8_t tag[TAG_LEN];
-  Hmac512(km.mackey, sizeof km.mackey).mac(out.data(), out.size(), tag);
-  out.insert(out.end(), tag, tag + TAG_LEN);
-  return out;
+  Hmac512(km.mackey, sizeof km.mackey).mac(data.data(), data.size(), tag);
+  data.insert(data.end(), tag, tag + TAG_LEN);
 }
 
-Buf unseal(const Buf &d, const KeyInput &keys)
+void unseal(Buf &d, const KeyInput &keys)
 {
   size_t body = d.size() >= HDR_LEN + TAG_LEN ? d.size() - HDR_LEN - TAG_LEN : 0;
   if (body < 256 || body % 256 != 0 || memcmp(d.data(), MAGIC, 4) != 0) errorexit(13);
@@ -62,7 +62,11 @@ Buf unseal(const Buf &d, const KeyInput &keys)
   for (int i = 0; i < TAG_LEN; i++) diff |= tag[i] ^ d[d.size() - TAG_LEN + i];
   if (diff) errorexit(13);
 
-  Buf ct(d.begin() + HDR_LEN, d.end() - TAG_LEN);
   OdetteCipher cipher(km.key, salt);
-  return unpad256(cipher.cbc_decrypt(ct, iv), km.lenmask);
+  cipher.cbc_decrypt(d.data() + HDR_LEN, body, iv);
+  // Slide the plaintext down over the header; wipe the stale tail and the tag, then unpad.
+  memmove(d.data(), d.data() + HDR_LEN, body);
+  wipe(d.data() + body, d.size() - body);
+  d.resize(body);
+  unpad256(d, km.lenmask);
 }

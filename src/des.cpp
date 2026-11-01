@@ -153,6 +153,10 @@ void Des::layer(uint8_t *b, bool encrypt) const
     p[0] = hi >> 24; p[1] = hi >> 16; p[2] = hi >> 8; p[3] = hi;
     p[4] = lo >> 24; p[5] = lo >> 16; p[6] = lo >> 8; p[7] = lo;
   }
+  // Intermediate state: whitened plaintext on the way in, round states on the way through.
+  wipe(t, sizeof t);
+  wipe(lr, sizeof lr);
+  wipe(out, sizeof out);
 }
 
 void Des::block(uint8_t *block, bool encrypt) const
@@ -161,4 +165,5 @@ void Des::block(uint8_t *block, bool encrypt) const
   memcpy(b, block, 8);
   layer(b, encrypt);
   memcpy(block, b, 8);
+  wipe(b, sizeof b);
 }

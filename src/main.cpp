@@ -119,13 +119,14 @@ int main(int argc, char *argv[])
   try {
     Buf d = readfile(args.in);
     if (args.encrypt) {
-      d = seal(d, keys, DEFAULT_KDF);
+      seal(d, keys, DEFAULT_KDF);
       if (!args.binary) d = high2low(d);
     } else {
       if (!args.binary) d = low2high(d, args.in);
-      d = unseal(d, keys);
+      unseal(d, keys);
     }
     writefile(args.out, d);
+    wipe(d.data(), d.size());
   } catch (const std::bad_alloc &) {
     errorexit(7);
   }

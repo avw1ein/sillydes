@@ -87,8 +87,8 @@ classDiagram
         +encrypt_block(b) void
         +decrypt_block(b) void
         +tweak(index, out) void
-        +cbc_encrypt(in, iv) Buf
-        +cbc_decrypt(in, iv) Buf
+        +cbc_encrypt(p, n, iv) void
+        +cbc_decrypt(p, n, iv) void
     }
     class Des {
         -uint32 ks_[16][48]
@@ -150,7 +150,7 @@ Free functions by unit:
 
 | Unit | Functions |
 |---|---|
-| common | `readfile`, `writefile`, `randbytes`, `wipe`, `lockdown`, `errorexit`; global `errarg` names the file or argument the next error message refers to |
+| common | `readfile`, `writefile`, `reserve_wiped`, `randbytes`, `wipe`, `lockdown`, `errorexit`; global `errarg` names the file or argument the next error message refers to |
 | keys | `readkeyfile`, `getphrase(confirm)`, `kdf_ok`, `derive_keys` |
 | container | `seal`, `unseal` |
 | odette_cipher | `pad256`, `unpad256` |
@@ -208,7 +208,7 @@ sequenceDiagram
     participant O as OdetteCipher
     participant H as Hmac512
 
-    M->>C: seal(plain, keys, DEFAULT_KDF)
+    M->>C: seal(data, keys, DEFAULT_KDF)
     C->>R: randbytes(salt, 16)
     C->>R: randbytes(iv, 256)
     Note over C: exit 14 if salt or IV is all zero
@@ -216,15 +216,16 @@ sequenceDiagram
     K-->>C: KeyMaterial (key, mackey, lenmask)
     C->>O: construct(key, salt)
     Note over O: 8 key schedules and 9 whitening blocks (36 HMACs)
-    C->>O: pad256(plain, lenmask) then cbc_encrypt(padded, iv)
+    C->>C: reserve room for header, padding and tag (old storage wiped)
+    C->>O: pad256(data, lenmask) then cbc_encrypt(data, iv), both in place
     loop each 256-byte block i
         O->>O: tweak(i), XOR chain and tweak, encrypt_block, XOR tweak
     end
-    O-->>C: ciphertext
-    C->>C: header = magic, kdf params, salt, iv, ciphertext
-    C->>H: mac(header) with mackey
+    C->>C: insert header (magic, kdf params, salt, iv) in front
+    C->>H: mac(header and ciphertext) with mackey
     H-->>C: 64-byte tag
-    C-->>M: header and tag
+    C->>C: append tag
+    C-->>M: data is now the container
 ```
 
 ### 4.3 Decryption sequence
@@ -239,7 +240,7 @@ sequenceDiagram
     participant H as Hmac512
     participant O as OdetteCipher
 
-    M->>U: unseal(blob, keys)
+    M->>U: unseal(data, keys)
     U->>U: check size, multiple of 256, magic
     U->>U: kdf_ok(params from header)
     alt any check fails
@@ -247,17 +248,17 @@ sequenceDiagram
     end
     U->>K: derive_keys(keys, salt, kdf)
     K-->>U: KeyMaterial
-    U->>H: mac(blob without tag)
+    U->>H: mac(data without tag)
     H-->>U: expected tag
     U->>U: constant-time compare with stored tag
     alt tag differs
         U-->>M: exit 13
     end
     U->>O: construct(key, salt)
-    U->>O: cbc_decrypt(ciphertext, iv)
-    O-->>U: padded plaintext
-    U->>U: unpad256(plain, lenmask)
-    U-->>M: plaintext
+    U->>O: cbc_decrypt(ciphertext part of data, iv), in place
+    U->>U: slide plaintext over the header, wipe stale tail and tag
+    U->>U: unpad256(data, lenmask), wiping the padding
+    U-->>M: data is now the plaintext
 ```
 
 ## 5. The cipher in detail
@@ -303,7 +304,7 @@ For block *i*: `work = plain[i] XOR previous_ciphertext XOR tweak(i)`, then `enc
 
 ### 5.4 Padding
 
-`pad256` appends random bytes so the length becomes a multiple of 256, with at least one byte of padding. The last byte stores the number of real bytes in the final block (0 to 255) XORed with `lenmask`. `unpad256` is only called after authentication has succeeded.
+`pad256` appends random bytes so the length becomes a multiple of 256, with at least one byte of padding. The last byte stores the number of real bytes in the final block (0 to 255) XORed with `lenmask`. `unpad256` is only called after authentication has succeeded; it wipes the bytes it removes. Both work in place on the caller's buffer.
 
 ## 6. File formats
 
@@ -386,7 +387,7 @@ flowchart LR
 - **Order of operations is security-relevant.** Encrypt-then-MAC, with the MAC verified before any decryption or unpadding. Header fields are untrusted until the tag is verified, so they are bounded by `kdf_ok`.
 - **File format.** The on-disk format is defined by `HDR_LEN`, `MAGIC` and the label strings `"Odette 5.03 white"`, `"... tweak"` and `"... mac"`; changing any of them breaks existing files.
 - **Randomisation is mandatory.** Salt and IV are drawn in `seal` only. Do not add a deterministic mode or a caller-supplied salt or IV; see section 4.2 and [ANALYSIS.md](ANALYSIS.md), section 10.
-- **Memory model.** Whole files are held in memory, and sealing keeps several copies (padded input, ciphertext, output). scrypt allocates 128 MiB in phrase mode.
+- **Memory model.** Whole files are held in memory, in one buffer: `readfile` reads a regular file straight into a buffer of its size with unbuffered `read`, `seal` and `unseal` transform that buffer in place, and `writefile` writes it with unbuffered `write`. No second copy of the plaintext is made, in the heap or in stdio. When a buffer must grow (`reserve_wiped`), the old storage is wiped before it is freed. scrypt allocates 128 MiB in phrase mode.
 - **No global state** other than `errarg`; the DES tables are compile-time constants indexed only by loop counters.
 - **Constant time.** `Des` must stay free of key- or data-dependent memory addresses and branches. Edit the S-boxes only through [tools/gen_des_sbox.cpp](tools/gen_des_sbox.cpp) and `make gen`.
-- **Secrets are wiped.** `KeyInput`, `KeyMaterial`, `Des`, `OdetteCipher`, `Sha256` and `Sha512` zeroise their key material, schedules, whitening and HMAC pad states in their destructors with `explicit_bzero`; the key-file parser, the phrase confirmation copy and the scrypt and PBKDF2 intermediates (including the 128 MiB table) are wiped before they go out of scope. Plaintext and ciphertext buffers are not wiped: they are the user's own data and live in ordinary `Buf` objects. Keep new code holding key material inside one of these types, or wipe it explicitly.
+- **Secrets are wiped.** `KeyInput`, `KeyMaterial`, `Des`, `OdetteCipher`, `Sha256` and `Sha512` zeroise their key material, schedules, whitening and HMAC pad states in their destructors with `explicit_bzero`; the key-file parser, the phrase confirmation copy and the scrypt and PBKDF2 intermediates (including the 128 MiB table) are wiped before they go out of scope. The per-block tweak, the bitsliced state inside `Des::layer` and the padding removed by `unpad256` are wiped as well, and `main` wipes the data buffer after writing it. The one buffer that holds the user's data is therefore the only place where plaintext exists, and only for as long as it is needed. Keep new code holding key material or plaintext inside one of these types, or wipe it explicitly.

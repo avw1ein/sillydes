@@ -277,6 +277,9 @@ int main()
   randbytes(iv, IV_LEN);
   randbytes(salt, SALT_LEN);
   OdetteCipher cipher(key, salt);
+  // Copying wrappers around the in-place primitives.
+  auto enc = [](const OdetteCipher &c, Buf x, const uint8_t *v) { c.cbc_encrypt(x.data(), x.size(), v); return x; };
+  auto dec = [](const OdetteCipher &c, Buf x, const uint8_t *v) { c.cbc_decrypt(x.data(), x.size(), v); return x; };
 
   Buf a(256), b(256);
   randbytes(a.data(), 256);
@@ -284,14 +287,19 @@ int main()
   Buf blocks = a;
   blocks.insert(blocks.end(), b.begin(), b.end());
   blocks.insert(blocks.end(), a.begin(), a.end());
-  Buf ct = cipher.cbc_encrypt(blocks, iv);
-  if (cipher.cbc_decrypt(ct, iv) != blocks) { puts("FAIL: cbc round trip"); fails++; }
+  Buf ct = enc(cipher, blocks, iv);
+  if (dec(cipher, ct, iv) != blocks) { puts("FAIL: cbc round trip"); fails++; }
 
   const uint8_t lenmask = 0x5a;
   for (size_t n : { 0, 1, 255, 256, 257, 700 }) {
-    Buf p(n);
+    Buf p(n), q;
     randbytes(p.data(), n);
-    if (unpad256(cipher.cbc_decrypt(cipher.cbc_encrypt(pad256(p, lenmask), iv), iv), lenmask) != p) { printf("FAIL: pad round trip %zu\n", n); fails++; }
+    q = p;
+    pad256(q, lenmask);
+    if (q.size() != (n / 256 + 1) * 256) { printf("FAIL: pad size %zu\n", n); fails++; }
+    q = dec(cipher, enc(cipher, q, iv), iv);
+    unpad256(q, lenmask);
+    if (q != p) { printf("FAIL: pad round trip %zu\n", n); fails++; }
   }
 
   // Equal plaintext blocks must give unrelated ciphertext blocks.
@@ -301,13 +309,13 @@ int main()
 
   // Every key bit, parity bits included, must change the ciphertext (whitening uses all of them).
   Buf first(blocks.begin(), blocks.begin() + 256);
-  Buf base = cipher.cbc_encrypt(first, iv);
+  Buf base = enc(cipher, first, iv);
   for (int k = 0; k < NL; k++)
     for (int bit = 0; bit < 64; bit += 9) {
       uint8_t alt[NL][8];
       memcpy(alt, key, sizeof alt);
       alt[k][bit / 8] ^= (uint8_t)(0x80 >> (bit % 8));
-      Buf c2 = OdetteCipher(alt, salt).cbc_encrypt(first, iv);
+      Buf c2 = enc(OdetteCipher(alt, salt), first, iv);
       if (diffbytes(base.data(), c2.data()) < 200) { printf("FAIL: key %d bit %d has no effect\n", k, bit); fails++; }
     }
 
@@ -315,14 +323,14 @@ int main()
   uint8_t salt2[SALT_LEN];
   memcpy(salt2, salt, SALT_LEN);
   salt2[SALT_LEN - 1] ^= 1;
-  if (diffbytes(base.data(), OdetteCipher(key, salt2).cbc_encrypt(first, iv).data()) < 200) { puts("FAIL: salt has no effect"); fails++; }
+  if (diffbytes(base.data(), enc(OdetteCipher(key, salt2), first, iv).data()) < 200) { puts("FAIL: salt has no effect"); fails++; }
 
   // The tweak must differ per block index: equal inputs to G at different positions give unrelated outputs.
   {
     uint8_t zero[IV_LEN] = {0};
     Buf two(512, 0);
-    Buf c = cipher.cbc_encrypt(two, zero);                       // block 0: u = 0; block 1: u = c_0
-    Buf c1 = cipher.cbc_encrypt(Buf(c.begin(), c.begin() + 256), zero);  // block 0 with u = c_0
+    Buf c = enc(cipher, two, zero);                                  // block 0: u = 0; block 1: u = c_0
+    Buf c1 = enc(cipher, Buf(c.begin(), c.begin() + 256), zero);    // block 0 with u = c_0
     if (diffbytes(&c[256], c1.data()) < 200) { puts("FAIL: tweak does not depend on block index"); fails++; }
     uint8_t t0[256], t1[256];
     cipher.tweak(0, t0); cipher.tweak(1, t1);
@@ -356,13 +364,21 @@ int main()
     memcpy(ki.key, key, sizeof ki.key);
     Buf msg(300);
     randbytes(msg.data(), msg.size());
-    Buf f1 = seal(msg, ki, DEFAULT_KDF), f2 = seal(msg, ki, DEFAULT_KDF);
+    Buf f1 = msg, f2 = msg;
+    seal(f1, ki, DEFAULT_KDF);
+    seal(f2, ki, DEFAULT_KDF);
     size_t want = HDR_LEN + 256 * (msg.size() / 256 + 1) + TAG_LEN;
     if (f1.size() != want || memcmp(f1.data(), MAGIC, 4) != 0 || f1[7] != 0) { puts("FAIL: container format"); fails++; }
     if (!memcmp(&f1[8], &f2[8], SALT_LEN)) { puts("FAIL: salt repeated"); fails++; }
     if (diffbytes(&f1[8 + SALT_LEN], &f2[8 + SALT_LEN]) < 200) { puts("FAIL: IV repeated"); fails++; }
     if (diffbytes(&f1[HDR_LEN], &f2[HDR_LEN]) < 200) { puts("FAIL: first blocks related across encryptions"); fails++; }
-    if (unseal(f1, ki) != msg || unseal(f2, ki) != msg) { puts("FAIL: seal/unseal round trip"); fails++; }
+    // In-place sealing must leave no plaintext in the buffer: search the whole container for a
+    // 16-byte window of the message (a random message cannot occur in ciphertext by chance).
+    for (size_t i = 0; i + 16 <= f1.size(); i++)
+      if (!memcmp(&f1[i], msg.data(), 16) || !memcmp(&f1[i], msg.data() + msg.size() - 16, 16)) { puts("FAIL: plaintext left in sealed buffer"); fails++; break; }
+    unseal(f1, ki);
+    unseal(f2, ki);
+    if (f1 != msg || f2 != msg) { puts("FAIL: seal/unseal round trip"); fails++; }
   }
 
   if (fails) return 1;

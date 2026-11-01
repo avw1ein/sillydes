@@ -6,8 +6,8 @@
 #include "common.h"
 #include "keys.h"
 
-// Pads, encrypts and authenticates `plain` into a complete container.
-Buf seal(const Buf &plain, const KeyInput &keys, const KdfParams &kdf);
+// Pads, encrypts and authenticates `data` in place into a complete container.
+void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf);
 
-// Verifies and decrypts a container; exits with error 13 on any mismatch.
-Buf unseal(const Buf &blob, const KeyInput &keys);
+// Verifies and decrypts a container in place; exits with error 13 on any mismatch.
+void unseal(Buf &data, const KeyInput &keys);
