@@ -8,6 +8,7 @@
 #include "common.h"
 #include "container.h"
 #include "des.h"
+#include "des_sbox_ct.h"
 #include "kdf.h"
 #include "odette_cipher.h"
 #include "sha256.h"
@@ -27,6 +28,65 @@ static void unhex(const char *s, uint8_t *out, size_t n)
 }
 
 static int fails;
+
+// FIPS 46 S-boxes, the reference for the generated circuits in des_sbox_ct.h.
+static const uint8_t fips_sbox[8][64] = {
+  { 14,  4, 13,  1,  2, 15, 11,  8,  3, 10,  6, 12,  5,  9,  0,  7,
+     0, 15,  7,  4, 14,  2, 13,  1, 10,  6, 12, 11,  9,  5,  3,  8,
+     4,  1, 14,  8, 13,  6,  2, 11, 15, 12,  9,  7,  3, 10,  5,  0,
+    15, 12,  8,  2,  4,  9,  1,  7,  5, 11,  3, 14, 10,  0,  6, 13 },
+  { 15,  1,  8, 14,  6, 11,  3,  4,  9,  7,  2, 13, 12,  0,  5, 10,
+     3, 13,  4,  7, 15,  2,  8, 14, 12,  0,  1, 10,  6,  9, 11,  5,
+     0, 14,  7, 11, 10,  4, 13,  1,  5,  8, 12,  6,  9,  3,  2, 15,
+    13,  8, 10,  1,  3, 15,  4,  2, 11,  6,  7, 12,  0,  5, 14,  9 },
+  { 10,  0,  9, 14,  6,  3, 15,  5,  1, 13, 12,  7, 11,  4,  2,  8,
+    13,  7,  0,  9,  3,  4,  6, 10,  2,  8,  5, 14, 12, 11, 15,  1,
+    13,  6,  4,  9,  8, 15,  3,  0, 11,  1,  2, 12,  5, 10, 14,  7,
+     1, 10, 13,  0,  6,  9,  8,  7,  4, 15, 14,  3, 11,  5,  2, 12 },
+  {  7, 13, 14,  3,  0,  6,  9, 10,  1,  2,  8,  5, 11, 12,  4, 15,
+    13,  8, 11,  5,  6, 15,  0,  3,  4,  7,  2, 12,  1, 10, 14,  9,
+    10,  6,  9,  0, 12, 11,  7, 13, 15,  1,  3, 14,  5,  2,  8,  4,
+     3, 15,  0,  6, 10,  1, 13,  8,  9,  4,  5, 11, 12,  7,  2, 14 },
+  {  2, 12,  4,  1,  7, 10, 11,  6,  8,  5,  3, 15, 13,  0, 14,  9,
+    14, 11,  2, 12,  4,  7, 13,  1,  5,  0, 15, 10,  3,  9,  8,  6,
+     4,  2,  1, 11, 10, 13,  7,  8, 15,  9, 12,  5,  6,  3,  0, 14,
+    11,  8, 12,  7,  1, 14,  2, 13,  6, 15,  0,  9, 10,  4,  5,  3 },
+  { 12,  1, 10, 15,  9,  2,  6,  8,  0, 13,  3,  4, 14,  7,  5, 11,
+    10, 15,  4,  2,  7, 12,  9,  5,  6,  1, 13, 14,  0, 11,  3,  8,
+     9, 14, 15,  5,  2,  8, 12,  3,  7,  0,  4, 10,  1, 13, 11,  6,
+     4,  3,  2, 12,  9,  5, 15, 10, 11, 14,  1,  7,  6,  0,  8, 13 },
+  {  4, 11,  2, 14, 15,  0,  8, 13,  3, 12,  9,  7,  5, 10,  6,  1,
+    13,  0, 11,  7,  4,  9,  1, 10, 14,  3,  5, 12,  2, 15,  8,  6,
+     1,  4, 11, 13, 12,  3,  7, 14, 10, 15,  6,  8,  0,  5,  9,  2,
+     6, 11, 13,  8,  1,  4, 10,  7,  9,  5,  0, 15, 14,  2,  3, 12 },
+  { 13,  2,  8,  4,  6, 15, 11,  1, 10,  9,  3, 14,  5,  0, 12,  7,
+     1, 15, 13,  8, 10,  3,  7,  4, 12,  5,  6, 11,  0, 14,  9,  2,
+     7, 11,  4,  1,  9, 12, 14,  2,  0,  6, 10, 13, 15,  3,  5,  8,
+     2,  1, 14,  7,  4, 10,  8, 13, 15, 12,  9,  0,  3,  5,  6, 11 }
+};
+
+// Evaluates generated S-box s+1 on the 6-bit input x (b1 is the top bit) in lane 0.
+static int circuit_sbox(int s, int x)
+{
+  uint32_t b[6], o[4];
+  for (int j = 0; j < 6; j++) b[j] = 0u - ((x >> (5 - j)) & 1u);
+  switch (s) {
+    case 0: des_sbox1(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 1: des_sbox2(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 2: des_sbox3(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 3: des_sbox4(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 4: des_sbox5(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 5: des_sbox6(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    case 6: des_sbox7(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+    default: des_sbox8(b[0], b[1], b[2], b[3], b[4], b[5], o[0], o[1], o[2], o[3]); break;
+  }
+  int v = 0;
+  for (int k = 0; k < 4; k++) {
+    if (o[k] != 0 && o[k] != 0xffffffffu) return -1;  // every lane must agree
+    v |= (o[k] & 1) << (3 - k);
+  }
+  return v;
+}
 
 static int diffbytes(const uint8_t *a, const uint8_t *b)
 {
@@ -146,6 +206,13 @@ int main()
 
   // Single DES against published vectors (FIPS 46 / SP 800-17), both directions.
   {
+    // First the generated S-box circuits, exhaustively, against the FIPS 46 tables.
+    for (int s = 0; s < 8; s++)
+      for (int x = 0; x < 64; x++) {
+        int row = ((x >> 4) & 2) | (x & 1), col = (x >> 1) & 15;
+        int want = fips_sbox[s][16 * row + col], got = circuit_sbox(s, x);
+        if (got != want) { printf("FAIL: S%d(%02o) = %d, want %d\n", s + 1, x, got, want); fails++; }
+      }
     struct { const char *k, *p, *c; } v[] = {
       { "0000000000000000", "0000000000000000", "8ca64de9c1b123a7" },
       { "133457799bbcdff1", "0123456789abcdef", "85e813540f0ab405" },
@@ -299,7 +366,7 @@ int main()
   }
 
   if (fails) return 1;
-  puts("ok: SHA-256/512, HMAC, PBKDF2, scrypt and DES known answers; bitsliced lanes independent; core block known answer; "
+  puts("ok: SHA-256/512, HMAC, PBKDF2, scrypt and DES known answers; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "
        "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container");
   return 0;

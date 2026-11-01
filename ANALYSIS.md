@@ -271,7 +271,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 | Split-cost model, 8 layers with whitening | minimum over cuts $2^{2264}$ |
 | Split-cost model, hypothetical 6 layers without whitening | minimum $2^{168}$ at the 3\|3 cut, matching $2^{56\lceil r/2\rceil}$ |
 | SHA-256, SHA-512, HMAC-SHA-256, HMAC-SHA-512 (RFC 4231 cases 2 and 6), PBKDF2, scrypt known-answer vectors (RFC 7914 vectors 1 to 3) | pass ([test/test_primitives.cpp](test/test_primitives.cpp)) |
-| DES against four published vectors, both directions; the bitsliced layer equals 32 single-word calls, inverts itself, and a change in one word stays in that word | pass |
+| Generated S-box circuits against the FIPS 46 tables, all 8 x 64 inputs; DES against four published vectors, both directions; the bitsliced layer equals 32 single-word calls, inverts itself, and a change in one word stays in that word | pass |
 | One core block with a fixed key and salt against a stored answer, and back | pass |
 | Wrong phrase, oversized KDF parameters in the header | error 13 |
 | Cipher and CBC round trips, padding for 0, 1, 255, 256, 257, 700 bytes | pass |

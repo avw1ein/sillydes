@@ -378,7 +378,7 @@ flowchart LR
     shtest --> make
 ```
 
-- `test_primitives` checks SHA-256, SHA-512, HMAC (RFC 4231), PBKDF2, scrypt (RFC 7914) and DES against published vectors, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, and two `seal` calls on the same input share neither salt, IV nor ciphertext.
+- `test_primitives` checks SHA-256, SHA-512, HMAC (RFC 4231), PBKDF2, scrypt (RFC 7914) and DES against published vectors, checks every generated S-box circuit on all 64 inputs against the FIPS 46 tables, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, and two `seal` calls on the same input share neither salt, IV nor ciphertext.
 - `test.sh` runs the real binary: round trips in all four modes for several sizes, phrase mode, wrong-key and corrupted-input failures, truncation and block-edit detection, rejection of files of another version, fresh salt per encryption, and container size.
 
 ## 10. Design notes for maintainers
