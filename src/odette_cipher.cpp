@@ -27,8 +27,8 @@ void swap_groups(uint8_t *blk, size_t bs)
   for (size_t off = 0; off < 256; off += bs) swap_nibbles(blk + off, bs);
 }
 
-const char WHITE_LABEL[] = "Odette 5.03 white";
-const char TWEAK_LABEL[] = "Odette 5.03 tweak";
+const char WHITE_LABEL[] = "Odette 5.1.0 white";
+const char TWEAK_LABEL[] = "Odette 5.1.0 tweak";
 
 }  // namespace
 

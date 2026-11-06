@@ -5,7 +5,7 @@
 
 #include "common.h"
 
-// Where the keys come from: eight 64-bit keys from a key file, or a phrase run through scrypt.
+// Where the keys come from: eight 64-bit keys from a key file, or a phrase run through Argon2id.
 struct KeyInput {
   bool usephrase = false;
   std::string phrase;
@@ -26,7 +26,7 @@ struct KeyMaterial {
 void readkeyfile(const std::string &name, uint8_t key[NL][8]);
 
 // Reads a phrase (no echo on a terminal); asks twice on a terminal when confirm is set.
-// Result is padded with spaces to 192 bytes.
+// Trailing spaces are removed; at least 20 other characters are required.
 std::string getphrase(bool confirm);
 
 bool kdf_ok(const KdfParams &k);

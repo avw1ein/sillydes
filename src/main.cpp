@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// Odette 5.03 - Linux command line port of the DOS program by Andy van Wezel (1993 - 1994),
+// Odette 5.1.0 - Linux command line port of the DOS program by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
 // Build: make
@@ -30,7 +30,7 @@ struct Args {
 
 void usage()
 {
-  puts("Odette 5.03 Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
+  puts("Odette 5.1.0 Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
   puts("Usage: odette act=e|d|em|dm in=infile out=outfile phrase|key=keyfile");
   puts(" e            Encryption.");
   puts(" d            Decryption.");
@@ -39,7 +39,7 @@ void usage()
   puts(" infile       Data to be en/decrypted.");
   puts(" outfile      Result of en/decryption.");
   puts(" keyfile      Contains the eight keys.");
-  puts(" phrase       Prompt for a phrase (min. 48 characters). Don't use a keyfile.\n");
+  puts(" phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n");
   puts("*Odette performs a DES8 encryption with 2048-bit whitening on textfiles or");
   puts(" executables. The block size grows to 2048 bits. Eight 64-bit keys feed");
   puts(" every layer. Output is authenticated (HMAC-SHA-512).");

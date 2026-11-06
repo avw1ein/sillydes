@@ -1,4 +1,4 @@
-# Odette 5.03
+# Odette 5.1.0
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).
@@ -39,7 +39,7 @@ Features:
 - A 2048-bit tweak per block, so every block is encrypted by its own instance of the cipher.
 - HMAC-SHA-512 authentication (512-bit key and tag), checked before decryption.
 - CRC-32 check on e-mail output.
-- Key phrase (scrypt, salted) or key file.
+- Key phrase (Argon2id, 2 GiB of memory, salted) or key file.
 - Constant-time DES: no key- or data-dependent memory access or branch during encryption.
 - Easy to use.
 - Slow! Which is good!
@@ -90,7 +90,7 @@ To get help:
 ./odette
 ```
 
-Files made by Odette 5.03 cannot be read by older versions, and the other way around.
+Files made by Odette 5.1.0 cannot be read by older versions, and the other way around.
 
 ---
 
@@ -102,7 +102,7 @@ The eight keys feed eight DES layers and a 2048-bit whitening that is derived fr
 
 Don't think single DES is bad just because it can be cracked. In the end every code can be cracked; it's just a matter of resources. DES has been studied for almost 50 years. Its security properties, including the shortcomings, are well known. This is the reason why DES can be used as a building block for something stronger. Instead of beginning from scratch, Odette can rely on all that is known about DES.
 
-Is Odette an invention? It's more a matter of creativity. It mostly uses well-known techniques to reach its goal. You should see it as an interface to DES. The creativity is in the block expansion technique that makes multiple DES iterations worthwhile. The result is a block cipher that is wider and slower than DES. Both work in the defender's favour, at the price of speed.
+Is Odette an invention? It's more a matter of creativity. It mostly uses well-known techniques to reach its goal. You should see it as an interface to DES. The creativity is in the block expansion technique that makes multiple DES iterations worthwhile. The result is a block cipher that is wider and slower than DES. Both work in the defender's favour.
 
 ---
 
@@ -112,7 +112,9 @@ Encryption is done in independent steps. Besides the DES steps there are block e
 
 Total encryption is performed on 2048-bit blocks. Standard DES uses 64-bit blocks and has a key space of 2^56. Odette uses eight 64-bit keys, 2^512 values in all (see section 2).
 
-The strength of a code is not only measured by its key space. But in the case of DES we know for sure that it's a strong code that only needs expansion.
+Two more ingredients tie the DES steps together. Before each DES step, and once more after the last one, the whole 2048-bit block is XORed with a *whitening* value. The nine whitening values are fixed for one file: they are computed with HMAC-SHA-512 from all eight keys and the file's random salt. This means every bit of every key influences every step, including the eight parity bits per key that DES itself ignores, and two files encrypted with the same keys still use different whitening.
+
+On top of that, every 2048-bit block gets its own *tweak*, again an HMAC-SHA-512 of the keys, the salt and the block number. The tweak is XORed into the block before the sixteen steps and into the result afterwards. So no two blocks, within one file or across files, are ever encrypted by the same permutation, which is what rules out the usual block-matching attacks on a large file. The blocks are also chained (CBC) and the whole output is protected by an HMAC-SHA-512 tag, so a changed file is rejected rather than decrypted to garbage.
 
 On completion of encryption, the result can be translated into Low-ASCII (e-mail style) using the following characters:
 
@@ -165,7 +167,7 @@ Step 16: Whitening 8, DES encryption with key8, then a final
 
 Each whitening is 2048 bits and is made from all eight keys and the salt with HMAC-SHA-512, so every bit of every key matters, including the bits that DES itself ignores, and two files made with the same key file share no whitening. The tweak of step 0 is made the same way from the keys, the salt and the block number. [VISUALIZATION.md](VISUALIZATION.md) draws these sixteen steps byte by byte.
 
-The output consists of: a 4-byte header (O, D, 5, 2), the phrase hashing parameters (4 bytes), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
+The output consists of: a 4-byte header (O, D, 5, 16: major version, then minor times 16 plus patch), the phrase hashing parameters (4 bytes), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
 
 The salt and the IV come from the system random generator on every encryption; there is no option to choose or repeat them, and the program stops with error 14 if the generator fails. Encrypting the same file twice therefore gives two unrelated outputs. This is deliberate: it is what guarantees that no two blocks, in one file or across files, are ever encrypted by the same cipher instance.
 
@@ -195,11 +197,23 @@ Examine the file `sample.key` to see how to construct a key file. It's an ASCII 
 
 **NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only. Make your own key file with random keys.
 
-The second sort is made by putting the `phrase` option on the command line. The program will prompt you for a phrase. You must pick a phrase you can always remember, but it shouldn't be an obvious one. The phrase must consist of 48 characters or more. The keys are derived with scrypt, a slow function that needs 128 MiB of memory, and a random salt, so the same phrase gives different keys for every file. Making a guess costs an attacker that memory as well.
+The second sort is made by putting the `phrase` option on the command line. The program will prompt you for a phrase of at least 20 characters; there is no upper limit, and trailing spaces are ignored. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file. Making a guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
+
+**A phrase is the weak point of the system, because people choose it.** A phrase you can remember is a phrase that follows the patterns of a language, and those patterns are exactly what a guessing program tries first. Typing errors, reuse of a phrase from elsewhere, and writing it down where it can be found are the other usual ways in which a phrase fails, and none of them can be fixed by the cipher. The 20-character minimum therefore assumes random characters, not words: a 20-character English sentence carries only 20 to 30 bits of entropy, which is far below the strength of the cipher, and even a long sentence reaches no more than 1 to 1.5 bits per character. The recommendation is to let a password manager generate a random string and store it, and to use that string as the phrase. Only if you must rely on memory, use a long sentence that does not exist anywhere else.
+
+How long a random phrase needs to be depends on the characters it draws from. The table gives the length that reaches a given security level against an attacker who tries phrases; the cipher itself cannot offer more than 512 bits, and a key file of eight random keys reaches that directly.
+
+| Target | Printable ASCII (95 characters) | Letters and digits (62) | Hexadecimal (16) | Diceware words (7776) |
+|---|---|---|---|---|
+| 128 bits | 20 | 22 | 32 | 10 |
+| 256 bits | 39 | 43 | 64 | 20 |
+| 512 bits | 78 | 86 | 128 | 40 |
+
+Against a quantum computer the effective strength of a phrase halves (Grover's algorithm), so for 128 bits of post-quantum security take the 256-bit row, and for the full 256-bit post-quantum level of the cipher take the 512-bit row. See [ANALYSIS.md](ANALYSIS.md), section 8.
 
 > We all thank Andy van Wezel very much, for allowing us to use his wonderful software. We even like to send him money.
 
-Because it's in this document, you should never use the above phrase. You can, however, use a phrase from a book or a film. Please note the entropy remark concerning a phrase in section 2.
+Because it's in this document, you should never use the above phrase. Please note the entropy remark concerning a phrase in section 2.
 
 At decryption, type the phrase exactly the way you did at encryption. You can use every character your computer accepts.
 
@@ -207,7 +221,7 @@ At decryption, type the phrase exactly the way you did at encryption. You can us
 
 ## 8. Intramural security
 
-This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the scrypt phrase derivation does read memory at data-dependent addresses, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
+This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the Argon2id phrase derivation reads memory at data-dependent addresses after its first half pass, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
 
 ---
 
@@ -219,6 +233,7 @@ Here's an incomplete list of what you shouldn't do:
 - Don't use the same key over and over again.
 - Don't write your keys on your keyboard.
 - Don't share your keys with others, unless they need them.
+- Don't make up a phrase yourself if you can let a password manager do it.
 
 ---
 
@@ -235,7 +250,7 @@ The program can generate fourteen error levels. You can use these in a shell scr
 | 4 | Wrong option. |
 | 5 | Faulty key file. |
 | 6 | Input file and output file must differ. |
-| 7 | Not enough memory. |
+| 7 | Not enough memory; phrase mode needs 2 GiB free. |
 | 8 | Can't find beginning of code. |
 | 9 | Duplicate argument on command line. |
 | 10 | Argument missing on command line. |

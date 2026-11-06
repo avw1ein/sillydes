@@ -37,7 +37,7 @@ void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
 
   uint8_t hdr[HDR_LEN] = {};
   memcpy(hdr, MAGIC, 4);
-  hdr[4] = (uint8_t)kdf.logn; hdr[5] = (uint8_t)kdf.r; hdr[6] = (uint8_t)kdf.p;
+  hdr[4] = (uint8_t)kdf.logm; hdr[5] = (uint8_t)kdf.t; hdr[6] = (uint8_t)kdf.p;
   memcpy(hdr + 8, salt, SALT_LEN);
   memcpy(hdr + 8 + SALT_LEN, iv, IV_LEN);
   data.insert(data.begin(), hdr, hdr + HDR_LEN);

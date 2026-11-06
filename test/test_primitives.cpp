@@ -5,13 +5,14 @@
 #include <cstdio>
 #include <cstring>
 
+#include "blake2b.h"
 #include "common.h"
 #include "container.h"
 #include "des.h"
 #include "des_sbox_ct.h"
 #include "kdf.h"
+#include "keys.h"
 #include "odette_cipher.h"
-#include "sha256.h"
 #include "sha512.h"
 
 static std::string hex(const uint8_t *p, size_t n)
@@ -132,13 +133,13 @@ static void check(const char *name, const std::string &got, const char *want)
   if (got != want) { printf("FAIL: %s\n  got  %s\n  want %s\n", name, got.c_str(), want); fails++; }
 }
 
-static std::string sha(const std::string &m)
+static std::string blake2b(const std::string &m, size_t n)
 {
-  Sha256 s;
-  uint8_t o[32];
-  s.update((const uint8_t *)m.data(), m.size());
-  s.final(o);
-  return hex(o, 32);
+  Blake2b b(n);
+  uint8_t o[64];
+  b.update((const uint8_t *)m.data(), m.size());
+  b.final(o);
+  return hex(o, n);
 }
 
 static std::string sha512(const std::string &m)
@@ -150,23 +151,32 @@ static std::string sha512(const std::string &m)
   return hex(o, 64);
 }
 
-static std::string kdf(const char *pw, const char *salt, uint32_t it, size_t n)
+static std::string a2(const char *pw, const char *salt, uint32_t m, uint32_t t, uint32_t p)
 {
-  Buf b = pbkdf2(pw, (const uint8_t *)salt, strlen(salt), it, n);
+  Buf b = argon2id(pw, (const uint8_t *)salt, strlen(salt), m, t, p, 32);
   return hex(b.data(), b.size());
 }
 
 int main()
 {
-  check("sha256 empty", sha(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-  check("sha256 abc", sha("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-  check("sha256 two blocks", sha("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
-        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
-
-  uint8_t mac[32];
-  const std::string msg = "what do ya want for nothing?";
-  Hmac((const uint8_t *)"Jefe", 4).mac((const uint8_t *)msg.data(), msg.size(), mac);
-  check("hmac rfc4231 #2", hex(mac, 32), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
+  check("blake2b abc", blake2b("abc", 64),
+        "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923");
+  check("blake2b empty", blake2b("", 64),
+        "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce");
+  check("blake2b abc 20 bytes", blake2b("abc", 20), "384264f676f39536840523f284921cdc68b6846b");
+  {
+    std::string m;
+    for (int i = 0; i < 300; i++) m += (char)i;
+    check("blake2b three blocks", blake2b(m, 64),
+          "d9cf5983dc6b34c0fa1f0226926855ad3eccd2bcdcd8f8053b9a80664d33b5afcc32fd21c70ea14f4ef50ca97c3203c4d1803159f0e01bb6cb1d1c83db52b63c");
+    check("blake2b exactly one block", blake2b(m.substr(0, 128), 64),
+          "2319e3789c47e2daa5fe807f61bec2a1a6537fa03f19ff32e87eecbfd64b7e0e8ccff439ac333b040f19b0c4ddd11a61e24ac1fe0f10a039806c5dcc0da3d115");
+    uint8_t l[100];
+    blake2b_long(l, 100, (const uint8_t *)"abc", 3);
+    check("argon2 H' 100 bytes", hex(l, 100),
+          "4c9ba23bcafae5e571a5d41673bb8084a4a1de2688416ed390f669d33d364f3d4d9bfa7fe762680c6b2362711c4ce5b2c60ddcd14c1277ec1369c79f44c28966"
+          "98a2b0773a3ce2e410532fa7c72f0bb61ccca0c24c362f337555cbf2998f2d3601be70d1");
+  }
 
   check("sha512 empty", sha512(""),
         "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e");
@@ -176,6 +186,7 @@ int main()
         "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909");
 
   uint8_t mac512[64];
+  const std::string msg = "what do ya want for nothing?";
   Hmac512((const uint8_t *)"Jefe", 4).mac((const uint8_t *)msg.data(), msg.size(), mac512);
   check("hmac-sha512 rfc4231 #2", hex(mac512, 64),
         "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737");
@@ -184,25 +195,33 @@ int main()
   check("hmac-sha512 rfc4231 #6", hex(mac512, 64),
         "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f3526b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598");
 
-  check("pbkdf2 1", kdf("password", "salt", 1, 32),
-        "120fb6cffcf8b32c43e7225256c4f837a86548c92ccc35480805987cb70be17b");
-  check("pbkdf2 2", kdf("password", "salt", 2, 32),
-        "ae4d0c95af6b46d32d0adff928f06dd02a303f8ef3c251dfd6e2d85a95474c43");
-  check("pbkdf2 4096", kdf("password", "salt", 4096, 32),
-        "c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a");
-  check("pbkdf2 40 bytes", kdf("passwordPASSWORDpassword", "saltSALTsaltSALTsaltSALTsaltSALTsalt", 4096, 40),
-        "348c89dbcbd32b2f32d814b8116e84cf2b17347ebc1800181c4e2a1fb8dd53e1c635518c7dac47e9");
+  // Argon2id: the RFC 9106 vector (with secret and associated data) and the reference
+  // implementation's test vectors (phc-winner-argon2, src/test.c, version 0x13).
+  {
+    std::string pw(32, '\x01');
+    uint8_t salt[16], sec[8], ad[12];
+    memset(salt, 2, sizeof salt); memset(sec, 3, sizeof sec); memset(ad, 4, sizeof ad);
+    Buf o = argon2id(pw, salt, sizeof salt, 32, 3, 4, 32, sec, sizeof sec, ad, sizeof ad);
+    check("argon2id rfc9106", hex(o.data(), o.size()), "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659");
+  }
+  check("argon2id m=256 t=2 p=1", a2("password", "somesalt", 256, 2, 1), "9dfeb910e80bad0311fee20f9c0e2b12c17987b4cac90c2ef54d5b3021c68bfe");
+  check("argon2id m=256 t=2 p=2", a2("password", "somesalt", 256, 2, 2), "6d093c501fd5999645e0ea3bf620d7b8be7fd2db59c20d9fff9539da2bf57037");
+  check("argon2id m=64 MiB t=1 p=1", a2("password", "somesalt", 65536, 1, 1), "f6a5adc1ba723dddef9b5ac1d464e180fcd9dffc9d1cbf76cca2fed795d9ca98");
+  check("argon2id m=64 MiB t=2 p=1", a2("password", "somesalt", 65536, 2, 1), "09316115d5cf24ed5a15a31a3ba326e5cf32edc24702987c02b6566f61913cf7");
+  check("argon2id m=64 MiB t=4 p=1", a2("password", "somesalt", 65536, 4, 1), "9025d48e68ef7395cca9079da4c4ec3affb3c8911fe4f86d1a2520856f63172c");
+  check("argon2id other password", a2("differentpassword", "somesalt", 65536, 2, 1), "0b84d652cf6b0c4beaef0dfe278ba6a80df6696281d7e0d2891b817d8c458fde");
+  check("argon2id other salt", a2("password", "diffsalt", 65536, 2, 1), "bdf32b05ccc42eb15d58fd19b1f856b113da1e9a5874fdcc544308565aa8141c");
 
-  auto sc = [](const char *pw, const char *salt, uint32_t N, uint32_t r, uint32_t p) {
-    Buf b = scrypt(pw, (const uint8_t *)salt, strlen(salt), N, r, p, 64);
-    return hex(b.data(), b.size());
-  };
-  check("scrypt rfc7914 #1", sc("", "", 16, 1, 1),
-        "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906");
-  check("scrypt rfc7914 #2", sc("password", "NaCl", 1024, 8, 16),
-        "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640");
-  check("scrypt rfc7914 #3", sc("pleaseletmein", "SodiumChloride", 16384, 8, 1),
-        "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887");
+  // Header bounds: the default passes, and each limit is enforced on its own.
+  {
+    if (!kdf_ok(DEFAULT_KDF)) { puts("FAIL: default KDF parameters rejected"); fails++; }
+    KdfParams bad[] = { { 9, 1, 1 }, { 22, 1, 1 }, { 21, 0, 1 }, { 21, 5, 1 }, { 21, 1, 0 }, { 21, 1, 9 } };
+    for (auto &k : bad)
+      if (kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u accepted\n", k.logm, k.t, k.p); fails++; }
+    KdfParams good[] = { { 10, 1, 1 }, { 11, 4, 8 }, { 21, 4, 8 } };
+    for (auto &k : good)
+      if (!kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u rejected\n", k.logm, k.t, k.p); fails++; }
+  }
 
   // Single DES against published vectors (FIPS 46 / SP 800-17), both directions.
   {
@@ -262,10 +281,10 @@ int main()
     OdetteCipher c(k, s);
     c.encrypt_block(x);
     check("encrypt_block known answer", hex(x, 256),
-          "57c405149d25e79e1df74953b9e0d09304f3b9c199698bc201ef77ff1658e3a66455eaa8eaa73f0cef146eab6c6b522f3660e00728c38971ebaef87cb4199792"
-          "78c6c9e0c9ca3c75f9cdd97fb77653e5f4f797549f315456985f982fa6307a133c40767cd28bc745a22a996236972798e0cf67bd130e67672dfa42a6b1e827c0"
-          "382e1b4015d6ff8f436a781bb5acb7dc1527edf806bbc8f2668c99d7ce968eac8c91720cd2ed14dd8abb17017a70ac5d416e653b85d84211ea46998897527690"
-          "278d5bcaa808dc50cb9f08f86540e1fb11151e9c4426fb2e3cc1354f9ee7dc6fdf0f0eb87868d0856a1b11c941702c7bd46a1d57e5a2987c9429a8f405b01072");
+          "962ce535f3f30b8b3d93ac8a18af6546111d1eb5cf4bfa5e6fc87a67b6426847d7d215c6f2401440d57b6ad8a1972cbb5928727388f822a40141a3f200020620"
+          "fbea9b9cc2aa5280206265a2d2c76e0fe769de8379c77f7594a72a491b73ad2caff28ac4986a686816841d63ee88f5d8210e0ea7d56b51c2f594f8f226784d98"
+          "eef9cd29b52153c95f51d488815b0990b9f4f9d9e63b06e2ffadc0c28d7680a95b4fc9afd5660f71ac7367bd61ca751a541455ef4eda027933a89f3881a54eca"
+          "227051137609f52a6b89ca54c6738952655d70c4173915f1caf4e19c3abd76b9b9491b5b7e55954a20c52a93b80e3c648f1f68f19efba92055f98f307766c111");
     c.decrypt_block(x);
     bool id = true;
     for (int i = 0; i < 256; i++) id &= x[i] == (uint8_t)(255 - i);
@@ -381,8 +400,24 @@ int main()
     if (f1 != msg || f2 != msg) { puts("FAIL: seal/unseal round trip"); fails++; }
   }
 
+  // Phrase mode through the container with small KDF parameters: the header carries them and
+  // unseal must honour them, so a file made with other parameters than the default still opens.
+  {
+    KeyInput ki;
+    ki.usephrase = true;
+    ki.phrase = "a phrase of twenty+ characters";
+    Buf msg(100);
+    randbytes(msg.data(), msg.size());
+    Buf f = msg;
+    KdfParams small = { 10, 1, 1 };
+    seal(f, ki, small);
+    if (f[4] != 10 || f[5] != 1 || f[6] != 1) { puts("FAIL: KDF parameters not in header"); fails++; }
+    unseal(f, ki);
+    if (f != msg) { puts("FAIL: phrase seal/unseal round trip"); fails++; }
+  }
+
   if (fails) return 1;
-  puts("ok: SHA-256/512, HMAC, PBKDF2, scrypt and DES known answers; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
+  puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id and DES known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "
        "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container");
   return 0;

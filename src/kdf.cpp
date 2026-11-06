@@ -3,103 +3,210 @@
 
 #include "kdf.h"
 
+#include <cstdio>
 #include <cstring>
 #include <new>
+#include <sys/resource.h>
+#include <unistd.h>
 
-#include "sha256.h"
-
-Buf pbkdf2(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t iters, size_t outlen)
-{
-  Hmac h((const uint8_t *)pw.data(), pw.size());
-  Buf out;
-  for (uint32_t blk = 1; out.size() < outlen; blk++) {
-    Buf s(salt, salt + slen);
-    for (int i = 3; i >= 0; i--) s.push_back((uint8_t)(blk >> (8 * i)));
-    uint8_t u[32], t[32];
-    h.mac(s.data(), s.size(), u);
-    memcpy(t, u, 32);
-    for (uint32_t i = 1; i < iters; i++) {
-      h.mac(u, 32, u);
-      for (int j = 0; j < 32; j++) t[j] ^= u[j];
-    }
-    out.insert(out.end(), t, t + 32);
-    wipe(u, sizeof u);
-    wipe(t, sizeof t);
-  }
-  out.resize(outlen);
-  return out;
-}
+#include "blake2b.h"
 
 namespace {
 
-void salsa20_8(uint32_t B[16])
+enum { BLOCK_WORDS = 128, SYNC_POINTS = 4, ARGON2_VERSION = 0x13, ARGON2_ID = 2 };
+
+struct Block { uint64_t v[BLOCK_WORDS]; };
+
+inline uint64_t rotr64(uint64_t x, int n) { return (x >> n) | (x << (64 - n)); }
+
+// BlaMka: BLAKE2b's G with a multiplication of the low halves added.
+inline uint64_t fbla(uint64_t x, uint64_t y) { return x + y + 2 * (x & 0xffffffffull) * (y & 0xffffffffull); }
+
+inline void G(uint64_t &a, uint64_t &b, uint64_t &c, uint64_t &d)
 {
-  uint32_t x[16];
-  memcpy(x, B, 64);
-  auto R = [](uint32_t a, int b) { return (a << b) | (a >> (32 - b)); };
-  for (int i = 0; i < 8; i += 2) {
-    x[ 4] ^= R(x[ 0] + x[12],  7);  x[ 8] ^= R(x[ 4] + x[ 0],  9);
-    x[12] ^= R(x[ 8] + x[ 4], 13);  x[ 0] ^= R(x[12] + x[ 8], 18);
-    x[ 9] ^= R(x[ 5] + x[ 1],  7);  x[13] ^= R(x[ 9] + x[ 5],  9);
-    x[ 1] ^= R(x[13] + x[ 9], 13);  x[ 5] ^= R(x[ 1] + x[13], 18);
-    x[14] ^= R(x[10] + x[ 6],  7);  x[ 2] ^= R(x[14] + x[10],  9);
-    x[ 6] ^= R(x[ 2] + x[14], 13);  x[10] ^= R(x[ 6] + x[ 2], 18);
-    x[ 3] ^= R(x[15] + x[11],  7);  x[ 7] ^= R(x[ 3] + x[15],  9);
-    x[11] ^= R(x[ 7] + x[ 3], 13);  x[15] ^= R(x[11] + x[ 7], 18);
-    x[ 1] ^= R(x[ 0] + x[ 3],  7);  x[ 2] ^= R(x[ 1] + x[ 0],  9);
-    x[ 3] ^= R(x[ 2] + x[ 1], 13);  x[ 0] ^= R(x[ 3] + x[ 2], 18);
-    x[ 6] ^= R(x[ 5] + x[ 4],  7);  x[ 7] ^= R(x[ 6] + x[ 5],  9);
-    x[ 4] ^= R(x[ 7] + x[ 6], 13);  x[ 5] ^= R(x[ 4] + x[ 7], 18);
-    x[11] ^= R(x[10] + x[ 9],  7);  x[ 8] ^= R(x[11] + x[10],  9);
-    x[ 9] ^= R(x[ 8] + x[11], 13);  x[10] ^= R(x[ 9] + x[ 8], 18);
-    x[12] ^= R(x[15] + x[14],  7);  x[13] ^= R(x[12] + x[15],  9);
-    x[14] ^= R(x[13] + x[12], 13);  x[15] ^= R(x[14] + x[13], 18);
-  }
-  for (int i = 0; i < 16; i++) B[i] += x[i];
+  a = fbla(a, b); d = rotr64(d ^ a, 32);
+  c = fbla(c, d); b = rotr64(b ^ c, 24);
+  a = fbla(a, b); d = rotr64(d ^ a, 16);
+  c = fbla(c, d); b = rotr64(b ^ c, 63);
 }
 
-void scrypt_blockmix(uint32_t *B, uint32_t *tmp, size_t r)
+inline void P(uint64_t &v0, uint64_t &v1, uint64_t &v2, uint64_t &v3, uint64_t &v4, uint64_t &v5, uint64_t &v6, uint64_t &v7,
+              uint64_t &v8, uint64_t &v9, uint64_t &v10, uint64_t &v11, uint64_t &v12, uint64_t &v13, uint64_t &v14, uint64_t &v15)
 {
-  uint32_t X[16];
-  memcpy(X, &B[(2 * r - 1) * 16], 64);
-  for (size_t i = 0; i < 2 * r; i++) {
-    for (int k = 0; k < 16; k++) X[k] ^= B[i * 16 + k];
-    salsa20_8(X);
-    memcpy(&tmp[((i & 1) ? r + i / 2 : i / 2) * 16], X, 64);
-  }
-  memcpy(B, tmp, 128 * r);
+  G(v0, v4, v8, v12); G(v1, v5, v9, v13); G(v2, v6, v10, v14); G(v3, v7, v11, v15);
+  G(v0, v5, v10, v15); G(v1, v6, v11, v12); G(v2, v7, v8, v13); G(v3, v4, v9, v14);
 }
 
-void scrypt_romix(uint8_t *blk, size_t r, uint32_t N)
+// next = (with_xor ? next : 0) ^ G(prev, ref), RFC 9106 section 3.5.
+void compress(const Block &prev, const Block &ref, Block &next, bool with_xor)
 {
-  const size_t w = 32 * r;
-  std::vector<uint32_t> X(w), T(w), V;
-  try { V.resize((size_t)N * w); } catch (const std::bad_alloc &) { errorexit(7); }
-  for (size_t i = 0; i < w; i++)
-    X[i] = (uint32_t)blk[4 * i] | (uint32_t)blk[4 * i + 1] << 8 | (uint32_t)blk[4 * i + 2] << 16 | (uint32_t)blk[4 * i + 3] << 24;
-  for (uint32_t i = 0; i < N; i++) {
-    memcpy(&V[(size_t)i * w], X.data(), 4 * w);
-    scrypt_blockmix(X.data(), T.data(), r);
+  Block R, Z;
+  for (int i = 0; i < BLOCK_WORDS; i++) R.v[i] = prev.v[i] ^ ref.v[i];
+  Z = R;
+  for (int i = 0; i < 8; i++) {
+    uint64_t *r = Z.v + 16 * i;
+    P(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[13], r[14], r[15]);
   }
-  for (uint32_t i = 0; i < N; i++) {
-    const uint32_t j = X[(2 * r - 1) * 16] & (N - 1);
-    for (size_t k = 0; k < w; k++) X[k] ^= V[(size_t)j * w + k];
-    scrypt_blockmix(X.data(), T.data(), r);
+  for (int i = 0; i < 8; i++) {
+    uint64_t *c = Z.v + 2 * i;
+    P(c[0], c[1], c[16], c[17], c[32], c[33], c[48], c[49], c[64], c[65], c[80], c[81], c[96], c[97], c[112], c[113]);
   }
-  for (size_t i = 0; i < w; i++)
-    for (int j = 0; j < 4; j++) blk[4 * i + j] = (uint8_t)(X[i] >> (8 * j));
-  wipe(X.data(), 4 * w);
-  wipe(T.data(), 4 * w);
-  wipe(V.data(), 4 * V.size());
+  for (int i = 0; i < BLOCK_WORDS; i++) next.v[i] = (with_xor ? next.v[i] : 0) ^ R.v[i] ^ Z.v[i];
+  wipe(&R, sizeof R);
+  wipe(&Z, sizeof Z);
 }
+
+void store32(Buf &b, uint32_t w) { for (int i = 0; i < 4; i++) b.push_back((uint8_t)(w >> (8 * i))); }
+
+void block_from_bytes(Block &b, const uint8_t *p)
+{
+  for (int i = 0; i < BLOCK_WORDS; i++) {
+    uint64_t w = 0;
+    for (int j = 7; j >= 0; j--) w = w << 8 | p[8 * i + j];
+    b.v[i] = w;
+  }
+}
+
+void block_to_bytes(uint8_t *p, const Block &b)
+{
+  for (int i = 0; i < BLOCK_WORDS; i++)
+    for (int j = 0; j < 8; j++) p[8 * i + j] = (uint8_t)(b.v[i] >> (8 * j));
+}
+
+// Refuses rather than letting the kernel overcommit and kill the process later.
+void require_memory(uint64_t need)
+{
+  uint64_t avail = UINT64_MAX;
+  if (FILE *f = fopen("/proc/meminfo", "r")) {
+    char line[128];
+    while (fgets(line, sizeof line, f)) {
+      unsigned long long kb;
+      if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1) { avail = kb * 1024ull; break; }
+    }
+    fclose(f);
+  }
+  if (avail == UINT64_MAX) {
+    long pages = sysconf(_SC_AVPHYS_PAGES), psize = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && psize > 0) avail = (uint64_t)pages * (uint64_t)psize;
+  }
+  struct rlimit rl;
+  for (auto res : { RLIMIT_AS, RLIMIT_DATA })
+    if (getrlimit(res, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < avail) avail = rl.rlim_cur;
+  if (need + (64ull << 20) > avail) errorexit(7);  // 64 MiB headroom for the rest of the process
+}
+
+struct Argon2 {
+  uint32_t passes, lanes, mblocks, lane_len, seg_len;
+  std::vector<Block> mem;
+
+  Block &at(uint32_t lane, uint32_t idx) { return mem[(size_t)lane * lane_len + idx]; }
+
+  uint32_t index_alpha(uint32_t pass, uint32_t slice, uint32_t index, uint32_t j1, bool same_lane) const
+  {
+    uint32_t area;
+    if (pass == 0) {
+      if (slice == 0) area = index - 1;
+      else if (same_lane) area = slice * seg_len + index - 1;
+      else area = slice * seg_len - (index == 0);
+    } else {
+      if (same_lane) area = lane_len - seg_len + index - 1;
+      else area = lane_len - seg_len - (index == 0);
+    }
+    uint64_t rel = (uint64_t)j1 * j1 >> 32;
+    rel = area - 1 - ((uint64_t)area * rel >> 32);
+    uint32_t start = (pass == 0 || slice == SYNC_POINTS - 1) ? 0 : (slice + 1) * seg_len;
+    return (uint32_t)((start + rel) % lane_len);
+  }
+
+  void fill_segment(uint32_t pass, uint32_t lane, uint32_t slice)
+  {
+    const bool independent = pass == 0 && slice < SYNC_POINTS / 2;
+    Block zero{}, input{}, addr{};
+    if (independent) {
+      input.v[0] = pass; input.v[1] = lane; input.v[2] = slice;
+      input.v[3] = mblocks; input.v[4] = passes; input.v[5] = ARGON2_ID;
+    }
+    auto next_addresses = [&]() {
+      input.v[6]++;
+      compress(zero, input, addr, false);
+      compress(zero, addr, addr, false);
+    };
+    uint32_t start = 0;
+    if (pass == 0 && slice == 0) {
+      start = 2;
+      if (independent) next_addresses();
+    }
+    uint32_t cur = slice * seg_len + start;
+    uint32_t prev = cur == 0 ? lane_len - 1 : cur - 1;
+    for (uint32_t i = start; i < seg_len; i++, cur++, prev++) {
+      if (cur % lane_len == 1) prev = cur - 1;
+      uint64_t rnd;
+      if (independent) {
+        if (i % BLOCK_WORDS == 0) next_addresses();
+        rnd = addr.v[i % BLOCK_WORDS];
+      } else {
+        rnd = at(lane, prev).v[0];
+      }
+      uint32_t ref_lane = (uint32_t)((rnd >> 32) % lanes);
+      if (pass == 0 && slice == 0) ref_lane = lane;
+      uint32_t ref_idx = index_alpha(pass, slice, i, (uint32_t)rnd, ref_lane == lane);
+      compress(at(lane, prev), at(ref_lane, ref_idx), at(lane, cur), pass != 0);
+    }
+    wipe(&input, sizeof input);
+    wipe(&addr, sizeof addr);
+  }
+};
 
 }  // namespace
 
-Buf scrypt(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t N, uint32_t r, uint32_t p, size_t outlen)
+Buf argon2id(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p, size_t outlen,
+             const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen)
 {
-  Buf B = pbkdf2(pw, salt, slen, 1, (size_t)128 * r * p);
-  for (uint32_t i = 0; i < p; i++) scrypt_romix(&B[(size_t)i * 128 * r], r, N);
-  Buf out = pbkdf2(pw, B.data(), B.size(), 1, outlen);
-  wipe(B.data(), B.size());
+  Argon2 a;
+  a.passes = t;
+  a.lanes = p;
+  a.seg_len = m_kib / (SYNC_POINTS * p);
+  a.lane_len = a.seg_len * SYNC_POINTS;
+  a.mblocks = a.lane_len * p;
+
+  // H0 over the parameters and all inputs, each variable-length input preceded by its length.
+  Buf h0in;
+  store32(h0in, p); store32(h0in, (uint32_t)outlen); store32(h0in, m_kib); store32(h0in, t);
+  store32(h0in, ARGON2_VERSION); store32(h0in, ARGON2_ID);
+  store32(h0in, (uint32_t)pw.size()); h0in.insert(h0in.end(), pw.begin(), pw.end());
+  store32(h0in, (uint32_t)slen); h0in.insert(h0in.end(), salt, salt + slen);
+  store32(h0in, (uint32_t)seclen); if (seclen) h0in.insert(h0in.end(), secret, secret + seclen);
+  store32(h0in, (uint32_t)adlen); if (adlen) h0in.insert(h0in.end(), ad, ad + adlen);
+  uint8_t h0[72];
+  { Blake2b b(64); b.update(h0in.data(), h0in.size()); b.final(h0); }
+  wipe(h0in.data(), h0in.size());
+
+  require_memory((uint64_t)a.mblocks * sizeof(Block));
+  try { a.mem.resize(a.mblocks); } catch (const std::bad_alloc &) { errorexit(7); }
+
+  uint8_t blk[sizeof(Block)];
+  for (uint32_t l = 0; l < p; l++) {
+    for (uint32_t j = 0; j < 2; j++) {
+      for (int i = 0; i < 4; i++) { h0[64 + i] = (uint8_t)(j >> (8 * i)); h0[68 + i] = (uint8_t)(l >> (8 * i)); }
+      blake2b_long(blk, sizeof blk, h0, sizeof h0);
+      block_from_bytes(a.at(l, j), blk);
+    }
+  }
+  wipe(h0, sizeof h0);
+
+  for (uint32_t r = 0; r < t; r++)
+    for (uint32_t s = 0; s < SYNC_POINTS; s++)
+      for (uint32_t l = 0; l < p; l++) a.fill_segment(r, l, s);
+
+  Block c = a.at(0, a.lane_len - 1);
+  for (uint32_t l = 1; l < p; l++)
+    for (int i = 0; i < BLOCK_WORDS; i++) c.v[i] ^= a.at(l, a.lane_len - 1).v[i];
+  block_to_bytes(blk, c);
+  Buf out(outlen);
+  blake2b_long(out.data(), outlen, blk, sizeof blk);
+
+  wipe(&c, sizeof c);
+  wipe(blk, sizeof blk);
+  wipe(a.mem.data(), a.mem.size() * sizeof(Block));
   return out;
 }

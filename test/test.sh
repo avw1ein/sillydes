@@ -33,6 +33,12 @@ echo "$P" | ./odette act=em in=hello.ode out="$T/p.txt" phrase 2>/dev/null
 echo "$P" | ./odette act=dm in="$T/p.txt" out="$T/p.out" phrase 2>/dev/null
 echo "ok: phrase round trip"
 
+rc=0; echo "nineteen chars 123" | ./odette act=e in=hello.ode out="$T/short" phrase 2>/dev/null || rc=$?
+[ "$rc" -eq 10 ] && [ ! -e "$T/short" ] || { echo "FAIL: short phrase accepted"; exit 1; }
+rc=0; (ulimit -v 1500000; echo "$P" | ./odette act=e in=hello.ode out="$T/nomem" phrase 2>/dev/null) || rc=$?
+[ "$rc" -eq 7 ] && [ ! -e "$T/nomem" ] || { echo "FAIL: phrase mode without 2 GiB did not stop with error 7"; exit 1; }
+echo "ok: short phrase and missing memory are refused"
+
 cmp -s hello.ode "$T/p.out" || { echo "FAIL: phrase round trip mismatch"; exit 1; }
 printf '%s\n' 0123456789abcdef fedcba9876543210 13579bdf02468ace a1b2c3d4e5f60718 \
   0f1e2d3c4b5a6978 1122334455667788 99aabbccddeeff00 0011223344556677 > "$T/otherkey"
@@ -89,12 +95,15 @@ fail13 ./odette act=d in="$T/t3" out="$T/x" key=sample.key
 cp "$T/rep.enc" "$T/t4"
 printf '\x1e' | dd of="$T/t4" bs=1 seek=4 conv=notrunc 2>/dev/null
 fail13 ./odette act=d in="$T/t4" out="$T/x" key=sample.key
-echo "ok: bit flip, truncation, header change and oversized KDF parameters fail"
+cp "$T/rep.enc" "$T/t6"
+printf '\x00' | dd of="$T/t6" bs=1 seek=5 conv=notrunc 2>/dev/null
+fail13 ./odette act=d in="$T/t6" out="$T/x" key=sample.key
+echo "ok: bit flip, truncation, header change and out-of-range KDF parameters fail"
 
 cp "$T/rep.enc" "$T/t5"
 printf '\x01' | dd of="$T/t5" bs=1 seek=3 conv=notrunc 2>/dev/null
 fail13 ./odette act=d in="$T/t5" out="$T/x" key=sample.key
-sed 's/Odette 5\.03/Odette 5.00/' "$T/p.txt" > "$T/old.txt"
+sed 's/Odette 5\.1\.0/Odette 5.0.0/' "$T/p.txt" > "$T/old.txt"
 rc=0; ./odette act=dm in="$T/old.txt" out="$T/x" key=sample.key 2>/dev/null || rc=$?
 [ "$rc" -eq 8 ] || { echo "FAIL: e-mail tags of another version accepted"; exit 1; }
 echo "ok: files of another version are rejected"

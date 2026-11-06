@@ -89,6 +89,7 @@ bool read_hidden(const char *prompt, std::string &s, bool tty)
     tcsetattr(STDIN_FILENO, TCSANOW, &t);
   }
   s.clear();
+  s.reserve(1024);  // typing byte by byte must not leave partial copies in freed heap blocks
   int c;
   while ((c = getchar()) != EOF && c != '\n') s += (char)c;
   if (tty) {
@@ -102,13 +103,12 @@ bool read_hidden(const char *prompt, std::string &s, bool tty)
 
 std::string getphrase(bool confirm)
 {
-  const size_t maxlen = 156;
   std::string s, again;
   bool tty = isatty(STDIN_FILENO);
   for (;;) {
-    if (!read_hidden("Enter key phrase (minimum 48 characters): ", s, tty)) { errarg = "phrase"; errorexit(10); }
+    if (!read_hidden("Enter key phrase (minimum 20 characters): ", s, tty)) { errarg = "phrase"; errorexit(10); }
     size_t last = s.find_last_not_of(' ');
-    if (last == std::string::npos || last < 47) {
+    if (last == std::string::npos || last < 19) {
       fputs("Phrase too short.\n", stderr);
       if (!tty) { errarg = "phrase"; errorexit(10); }
       continue;
@@ -121,31 +121,27 @@ std::string getphrase(bool confirm)
     }
     break;
   }
-  if (s.size() > maxlen) {
-    fprintf(stderr, "Warning: only the first %zu characters of the phrase are used.\n", maxlen);
-    s.resize(maxlen);
-  }
-  s.resize(192, ' ');
+  s.resize(s.find_last_not_of(' ') + 1);
   return s;
 }
 
 bool kdf_ok(const KdfParams &k)
 {
-  if (k.logn < 4 || k.logn > 20 || k.r < 1 || k.r > 16 || k.p < 1 || k.p > 4) return false;
-  return ((uint64_t)128 * k.r << k.logn) <= MAX_KDF_BYTES;
+  if (k.logm < 10 || k.logm > 21 || k.t < 1 || k.t > 4 || k.p < 1 || k.p > 8) return false;
+  return (1024ull << k.logm) <= MAX_KDF_BYTES;
 }
 
 KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams &kdf)
 {
   KeyMaterial km;
   if (in.usephrase) {
-    Buf dk = scrypt(in.phrase, salt, SALT_LEN, 1u << kdf.logn, kdf.r, kdf.p, NL * 8 + sizeof km.mackey);
+    Buf dk = argon2id(in.phrase, salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey);
     memcpy(km.key, dk.data(), NL * 8);
     memcpy(km.mackey, dk.data() + NL * 8, sizeof km.mackey);
     wipe(dk.data(), dk.size());
   } else {
     memcpy(km.key, in.key, NL * 8);
-    static const char label[] = "Odette 5.03 mac";
+    static const char label[] = "Odette 5.1.0 mac";
     Hmac512(&km.key[0][0], NL * 8).mac((const uint8_t *)label, sizeof label - 1, km.mackey);
   }
   km.lenmask = length_mask(km.key);
