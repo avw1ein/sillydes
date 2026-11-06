@@ -17,9 +17,8 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 6. [How to use Odette normal style](#6-how-to-use-odette-normal-style)
 7. [Keys](#7-keys)
 8. [Intramural security](#8-intramural-security)
-9. [Don't](#9-dont)
-10. [Error levels](#10-error-levels)
-11. [Disclaimer](#11-disclaimer)
+9. [Error levels](#9-error-levels)
+10. [Disclaimer](#10-disclaimer)
 
 See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
 
@@ -98,7 +97,7 @@ Files made by Odette 5.1.0 cannot be read by older versions, and the other way a
 
 At this moment a single DES encryption can be cracked in a few hours (minutes?). You need a good computer to do it, but... The next step in line is triple DES (DES3). This is also within reach of modern computers. That's why some of us want something stronger than DES or triple DES, and Odette is one way to build it out of DES. In return you have to be more patient, because it is slower. The slowness is part of the design: an attacker who tries keys pays for every one of them. Modern CPUs accelerate AES for user and attacker alike; nothing accelerates Odette.
 
-The eight keys feed eight DES layers and a 2048-bit whitening that is derived from every bit of every key. Without the whitening, a meet-in-the-middle attack on a cascade of eight ciphers would need about 2^224 operations. The whitening keeps both halves of such an attack from being tried alone, so the best known approach is to try all 2^512 key values. This is an estimate, not a proof, and the construction has not been reviewed by others. A phrase is only as strong as its entropy: ordinary text carries about 1 to 1.5 bits per character, so use a long phrase or a key file with random keys.
+The eight keys feed eight DES layers and a 2048-bit whitening that is derived from every bit of every key. Without the whitening, a meet-in-the-middle attack on a cascade of eight ciphers would need about 2^224 operations. The whitening keeps both halves of such an attack from being tried alone, so the best known approach is to try all 2^512 key values. This is an estimate, not a proof, and the construction has not been reviewed by others. It also assumes random keys; how to get them is the subject of section 7.
 
 Don't think single DES is bad just because it can be cracked. In the end every code can be cracked; it's just a matter of resources. DES has been studied for almost 50 years. Its security properties, including the shortcomings, are well known. This is the reason why DES can be used as a building block for something stronger. Instead of beginning from scratch, Odette can rely on all that is known about DES.
 
@@ -187,35 +186,40 @@ Encrypt using the `act=e` option, and decrypt using the `act=d` option. The outp
 
 ## 7. Keys
 
-There are two sorts of keys. The first is made by putting eight keys in a key file and keeping that key file. Use random keys.
+There are two sorts of keys: a key file with eight random keys, or a phrase from which the keys are derived. Everything that matters about choosing and handling them is in this section.
+
+### Key file
 
 ```sh
 key=sample.key
 ```
 
-Examine the file `sample.key` to see how to construct a key file. It's an ASCII file.
+Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Fill it with random values, for example from `/dev/urandom` or a password manager; eight random keys give the cipher its full 512 bits.
 
-**NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only. Make your own key file with random keys.
+**NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only.
 
-The second sort is made by putting the `phrase` option on the command line. The program will prompt you for a phrase of at least 20 characters; there is no upper limit, and trailing spaces are ignored. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file. Making a guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
+### Phrase
 
-**A phrase is the weak point of the system, because people choose it.** A phrase you can remember is a phrase that follows the patterns of a language, and those patterns are exactly what a guessing program tries first. Typing errors, reuse of a phrase from elsewhere, and writing it down where it can be found are the other usual ways in which a phrase fails, and none of them can be fixed by the cipher. The 20-character minimum therefore assumes random characters, not words: a 20-character English sentence carries only 20 to 30 bits of entropy, which is far below the strength of the cipher, and even a long sentence reaches no more than 1 to 1.5 bits per character. The recommendation is to let a password manager generate a random string and store it, and to use that string as the phrase. Only if you must rely on memory, use a long sentence that does not exist anywhere else.
+Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit, trailing spaces are ignored, and every character your computer accepts is allowed. At decryption, type the phrase exactly as at encryption. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
 
-How long a random phrase needs to be depends on the characters it draws from. The table gives the length that reaches a given security level against an attacker who tries phrases; the cipher itself cannot offer more than 512 bits, and a key file of eight random keys reaches that directly.
+**The phrase is the weak point of the system, because a person chooses it.** The cipher cannot be stronger than the phrase, and a phrase a person can remember follows the patterns of a language, which is exactly what a guessing program tries first: ordinary text carries only 1 to 1.5 bits per character, so a 20-character sentence is worth 20 to 30 bits and even a long one stays far below the cipher. Typing errors, reuse of a phrase from elsewhere, and writing it down where it can be found are the other usual ways a phrase fails, and no cipher fixes them.
+
+**So: let a password manager generate a random string, store it there, and use that as the phrase.** The 20-character minimum is sized for such random input. How long the string must be depends on the characters it draws from:
 
 | Target | Printable ASCII (95 characters) | Letters and digits (62) | Hexadecimal (16) | Diceware words (7776) |
 |---|---|---|---|---|
 | 128 bits | 20 | 22 | 32 | 10 |
 | 256 bits | 39 | 43 | 64 | 20 |
-| 512 bits | 78 | 86 | 128 | 40 |
+| 512 bits (the cipher's ceiling) | 78 | 86 | 128 | 40 |
 
-Against a quantum computer the effective strength of a phrase halves (Grover's algorithm), so for 128 bits of post-quantum security take the 256-bit row, and for the full 256-bit post-quantum level of the cipher take the 512-bit row. See [ANALYSIS.md](ANALYSIS.md), section 8.
+Against a quantum computer the effective strength of a phrase halves (Grover's algorithm): for 128 bits of post-quantum security take the 256-bit row, for the cipher's full post-quantum level the 512-bit row. Details are in [ANALYSIS.md](ANALYSIS.md), section 8. If you must rely on memory alone, use a long sentence that exists nowhere else, and treat it as the weaker option it is.
 
-> We all thank Andy van Wezel very much, for allowing us to use his wonderful software. We even like to send him money.
+### Handling
 
-Because it's in this document, you should never use the above phrase. Please note the entropy remark concerning a phrase in section 2.
-
-At decryption, type the phrase exactly the way you did at encryption. You can use every character your computer accepts.
+- Don't send keys or phrases through insecure channels.
+- Don't use the same key or phrase for everything.
+- Don't write your keys on your keyboard, and don't pipe a phrase in from a shell command line that ends up in your history.
+- Don't share your keys with others, unless they need them.
 
 ---
 
@@ -225,19 +229,7 @@ This kind of security is not trivial because, for example, original files won't 
 
 ---
 
-## 9. Don't
-
-Here's an incomplete list of what you shouldn't do:
-
-- Don't send keys through insecure channels.
-- Don't use the same key over and over again.
-- Don't write your keys on your keyboard.
-- Don't share your keys with others, unless they need them.
-- Don't make up a phrase yourself if you can let a password manager do it.
-
----
-
-## 10. Error levels
+## 9. Error levels
 
 The program can generate fourteen error levels. You can use these in a shell script or in a parent program.
 
@@ -261,7 +253,7 @@ The program can generate fourteen error levels. You can use these in a shell scr
 
 ---
 
-## 11. Disclaimer
+## 10. Disclaimer
 
 Odette performs a DES8 encryption (works on 2048-bit blocks) on text files or executables. Intramural security is not trivial.
 
