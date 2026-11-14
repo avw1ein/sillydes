@@ -33,6 +33,17 @@ The code is split into small units, each with one job. Source files are in [src/
 | Armor | [armor.h](src/armor.h), [armor.cpp](src/armor.cpp), [crc32.h](src/crc32.h), [crc32.cpp](src/crc32.cpp) | Binary to text conversion for e-mail, with CRC-32 |
 | Tests | [test_primitives.cpp](test/test_primitives.cpp), [test.sh](test/test.sh) | Unit tests of primitives and end-to-end shell tests |
 
+Every cryptographic algorithm is implemented here from its standard; no cryptographic library is linked. The normative document for each one, and the vectors `test_primitives` checks it against:
+
+| Algorithm | Standard | Implementation | Tested against |
+|---|---|---|---|
+| DES | FIPS 46-3 | [des.cpp](src/des.cpp); S-boxes generated from the FIPS 46 tables into [des_sbox_ct.h](src/des_sbox_ct.h) | FIPS 46 / SP 800-17 vectors; all 64 inputs of every S-box |
+| SHA-512 | FIPS 180-4 | [sha512.cpp](src/sha512.cpp) | FIPS 180-4 vectors |
+| HMAC | RFC 2104 (FIPS 198-1) | [sha512.cpp](src/sha512.cpp) | RFC 4231 vectors |
+| BLAKE2b | RFC 7693 | [blake2b.cpp](src/blake2b.cpp) | RFC 7693 vectors, cross-checked with Python `hashlib` |
+| Argon2id, $H'$ | RFC 9106 (version 0x13) | [kdf.cpp](src/kdf.cpp), [blake2b.cpp](src/blake2b.cpp) | RFC 9106 vector and the reference implementation's vectors |
+| CRC-32 | IEEE 802.3, as in zlib | [crc32.cpp](src/crc32.cpp) | Standard check value of `"123456789"` |
+
 ## 2. Layers and module dependencies
 
 The program is layered. Higher layers call lower ones; nothing calls upward. `common` is used by almost everything and is omitted from some arrows below for readability.
@@ -378,7 +389,7 @@ flowchart LR
     shtest --> make
 ```
 
-- `test_primitives` checks BLAKE2b (RFC 7693 and hashlib cross-checks), Argon2's $H'$, SHA-512, HMAC (RFC 4231), Argon2id (RFC 9106 and the reference implementation's vectors) and DES against published vectors, checks the KDF header bounds, checks every generated S-box circuit on all 64 inputs against the FIPS 46 tables, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, two `seal` calls on the same input share neither salt, IV nor ciphertext, and a phrase-mode container with non-default KDF parameters opens again.
+- `test_primitives` checks BLAKE2b (RFC 7693 and hashlib cross-checks), Argon2's $H'$, SHA-512, HMAC (RFC 4231), Argon2id (RFC 9106 and the reference implementation's vectors), DES and CRC-32 against published vectors, checks the KDF header bounds, checks every generated S-box circuit on all 64 inputs against the FIPS 46 tables, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, two `seal` calls on the same input share neither salt, IV nor ciphertext, and a phrase-mode container with non-default KDF parameters opens again.
 - `test.sh` runs the real binary: decryption of files written by release 5.1.0 (`hello.sdes` and [test/format-5.1.0/](test/format-5.1.0/)), round trips in all four modes for several sizes, phrase mode (2 GiB), refusal of a short phrase and of phrase mode under a 1.5 GB address-space limit, wrong-key and corrupted-input failures, truncation and block-edit detection, out-of-range KDF parameters, rejection of files of another format version, fresh salt per encryption, and container size.
 
 ## 10. Design notes for maintainers

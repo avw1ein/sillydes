@@ -32,6 +32,8 @@ SillyDES gives you a way to protect your data, whether you keep it at home or se
 
 The program uses the Data Encryption Standard (DES). See section 2 for the reasoning behind this choice.
 
+Every cryptographic algorithm in SillyDES is implemented in this repository from its published standard; the program links no cryptographic library. DES follows FIPS 46-3, SHA-512 FIPS 180-4, HMAC RFC 2104, BLAKE2b RFC 7693, Argon2id RFC 9106, and the CRC-32 is the IEEE 802.3 polynomial used by zlib. Each implementation is checked against the test vectors of its standard by `make test`. Only the composition of these pieces, the block expansion and the eight-layer DES construction described in section 4, is SillyDES's own.
+
 Features:
 
 - DES eight times over, with 2048-bit whitening between layers.
@@ -40,6 +42,7 @@ Features:
 - CRC-32 check on e-mail output.
 - Key phrase (Argon2id, 2 GiB of memory, salted) or key file.
 - Constant-time DES: no key- or data-dependent memory access or branch during encryption.
+- Self-contained: DES, SHA-512, HMAC, BLAKE2b, Argon2id and CRC-32 are implemented from their standards, with no external cryptographic library.
 - Easy to use.
 - Slow! Which is good!
 

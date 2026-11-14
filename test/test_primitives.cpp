@@ -8,6 +8,7 @@
 #include "blake2b.h"
 #include "common.h"
 #include "container.h"
+#include "crc32.h"
 #include "des.h"
 #include "des_sbox_ct.h"
 #include "kdf.h"
@@ -223,6 +224,16 @@ int main()
       if (!kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u rejected\n", k.logm, k.t, k.p); fails++; }
   }
 
+  // CRC-32 (IEEE 802.3, as in zlib): the standard check value for "123456789" is 0xCBF43926 after the
+  // final inversion, which the class leaves to the armor code.
+  {
+    Crc32 crc;
+    for (const char *p = "123456789"; *p; p++) crc.update((uint8_t)*p);
+    char got[9];
+    snprintf(got, sizeof got, "%08x", crc.value() ^ 0xFFFFFFFFu);
+    check("crc32 check value", got, "cbf43926");
+  }
+
   // Single DES against published vectors (FIPS 46 / SP 800-17), both directions.
   {
     // First the generated S-box circuits, exhaustively, against the FIPS 46 tables.
@@ -417,7 +428,7 @@ int main()
   }
 
   if (fails) return 1;
-  puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id and DES known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
+  puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id, DES and CRC-32 known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "
        "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container");
   return 0;
