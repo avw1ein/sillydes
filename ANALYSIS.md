@@ -42,7 +42,7 @@ $$u_i = m_i \oplus c_{i-1},\qquad c_i = G(u_i \oplus \Delta_i)\oplus\Delta_i,\qq
 
 Decryption is $m_i = G^{-1}(c_i\oplus\Delta_i)\oplus\Delta_i\oplus c_{i-1}$. Writing $G_i(x) = G(x\oplus\Delta_i)\oplus\Delta_i$, the scheme is plain CBC over a family of permutations $G_0, G_1, \dots$ of which each member encrypts exactly one block.
 
-The file is `OD\x05\x10 | log2 m, t, p, 0 | salt | IV | c_0 ... c_n | tag`: a 280-byte header (version bytes major and minor·16+patch; $m$ the Argon2id memory in KiB, $t$ the passes, $p$ the lanes), the blocks, and $\text{tag}=\mathrm{HMAC\text{-}SHA\text{-}512}(K_{mac},\ \text{everything before it})$, 64 bytes, with $K_{mac}$ a 512-bit key. Salt and IV are drawn from the system random generator inside the sealing routine on every encryption; no interface accepts them from a caller, and the program stops with error 14 if the generator fails or returns an all-zero value.
+The file is `SD\x05\x10 | log2 m, t, p, 0 | salt | IV | c_0 ... c_n | tag`: a 280-byte header (version bytes major and minor·16+patch; $m$ the Argon2id memory in KiB, $t$ the passes, $p$ the lanes), the blocks, and $\text{tag}=\mathrm{HMAC\text{-}SHA\text{-}512}(K_{mac},\ \text{everything before it})$, 64 bytes, with $K_{mac}$ a 512-bit key. Salt and IV are drawn from the system random generator inside the sealing routine on every encryption; no interface accepts them from a caller, and the program stops with error 14 if the generator fails or returns an all-zero value.
 
 Key material by mode:
 
@@ -425,7 +425,7 @@ AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With 
 | One flipped input bit or one changed input word, 64 trials each way through the core | all 32 output words change, 896 to 1152 output bits flip, unit test |
 | Eight identical DES keys: avalanche holds, output unrelated to input, encrypting twice is not the identity, unit test | pass |
 | Same plaintext sealed twice: salt, IV and first block all differ, both unseal correctly, unit test | pass |
-| Container magic `OD 5 0x10`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
+| Container magic `SD 5 0x10`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
 | Version byte changed to 1; e-mail tags rewritten to another version | error 13; error 8 |
 | Salt bytes of two encryptions of one file | differ |
 | Round trips through the program, sizes 0, 1, 255, 256, 257, 1000, 5000, both modes | pass |

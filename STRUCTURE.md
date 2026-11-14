@@ -310,7 +310,7 @@ For block *i*: `work = plain[i] XOR previous_ciphertext XOR tweak(i)`, then `enc
 
 ```mermaid
 flowchart LR
-    A["magic<br/>4 bytes<br/>O D 5 0x10"] --> B["KDF params<br/>4 bytes<br/>logm t p 0"] --> C["salt<br/>16 bytes"] --> D["IV<br/>256 bytes"] --> E["ciphertext<br/>n x 256 bytes"] --> F["HMAC tag<br/>64 bytes"]
+    A["magic<br/>4 bytes<br/>S D 5 0x10"] --> B["KDF params<br/>4 bytes<br/>logm t p 0"] --> C["salt<br/>16 bytes"] --> D["IV<br/>256 bytes"] --> E["ciphertext<br/>n x 256 bytes"] --> F["HMAC tag<br/>64 bytes"]
 ```
 
 | Part | Size | Notes |
