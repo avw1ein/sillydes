@@ -32,7 +32,7 @@ std::string errarg;
     case 10: fprintf(stderr, "ERROR#10: Argument missing: %s\nType sillydes for help.\n", a); break;
     case 11: fprintf(stderr, "ERROR#11: Can't find end of code in: %s\n", a); break;
     case 12: fprintf(stderr, "ERROR#12: CRC error in: %s\n", a); break;
-    case 13: fputs("ERROR#13: Authentication failed (wrong key, or data damaged or not SillyDES 5.1.0).\n", stderr); break;
+    case 13: fputs("ERROR#13: Authentication failed (wrong key, or data damaged or not in the " FORMAT_NAME " format).\n", stderr); break;
     case 14: fputs("ERROR#14: System random generator failed.\n", stderr); break;
     default: break;
   }

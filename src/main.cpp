@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// SillyDES 5.1.0 - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
+// SillyDES - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
 // Build: make
@@ -30,7 +30,7 @@ struct Args {
 
 void usage()
 {
-  puts("SillyDES 5.1.0 Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
+  puts("SillyDES " PACKAGE_VERSION " Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
   puts("Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile");
   puts(" e            Encryption.");
   puts(" d            Decryption.");

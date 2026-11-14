@@ -12,6 +12,14 @@ trap 'rm -rf "$T"' EXIT
 grep -q "^Hello," "$T/hello.txt"
 echo "ok: hello.sdes decrypts"
 
+# Written by release 5.1.0 and never regenerated: these fail as soon as the file format changes.
+P="The quick brown fox jumps over the lazy dog, again and again."
+./sillydes act=d in=test/format-5.1.0/hello.bin out="$T/f1.txt" key=sample.key
+cmp "$T/hello.txt" "$T/f1.txt"
+echo "$P" | ./sillydes act=dm in=test/format-5.1.0/hello-phrase.sdes out="$T/f2.txt" phrase 2>/dev/null
+cmp "$T/hello.txt" "$T/f2.txt"
+echo "ok: files written by release 5.1.0 decrypt (binary, and e-mail style with a phrase)"
+
 for size in 0 1 255 256 257 1000 5000; do
   head -c "$size" /dev/urandom > "$T/in.bin"
   ./sillydes act=e  in="$T/in.bin" out="$T/e.bin"  key=sample.key
@@ -28,7 +36,6 @@ head -c 1 /dev/urandom > "$T/in.bin"
 [ "$(stat -c %s "$T/e.bin")" -eq $((280 + 256 + 64)) ] || { echo "FAIL: unexpected container size"; exit 1; }
 echo "ok: container is header + one block + 64-byte tag"
 
-P="The quick brown fox jumps over the lazy dog, again and again."
 echo "$P" | ./sillydes act=em in=hello.sdes out="$T/p.txt" phrase 2>/dev/null
 echo "$P" | ./sillydes act=dm in="$T/p.txt" out="$T/p.out" phrase 2>/dev/null
 echo "ok: phrase round trip"

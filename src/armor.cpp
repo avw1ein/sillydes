@@ -11,8 +11,8 @@
 
 namespace {
 
-const char *BEGIN_TAG = "*BEGIN SillyDES 5.1.0 message, valid char:";
-const char *END_TAG = "*END SillyDES 5.1.0 message, CRC:";
+const char *BEGIN_TAG = "*BEGIN " FORMAT_NAME " message, valid char:";
+const char *END_TAG = "*END " FORMAT_NAME " message, CRC:";
 
 }  // namespace
 

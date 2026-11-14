@@ -89,7 +89,9 @@ To get help:
 ./sillydes
 ```
 
-Files made by SillyDES 5.1.0 cannot be read by older versions, and files made by older versions cannot be read by 5.1.0. This includes files made by the program under its former name, Odette 5.1.0. Future updates will decouple the software version from the file format version.
+The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.1.0, and every later release reads and writes it until the format itself changes. That is why an e-mail message starts with `*BEGIN SillyDES 5.1.0 message` whichever release made it.
+
+Files in older formats cannot be read, and releases before 5.1.0 cannot read this one. This includes files made by the program under its former name, Odette, up to and including Odette 5.1.0.
 
 ---
 
@@ -166,7 +168,7 @@ Step 16: Whitening 8, DES encryption with key8, then a final
 
 Each whitening is 2048 bits and is made from all eight keys and the salt with HMAC-SHA-512, so every bit of every key matters, including the bits that DES itself ignores, and two files made with the same key file share no whitening. The tweak of step 0 is made the same way from the keys, the salt and the block number. [VISUALIZATION.md](VISUALIZATION.md) draws these sixteen steps byte by byte.
 
-The output consists of: a 4-byte header (O, D, 5, 16: major version, then minor times 16 plus patch), the phrase hashing parameters (4 bytes), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
+The output consists of: a 4-byte header (S, D, 5, 16: the file format's major version, then minor times 16 plus patch), the phrase hashing parameters (4 bytes), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
 
 The salt and the IV come from the system random generator on every encryption; there is no option to choose or repeat them, and the program stops with error 14 if the generator fails. Encrypting the same file twice therefore gives two unrelated outputs. This is deliberate: it is what guarantees that no two blocks, in one file or across files, are ever encrypted by the same cipher instance.
 
