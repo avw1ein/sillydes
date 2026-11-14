@@ -28,7 +28,7 @@ See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going th
 
 **THIS IS A HOBBY PROJECT**
 
-SillyDES gives you a way to protect your data, whether you keep it at home or send it throughout the world. The program provides two sorts of output, High-ASCII and Low-ASCII. You can use the first for security at home. The second one is aimed at e-mail. SillyDES was originally released as Odette, a DOS program (1993 - 1994).
+SillyDES gives you a way to protect your data, whether you keep it at home or send it throughout the world. The program provides two sorts of output, High-ASCII and Low-ASCII. You can use the first for security at home. The second one is aimed at e-mail. SillyDES was originally released as GPG, a DOS program (1993 - 1994).
 
 The program uses the Data Encryption Standard (DES). See section 2 for the reasoning behind this choice.
 
@@ -47,7 +47,7 @@ Features:
 
 ## History
 
-The first experiments with block expansion, the idea this project is built around, date from the early nineties, when the USA lifted the export embargo on DES and AES did not exist yet. I worked it out on my own at the time; related ideas have been explored by others before and since, and I make no claim to priority. Big Blue, IBM, placed an example implementation of DES into the public domain. I found it on Fidonet. My first program was called Lowkeyed. Lowkeyed used a home-brew DES3 variant based on block expansion. To transport cipher text in e-mails, I added a translation to low-ASCII. Hence, low-keyed. This translation was common in those days, since e-mail attachments only came later. Then came the General Privacy Guard, GPG. GPG used 6 layers of DES. I kept developing the project inside my head, but didn't make updates for a long time. GPG is nowadays a synonym for GnuPG and not General Privacy Guard. So here comes SillyDES! Its first name, Odette, was an ode to Tchaikovsky's Swan Lake.
+The first experiments with block expansion, the idea this project is built around, date from the early nineties, when the USA lifted the export embargo on DES and AES did not exist yet. I worked it out on my own at the time; related ideas have been explored by others before and since, and I make no claim to priority. Big Blue (IBM) placed an example implementation of DES into the public domain. I found it on Fidonet. My first program was called Lowkeyed. Lowkeyed used a homebrew DES3 variant based on block expansion. To transport ciphertext in e-mails, I added a translation to low-ASCII. Hence the name Lowkeyed. This translation was common in those days, since e-mail attachments only came later. Then came the General Privacy Guard, GPG. GPG used six layers of DES. I kept developing the project in my head, but didn't make updates for a long time. GPG is nowadays a synonym for GnuPG and not General Privacy Guard. So here comes Odette! Odette is an ode to Tchaikovsky's *Swan Lake*. At least, that's what I was thinking. The name Odette is already quite overloaded. So instead I settled on SillyDES!
 
 ---
 
@@ -61,7 +61,7 @@ If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts SillyDE
 
 ## 1. Quick start
 
-For a quick e-mail style demonstration:
+For a quick e-mail-style demonstration:
 
 ```sh
 ./sillydes act=dm in=hello.sdes out=hello.txt key=sample.key
@@ -89,7 +89,7 @@ To get help:
 ./sillydes
 ```
 
-Files made by SillyDES 5.1.0 cannot be read by older versions, and the other way around. This includes files made by the program under its former name, Odette 5.1.0.
+Files made by SillyDES 5.1.0 cannot be read by older versions, and files made by older versions cannot be read by 5.1.0. This includes files made by the program under its former name, Odette 5.1.0. Future updates will decouple the software version from the file format version.
 
 ---
 
