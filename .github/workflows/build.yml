@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 1993-1994, 2026 Andy van Wezel
+#
+# Builds and tests on a bare runner without installing anything first,
+# which is the proof that the program has no dependencies beyond a C++
+# compiler, make and the Linux system headers.
+
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
+      - run: make test
