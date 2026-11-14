@@ -12,7 +12,7 @@
 #include "des_sbox_ct.h"
 #include "kdf.h"
 #include "keys.h"
-#include "odette_cipher.h"
+#include "sillydes_cipher.h"
 #include "sha512.h"
 
 static std::string hex(const uint8_t *p, size_t n)
@@ -112,7 +112,7 @@ static int activewords(const uint8_t *a, const uint8_t *b)
 
 // Flips one bit or one random word of the input and demands that every output word changes and
 // that the number of flipped output bits is near 1024. Covers the forward and backward cones.
-static void avalanche(const OdetteCipher &c, bool enc, const char *name)
+static void avalanche(const SillyDesCipher &c, bool enc, const char *name)
 {
   for (int t = 0; t < 64; t++) {
     uint8_t x[256], y[256];
@@ -278,13 +278,13 @@ int main()
     for (int i = 0; i < NL * 8; i++) k[i / 8][i % 8] = (uint8_t)i;
     for (int i = 0; i < SALT_LEN; i++) s[i] = (uint8_t)(0xa0 + i);
     for (int i = 0; i < 256; i++) x[i] = (uint8_t)(255 - i);
-    OdetteCipher c(k, s);
+    SillyDesCipher c(k, s);
     c.encrypt_block(x);
     check("encrypt_block known answer", hex(x, 256),
-          "962ce535f3f30b8b3d93ac8a18af6546111d1eb5cf4bfa5e6fc87a67b6426847d7d215c6f2401440d57b6ad8a1972cbb5928727388f822a40141a3f200020620"
-          "fbea9b9cc2aa5280206265a2d2c76e0fe769de8379c77f7594a72a491b73ad2caff28ac4986a686816841d63ee88f5d8210e0ea7d56b51c2f594f8f226784d98"
-          "eef9cd29b52153c95f51d488815b0990b9f4f9d9e63b06e2ffadc0c28d7680a95b4fc9afd5660f71ac7367bd61ca751a541455ef4eda027933a89f3881a54eca"
-          "227051137609f52a6b89ca54c6738952655d70c4173915f1caf4e19c3abd76b9b9491b5b7e55954a20c52a93b80e3c648f1f68f19efba92055f98f307766c111");
+          "4a1dfbfc3c1f082fcd57415047d3477ba8d61895335d908942dc71955fe648e7af3fec5857cd17a2d511b96d150684b470f93e0d7be09f5c2319dc3da222ff9a"
+          "18e5be22f049eea96a09bb581268a70cab5baf6ca31d4d1b260eda302333c1c738a3da939156db07462f7aa01e09b27c8d5faebf3350bd10274b7c1ec8514089"
+          "022485fde43dba20fc762d149f75766600b54ad39c4e6af9e770c8a28157f8cde7b388ae4c6ae17fcef8153fdbf045d3db5747d0b385c2214bfb0a7fe5b7974b"
+          "f2209573bf7792686981b9d1baa38138415585b44de38f54d8acdd6328728f42b860938a883d97c34c65dae51ddfa05569a605c7b167b0b792545b95a4464349");
     c.decrypt_block(x);
     bool id = true;
     for (int i = 0; i < 256; i++) id &= x[i] == (uint8_t)(255 - i);
@@ -295,10 +295,10 @@ int main()
   randbytes(&key[0][0], NL * 8);
   randbytes(iv, IV_LEN);
   randbytes(salt, SALT_LEN);
-  OdetteCipher cipher(key, salt);
+  SillyDesCipher cipher(key, salt);
   // Copying wrappers around the in-place primitives.
-  auto enc = [](const OdetteCipher &c, Buf x, const uint8_t *v) { c.cbc_encrypt(x.data(), x.size(), v); return x; };
-  auto dec = [](const OdetteCipher &c, Buf x, const uint8_t *v) { c.cbc_decrypt(x.data(), x.size(), v); return x; };
+  auto enc = [](const SillyDesCipher &c, Buf x, const uint8_t *v) { c.cbc_encrypt(x.data(), x.size(), v); return x; };
+  auto dec = [](const SillyDesCipher &c, Buf x, const uint8_t *v) { c.cbc_decrypt(x.data(), x.size(), v); return x; };
 
   Buf a(256), b(256);
   randbytes(a.data(), 256);
@@ -334,7 +334,7 @@ int main()
       uint8_t alt[NL][8];
       memcpy(alt, key, sizeof alt);
       alt[k][bit / 8] ^= (uint8_t)(0x80 >> (bit % 8));
-      Buf c2 = enc(OdetteCipher(alt, salt), first, iv);
+      Buf c2 = enc(SillyDesCipher(alt, salt), first, iv);
       if (diffbytes(base.data(), c2.data()) < 200) { printf("FAIL: key %d bit %d has no effect\n", k, bit); fails++; }
     }
 
@@ -342,7 +342,7 @@ int main()
   uint8_t salt2[SALT_LEN];
   memcpy(salt2, salt, SALT_LEN);
   salt2[SALT_LEN - 1] ^= 1;
-  if (diffbytes(base.data(), enc(OdetteCipher(key, salt2), first, iv).data()) < 200) { puts("FAIL: salt has no effect"); fails++; }
+  if (diffbytes(base.data(), enc(SillyDesCipher(key, salt2), first, iv).data()) < 200) { puts("FAIL: salt has no effect"); fails++; }
 
   // The tweak must differ per block index: equal inputs to G at different positions give unrelated outputs.
   {
@@ -365,7 +365,7 @@ int main()
   {
     uint8_t same[NL][8];
     for (int i = 0; i < NL; i++) memcpy(same[i], key[0], 8);
-    OdetteCipher weak(same, salt);
+    SillyDesCipher weak(same, salt);
     avalanche(weak, true, "identical-keys encrypt");
     uint8_t x[256], y[256];
     randbytes(x, 256);

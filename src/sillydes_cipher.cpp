@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 
-#include "odette_cipher.h"
+#include "sillydes_cipher.h"
 
 #include <cstring>
 
@@ -27,12 +27,12 @@ void swap_groups(uint8_t *blk, size_t bs)
   for (size_t off = 0; off < 256; off += bs) swap_nibbles(blk + off, bs);
 }
 
-const char WHITE_LABEL[] = "Odette 5.1.0 white";
-const char TWEAK_LABEL[] = "Odette 5.1.0 tweak";
+const char WHITE_LABEL[] = "SillyDES 5.1.0 white";
+const char TWEAK_LABEL[] = "SillyDES 5.1.0 tweak";
 
 }  // namespace
 
-OdetteCipher::OdetteCipher(const uint8_t key[NL][8], const uint8_t salt[SALT_LEN])
+SillyDesCipher::SillyDesCipher(const uint8_t key[NL][8], const uint8_t salt[SALT_LEN])
   : tweakmac_(&key[0][0], NL * 8)
 {
   for (int i = 0; i < NL; i++) des_[i].setkey(key[i]);
@@ -47,12 +47,12 @@ OdetteCipher::OdetteCipher(const uint8_t key[NL][8], const uint8_t salt[SALT_LEN
   memcpy(salt_, salt, SALT_LEN);
 }
 
-OdetteCipher::~OdetteCipher()
+SillyDesCipher::~SillyDesCipher()
 {
   wipe(white_, sizeof white_);
 }
 
-void OdetteCipher::tweak(uint64_t index, uint8_t out[256]) const
+void SillyDesCipher::tweak(uint64_t index, uint8_t out[256]) const
 {
   uint8_t msg[sizeof TWEAK_LABEL - 1 + SALT_LEN + 9];
   memcpy(msg, TWEAK_LABEL, sizeof TWEAK_LABEL - 1);
@@ -65,7 +65,7 @@ void OdetteCipher::tweak(uint64_t index, uint8_t out[256]) const
 }
 
 // P256, then per layer: XOR, DES, and P16, P32, P64, P128, P256, P16, P32 between layers; final XOR.
-void OdetteCipher::encrypt_block(uint8_t *b) const
+void SillyDesCipher::encrypt_block(uint8_t *b) const
 {
   swap_nibbles(b, 256);
   for (int l = 0; l < NL; l++) {
@@ -76,7 +76,7 @@ void OdetteCipher::encrypt_block(uint8_t *b) const
   xor256(b, white_[NL]);
 }
 
-void OdetteCipher::decrypt_block(uint8_t *b) const
+void SillyDesCipher::decrypt_block(uint8_t *b) const
 {
   xor256(b, white_[NL]);
   for (int l = NL - 1; l >= 0; l--) {
@@ -89,7 +89,7 @@ void OdetteCipher::decrypt_block(uint8_t *b) const
 
 // CBC around all layers, with an XEX tweak per block: every block is its own permutation instance,
 // and no single layer sees a known input difference.
-void OdetteCipher::cbc_encrypt(uint8_t *p, size_t n, const uint8_t *iv) const
+void SillyDesCipher::cbc_encrypt(uint8_t *p, size_t n, const uint8_t *iv) const
 {
   uint8_t prev[256], tw[256];
   memcpy(prev, iv, 256);
@@ -104,7 +104,7 @@ void OdetteCipher::cbc_encrypt(uint8_t *p, size_t n, const uint8_t *iv) const
   wipe(tw, sizeof tw);
 }
 
-void OdetteCipher::cbc_decrypt(uint8_t *p, size_t n, const uint8_t *iv) const
+void SillyDesCipher::cbc_decrypt(uint8_t *p, size_t n, const uint8_t *iv) const
 {
   uint8_t prev[256], cur[256], tw[256];
   memcpy(prev, iv, 256);

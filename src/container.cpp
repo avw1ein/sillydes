@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-#include "odette_cipher.h"
+#include "sillydes_cipher.h"
 #include "sha512.h"
 
 namespace {
@@ -28,7 +28,7 @@ void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
   randbytes(iv, IV_LEN);
   if (all_zero(salt, SALT_LEN) || all_zero(iv, IV_LEN)) errorexit(14);
   KeyMaterial km = derive_keys(keys, salt, kdf);
-  OdetteCipher cipher(km.key, salt);
+  SillyDesCipher cipher(km.key, salt);
 
   // One allocation for the whole container, so the plaintext is never copied.
   reserve_wiped(data, HDR_LEN + data.size() + 256 + TAG_LEN);
@@ -62,7 +62,7 @@ void unseal(Buf &d, const KeyInput &keys)
   for (int i = 0; i < TAG_LEN; i++) diff |= tag[i] ^ d[d.size() - TAG_LEN + i];
   if (diff) errorexit(13);
 
-  OdetteCipher cipher(km.key, salt);
+  SillyDesCipher cipher(km.key, salt);
   cipher.cbc_decrypt(d.data() + HDR_LEN, body, iv);
   // Slide the plaintext down over the header; wipe the stale tail and the tag, then unpad.
   memmove(d.data(), d.data() + HDR_LEN, body);

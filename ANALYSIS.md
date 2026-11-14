@@ -1,6 +1,6 @@
-# Mathematical analysis of Odette 5.1.0
+# Mathematical analysis of SillyDES 5.1.0
 
-This analyses the wrapping scheme around DES, not DES itself. DES is treated as a keyed random permutation on 64-bit words. Everything below refers to the current code in [src/](src/) (the cipher is in [src/odette_cipher.cpp](src/odette_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
+This analyses the wrapping scheme around DES, not DES itself. DES is treated as a keyed random permutation on 64-bit words. Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
 ## 1. Summary
 
@@ -31,8 +31,8 @@ $$s_0 = P_{256}(u),\qquad s_{l+1} = P_{g_l}\big(D_{k_l}(s_l \oplus W_l)\big)\ (l
 
 with $g_l = 16\cdot 2^{\,l \bmod 5}$ bytes, that is 16, 32, 64, 128, 256, 16, 32 for $l=0,\dots,6$. With $K = k_0\|\cdots\|k_7$ (all 64 bytes) and the 16-byte salt from the file header, the whitening and the per-block tweak are
 
-$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.1.0 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
-\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"Odette 5.1.0 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
+$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.1.0 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
+\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.1.0 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
 
 four 64-byte outputs each, $i$ the 8-byte big-endian block index. The whitening costs 36 HMAC calls once per file; the tweak costs 4 per block, with the HMAC pad states computed once.
 
@@ -49,7 +49,7 @@ Key material by mode:
 | | Key-file mode | Phrase mode |
 |---|---|---|
 | $K$ (DES keys) | the 64 bytes of the file | Argon2id output bytes 0..63 |
-| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"Odette 5.1.0 mac"})$ | Argon2id output bytes 64..127 |
+| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"SillyDES 5.1.0 mac"})$ | Argon2id output bytes 64..127 |
 | Salt | input to $W_j$ and $\Delta_i$ | input to Argon2id, $W_j$ and $\Delta_i$ |
 | Varies per file | salt, hence all $W_j$ and $\Delta_i$, and IV | salt, hence $K$, $K_{mac}$, all $W_j$, $\Delta_i$, and IV |
 
@@ -160,7 +160,7 @@ The numbers above $2^{512}$ are an artefact of treating the whitening as indepen
 
 With no partial-key test (section 5.2), the quantum generic attack is Grover over the whole key:
 
-| | AES-256 | Odette 5.1.0, key file | Hypothetical 512-bit cipher |
+| | AES-256 | SillyDES 5.1.0, key file | Hypothetical 512-bit cipher |
 |---|---|---|---|
 | Key bits | 256 | 512 (448 DES bits, 64 bits that only feed whitening and tweak) | 512 |
 | Grover iterations | $2^{128}$ | $2^{256}$ | $2^{256}$ |
@@ -254,7 +254,7 @@ Every slide attack, classical or quantum, needs self-similarity: the cipher must
 Layer $l$ of $G$ is $x \mapsto P_{g_l}\big(D_{k_l}(x\oplus W_l)\big)$. The stride pattern repeats with period five (layers 0 to 2 use $P_{16}, P_{32}, P_{64}$ and so do layers 5 to 7), which is the only self-similar element. It is broken twice over:
 
 - The layer keys $k_l$ are independent bytes of the key file or of the Argon2id output. For $k_l = k_{l+5}$ the user would have to supply a key file with repeated keys, and even then:
-- The whitening blocks $W_l$ are HMAC outputs whose input contains the layer index $j$ ([src/odette_cipher.cpp](src/odette_cipher.cpp)). $W_l = W_{l+5}$ would need a 2048-bit PRF collision, probability about $2^{-2048}$ per pair of layers. A key file with eight identical DES keys therefore still gives eight distinct layer functions. No related-key or twisted relation between $W_l$ and $W_{l+5}$ exists either, since they are unrelated PRF outputs, which rules out the complementation and twist variants.
+- The whitening blocks $W_l$ are HMAC outputs whose input contains the layer index $j$ ([src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). $W_l = W_{l+5}$ would need a 2048-bit PRF collision, probability about $2^{-2048}$ per pair of layers. A key file with eight identical DES keys therefore still gives eight distinct layer functions. No related-key or twisted relation between $W_l$ and $W_{l+5}$ exists either, since they are unrelated PRF outputs, which rules out the complementation and twist variants.
 - Eight layers are not a multiple of five, so even with identical keys and whitening the cipher would be $R'\circ R$ with $R$ the five-layer period and $R'$ only its first three layers, and a pair slid by one period would not close.
 - The complementation slide relies on $D_{\bar k}(\bar x) = \overline{D_k(x)}$. Complementing $K$ replaces every $W_j$ and $\Delta_i$ with an unrelated PRF output (section 5.3), so the property does not survive the whitening.
 - The slide-with-FX attacks of Bonnetain et al. strip an outer whitening by Simon and slide the inner cipher; the inner cipher here is not self-similar, so there is nothing to slide after stripping.
@@ -356,7 +356,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 - **Secret, not public, masks.** A public per-block value (a counter, a hash of the index) would leave $G$'s input and output differences known to the attacker and change nothing. The mask must be a PRF of the key.
 - **Independent masks, not a geometric sequence.** XTS derives its masks as $\Delta_i = \Delta_0\cdot\alpha^i$ in $\mathrm{GF}(2^{128})$, so that consecutive masks are related by a public linear map. Here every $\Delta_i$ is a fresh PRF output, so $\Delta_i\oplus\Delta_j$ is unknown for every pair. This costs four HMAC calls per block instead of one multiplication, and it is why section 6.1 can say that no two blocks have a known difference, and why no Simon-type attack finds a linear relation between masks (section 6.5).
 - **Salt in the tweak and the whitening.** The salt is random per file and authenticated. Feeding it to both PRFs means that two files made with the same key file share no mask at all, so blocks at equal positions in different files are as unrelated as blocks in one file. In phrase mode the salt already changes $K$; including it again is harmless.
-- **Domain separation.** The labels `Odette 5.1.0 white`, `Odette 5.1.0 tweak` and `Odette 5.1.0 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
+- **Domain separation.** The labels `SillyDES 5.1.0 white`, `SillyDES 5.1.0 tweak` and `SillyDES 5.1.0 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
 - **Chaining retained.** CBC inside the tweak costs one XOR and makes $c_i$ depend on the whole message prefix (section 7).
 - **Cost.** About 14 percent of the running time: 16 MiB takes 1.22 s each way, 256 DES operations and 8 SHA-512 compressions per block **(measured)**.
 - **Derived from the same key as the layers.** Masks that were independent keys would be stripped by Grover-meets-Simon in Q2 and the attack would continue against the inner cascade. Because the masks are PRF outputs of $K$, the "inner key" of that attack is $K$ itself (section 6.5). This is an observation, not a proof, and no file-encryption attacker has a superposition oracle anyway.
@@ -370,7 +370,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 ### 10.2 Parameters
 
-| | AES-256 | Odette 5.1.0 |
+| | AES-256 | SillyDES 5.1.0 |
 |---|---|---|
 | Block size | 128 bits | 2048 bits (64-bit DES words inside) |
 | Key material | 32 bytes | 64 bytes, plus a 64-byte MAC key derived from it |
@@ -382,7 +382,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 ### 10.3 Security levels and speed
 
-| Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | Odette 5.1.0, key file |
+| Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | SillyDES 5.1.0, key file |
 |---|---|---|
 | Classical key search | $2^{256}$ | $2^{512}$ (heuristic, section 5.2) |
 | Quantum key search (Q1) | $2^{128}$ iterations | $2^{256}$ for the cipher and for the MAC (heuristic, section 5.4) |

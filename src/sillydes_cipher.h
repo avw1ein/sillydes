@@ -9,10 +9,10 @@
 
 // The 2048-bit wide-block cipher: eight DES layers with per-layer whitening and nibble permutations,
 // wrapped in CBC with a per-block XEX tweak. Whitening and tweak depend on every key bit and the salt.
-class OdetteCipher {
+class SillyDesCipher {
 public:
-  OdetteCipher(const uint8_t key[NL][8], const uint8_t salt[SALT_LEN]);
-  ~OdetteCipher();
+  SillyDesCipher(const uint8_t key[NL][8], const uint8_t salt[SALT_LEN]);
+  ~SillyDesCipher();
 
   void encrypt_block(uint8_t *b) const;
   void decrypt_block(uint8_t *b) const;

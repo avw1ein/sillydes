@@ -1,6 +1,6 @@
-# Odette 5.1.0 in pictures: one block, layer by layer
+# SillyDES 5.1.0 in pictures: one block, layer by layer
 
-This document draws what happens to a single 256-byte block on its way from plaintext to ciphertext. It shows *where* every byte comes from and *where* it goes; the reasons why the construction is built this way are in [ANALYSIS.md](ANALYSIS.md), and the code that does it is described in [STRUCTURE.md](STRUCTURE.md). Only encryption is drawn: decryption is the same ladder climbed downwards. All positions and offsets were read from [src/odette_cipher.cpp](src/odette_cipher.cpp).
+This document draws what happens to a single 256-byte block on its way from plaintext to ciphertext. It shows *where* every byte comes from and *where* it goes; the reasons why the construction is built this way are in [ANALYSIS.md](ANALYSIS.md), and the code that does it is described in [STRUCTURE.md](STRUCTURE.md). Only encryption is drawn: decryption is the same ladder climbed downwards. All positions and offsets were read from [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp).
 
 In one line, for block number $i$:
 
@@ -103,13 +103,13 @@ The permutation is therefore the only step that moves information between words,
 Four HMAC-SHA-512 calls, each 64 bytes of output, fill the four 64-byte slices shown in the grid above. The messages differ only in the last byte.
 
 ```
-HMAC message for Δ_i, slice c            (43 bytes)
+HMAC message for Δ_i, slice c            (45 bytes)
 
-offset    0                      18               34                             42
-         ┌──────────────────────┬─────────────────┬───────────────────────────────┬───┐
-         │ "Odette 5.1.0 tweak" │ salt            │ block index i                 │ c │
-         │ 18 bytes             │ 16 bytes        │ 8 bytes, big-endian           │ 1 │
-         └──────────────────────┴─────────────────┴───────────────────────────────┴───┘
+offset    0                        20               36                             44
+         ┌────────────────────────┬─────────────────┬───────────────────────────────┬───┐
+         │ "SillyDES 5.1.0 tweak" │ salt            │ block index i                 │ c │
+         │ 20 bytes               │ 16 bytes        │ 8 bytes, big-endian           │ 1 │
+         └────────────────────────┴─────────────────┴───────────────────────────────┴───┘
                                                                                  c = 0, 1, 2, 3
 
 Δ_i  bytes    0 ………… 63  │  64 ………… 127  │  128 ………… 191  │  192 ………… 255
@@ -124,7 +124,7 @@ flowchart LR
     K["K = k_0 ‖ … ‖ k_7<br/>64 B, zero-padded to 128 B"]
     K --> ip["K ⊕ 0x36 × 128"] --> inner["SHA-512 state <i>inner</i><br/>computed once per file"]
     K --> op["K ⊕ 0x5c × 128"] --> outer["SHA-512 state <i>outer</i><br/>computed once per file"]
-    inner -. "copy" .-> a["absorb 43-byte message<br/>1 compression"]
+    inner -. "copy" .-> a["absorb 45-byte message<br/>1 compression"]
     a --> dg["64-byte inner digest"]
     outer -. "copy" .-> b["absorb inner digest<br/>1 compression"]
     dg --> b
@@ -171,13 +171,13 @@ flowchart LR
         salt["salt, 16 B"]
         K --> ks["8 DES key schedules<br/>k_0 … k_7"]
         K --> H["Hmac512 pad states"]
-        salt --> Wm["36-byte messages<br/>j = 0..8, c = 0..3"]
+        salt --> Wm["38-byte messages<br/>j = 0..8, c = 0..3"]
         H --> W["W_0 … W_8<br/>9 × 256 B, 36 HMAC calls"]
         Wm --> W
     end
     subgraph blk["computed for every block i"]
         direction TB
-        idx["block index i"] --> Tm["43-byte messages<br/>c = 0..3"]
+        idx["block index i"] --> Tm["45-byte messages<br/>c = 0..3"]
         Tm --> T["Δ_i, 256 B<br/>4 HMAC calls"]
         prev["c_(i-1)"]
     end
@@ -194,13 +194,13 @@ flowchart LR
 The whitening is made exactly like the tweak, with two differences: a one-byte layer number $j$ replaces the eight-byte block index, and the label says `white`. Thirty-six calls fill nine 256-byte masks, once per file.
 
 ```
-HMAC message for W_j, slice c            (36 bytes)
+HMAC message for W_j, slice c            (38 bytes)
 
-offset    0                      18               34   35
-         ┌──────────────────────┬─────────────────┬─────┬───┐
-         │ "Odette 5.1.0 white" │ salt            │  j  │ c │
-         │ 18 bytes             │ 16 bytes        │  1  │ 1 │
-         └──────────────────────┴─────────────────┴─────┴───┘
+offset    0                        20               36   37
+         ┌────────────────────────┬─────────────────┬─────┬───┐
+         │ "SillyDES 5.1.0 white" │ salt            │  j  │ c │
+         │ 20 bytes               │ 16 bytes        │  1  │ 1 │
+         └────────────────────────┴─────────────────┴─────┴───┘
 
                   slice c = 0      c = 1       c = 2       c = 3
                   words 0..7      8..15      16..23      24..31
@@ -521,4 +521,4 @@ One bar cell is roughly eight operations. The DES calls dominate, which is where
 
 ---
 
-For why the layers are arranged like this, how far the mixing carries, and what the whitening and tweak buy, read [ANALYSIS.md](ANALYSIS.md). For the functions behind each box, `encrypt_block`, `tweak`, `cbc_encrypt` and the `OdetteCipher` constructor, read [STRUCTURE.md](STRUCTURE.md) section 5 and [src/odette_cipher.cpp](src/odette_cipher.cpp).
+For why the layers are arranged like this, how far the mixing carries, and what the whitening and tweak buy, read [ANALYSIS.md](ANALYSIS.md). For the functions behind each box, `encrypt_block`, `tweak`, `cbc_encrypt` and the `SillyDesCipher` constructor, read [STRUCTURE.md](STRUCTURE.md) section 5 and [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp).

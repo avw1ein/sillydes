@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// Odette 5.1.0 - Linux command line port of the DOS program by Andy van Wezel (1993 - 1994),
+// SillyDES 5.1.0 - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
 // Build: make
@@ -30,8 +30,8 @@ struct Args {
 
 void usage()
 {
-  puts("Odette 5.1.0 Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
-  puts("Usage: odette act=e|d|em|dm in=infile out=outfile phrase|key=keyfile");
+  puts("SillyDES 5.1.0 Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
+  puts("Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile");
   puts(" e            Encryption.");
   puts(" d            Decryption.");
   puts(" em           Encryption to e-mail message.");
@@ -40,12 +40,12 @@ void usage()
   puts(" outfile      Result of en/decryption.");
   puts(" keyfile      Contains the eight keys.");
   puts(" phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n");
-  puts("*Odette performs a DES8 encryption with 2048-bit whitening on textfiles or");
+  puts("*SillyDES performs a DES8 encryption with 2048-bit whitening on textfiles or");
   puts(" executables. The block size grows to 2048 bits. Eight 64-bit keys feed");
   puts(" every layer. Output is authenticated (HMAC-SHA-512).");
-  puts("*Odette is free software released under the MIT License (see the LICENSE file),");
+  puts("*SillyDES is free software released under the MIT License (see the LICENSE file),");
   puts(" and provided as is. Andy van Wezel makes no claims and offers no warranties");
-  puts(" of any sort with Odette.");
+  puts(" of any sort with SillyDES.");
 }
 
 Args parse_args(int argc, char *argv[])

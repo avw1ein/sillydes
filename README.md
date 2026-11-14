@@ -1,4 +1,4 @@
-# Odette 5.1.0
+# SillyDES 5.1.0
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).
@@ -10,11 +10,11 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 - [Ethics](#ethics)
 
 1. [Quick start](#1-quick-start)
-2. [Why use Odette?](#2-why-use-odette)
+2. [Why use SillyDES?](#2-why-use-sillydes)
 3. [How does it work?](#3-how-does-it-work)
 4. [The encryption scheme](#4-the-encryption-scheme)
-5. [How to use Odette with e-mail software](#5-how-to-use-odette-with-e-mail-software)
-6. [How to use Odette normal style](#6-how-to-use-odette-normal-style)
+5. [How to use SillyDES with e-mail software](#5-how-to-use-sillydes-with-e-mail-software)
+6. [How to use SillyDES normal style](#6-how-to-use-sillydes-normal-style)
 7. [Keys](#7-keys)
 8. [Intramural security](#8-intramural-security)
 9. [Error levels](#9-error-levels)
@@ -28,7 +28,7 @@ See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going th
 
 **THIS IS A HOBBY PROJECT**
 
-Odette gives you a way to protect your data, whether you keep it at home or send it throughout the world. The program provides two sorts of output, High-ASCII and Low-ASCII. You can use the first for security at home. The second one is aimed at e-mail.
+SillyDES gives you a way to protect your data, whether you keep it at home or send it throughout the world. The program provides two sorts of output, High-ASCII and Low-ASCII. You can use the first for security at home. The second one is aimed at e-mail. SillyDES was originally released as Odette, a DOS program (1993 - 1994).
 
 The program uses the Data Encryption Standard (DES). See section 2 for the reasoning behind this choice.
 
@@ -47,7 +47,7 @@ Features:
 
 ## History
 
-The first experiments with block expansion, the idea this project is built around, date from the early nineties, when the USA lifted the export embargo on DES and AES did not exist yet. I worked it out on my own at the time; related ideas have been explored by others before and since, and I make no claim to priority. Big Blue, IBM, placed an example implementation of DES into the public domain. I found it on Fidonet. My first program was called Lowkeyed. Lowkeyed used a home-brew DES3 variant based on block expansion. To transport cipher text in e-mails, I added a translation to low-ASCII. Hence, low-keyed. This translation was common in those days, since e-mail attachments only came later. Then came the General Privacy Guard, GPG. GPG used 6 layers of DES. I kept developing the project inside my head, but didn't make updates for a long time. GPG is nowadays a synonym for GnuPG and not General Privacy Guard. So here comes Odette! Odette is an ode to Tchaikovsky's Swan Lake.
+The first experiments with block expansion, the idea this project is built around, date from the early nineties, when the USA lifted the export embargo on DES and AES did not exist yet. I worked it out on my own at the time; related ideas have been explored by others before and since, and I make no claim to priority. Big Blue, IBM, placed an example implementation of DES into the public domain. I found it on Fidonet. My first program was called Lowkeyed. Lowkeyed used a home-brew DES3 variant based on block expansion. To transport cipher text in e-mails, I added a translation to low-ASCII. Hence, low-keyed. This translation was common in those days, since e-mail attachments only came later. Then came the General Privacy Guard, GPG. GPG used 6 layers of DES. I kept developing the project inside my head, but didn't make updates for a long time. GPG is nowadays a synonym for GnuPG and not General Privacy Guard. So here comes SillyDES! Its first name, Odette, was an ode to Tchaikovsky's Swan Lake.
 
 ---
 
@@ -55,7 +55,7 @@ The first experiments with block expansion, the idea this project is built aroun
 
 Technology does not choose its users. Strong encryption protects people, and it can also shield people who do harm. That tension is why this section exists.
 
-If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts Odette in the same range as AES-256; they are estimates from the author, not a review. Strength was the goal from the first version on, and for a long time I was not comfortable publishing a tool like this as a private person. With quantum computers on the horizon and encryption increasingly seen as a matter of human rights, I came to see it differently and decided to finish it and put it out.
+If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts SillyDES in the same range as AES-256; they are estimates from the author, not a review. Strength was the goal from the first version on, and for a long time I was not comfortable publishing a tool like this as a private person. With quantum computers on the horizon and encryption increasingly seen as a matter of human rights, I came to see it differently and decided to finish it and put it out.
 
 ---
 
@@ -64,17 +64,17 @@ If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts Odette 
 For a quick e-mail style demonstration:
 
 ```sh
-./odette act=dm in=hello.ode out=hello.txt key=sample.key
+./sillydes act=dm in=hello.sdes out=hello.txt key=sample.key
 cat hello.txt
 ```
 
-`hello.txt`, `hello.ode` and `sample.key` are ASCII files.
+`hello.txt`, `hello.sdes` and `sample.key` are ASCII files.
 
 For a quick demonstration in normal style, encrypt and decrypt a file:
 
 ```sh
-./odette act=e in=myfile out=myfile.ode key=sample.key
-./odette act=d in=myfile.ode out=myfile.out key=sample.key
+./sillydes act=e in=myfile out=myfile.sdes key=sample.key
+./sillydes act=d in=myfile.sdes out=myfile.out key=sample.key
 ```
 
 To see how to make a key file:
@@ -86,22 +86,22 @@ cat sample.key
 To get help:
 
 ```sh
-./odette
+./sillydes
 ```
 
-Files made by Odette 5.1.0 cannot be read by older versions, and the other way around.
+Files made by SillyDES 5.1.0 cannot be read by older versions, and the other way around. This includes files made by the program under its former name, Odette 5.1.0.
 
 ---
 
-## 2. Why use Odette?
+## 2. Why use SillyDES?
 
-At this moment a single DES encryption can be cracked in a few hours (minutes?). You need a good computer to do it, but... The next step in line is triple DES (DES3). This is also within reach of modern computers. That's why some of us want something stronger than DES or triple DES, and Odette is one way to build it out of DES. In return you have to be more patient, because it is slower. The slowness is part of the design: an attacker who tries keys pays for every one of them. Modern CPUs accelerate AES for user and attacker alike; nothing accelerates Odette.
+At this moment a single DES encryption can be cracked in a few hours (minutes?). You need a good computer to do it, but... The next step in line is triple DES (DES3). This is also within reach of modern computers. That's why some of us want something stronger than DES or triple DES, and SillyDES is one way to build it out of DES. In return you have to be more patient, because it is slower. The slowness is part of the design: an attacker who tries keys pays for every one of them. Modern CPUs accelerate AES for user and attacker alike; nothing accelerates SillyDES.
 
 The eight keys feed eight DES layers and a 2048-bit whitening that is derived from every bit of every key. Without the whitening, a meet-in-the-middle attack on a cascade of eight ciphers would need about 2^224 operations. The whitening keeps both halves of such an attack from being tried alone, so the best known approach is to try all 2^512 key values. This is an estimate, not a proof, and the construction has not been reviewed by others. It also assumes random keys; how to get them is the subject of section 7.
 
-Don't think single DES is bad just because it can be cracked. In the end every code can be cracked; it's just a matter of resources. DES has been studied for almost 50 years. Its security properties, including the shortcomings, are well known. This is the reason why DES can be used as a building block for something stronger. Instead of beginning from scratch, Odette can rely on all that is known about DES.
+Don't think single DES is bad just because it can be cracked. In the end every code can be cracked; it's just a matter of resources. DES has been studied for almost 50 years. Its security properties, including the shortcomings, are well known. This is the reason why DES can be used as a building block for something stronger. Instead of beginning from scratch, SillyDES can rely on all that is known about DES.
 
-Is Odette an invention? It's more a matter of creativity. It mostly uses well-known techniques to reach its goal. You should see it as an interface to DES. The creativity is in the block expansion technique that makes multiple DES iterations worthwhile. The result is a block cipher that is wider and slower than DES. Both work in the defender's favour.
+Is SillyDES an invention? It's more a matter of creativity. It mostly uses well-known techniques to reach its goal. You should see it as an interface to DES. The creativity is in the block expansion technique that makes multiple DES iterations worthwhile. The result is a block cipher that is wider and slower than DES. Both work in the defender's favour.
 
 ---
 
@@ -109,7 +109,7 @@ Is Odette an invention? It's more a matter of creativity. It mostly uses well-kn
 
 Encryption is done in independent steps. Besides the DES steps there are block expansion steps. The block expansion steps widen the block to 2048 bits and spread every input bit over the whole block. They are keyless, so they do not add key strength.
 
-Total encryption is performed on 2048-bit blocks. Standard DES uses 64-bit blocks and has a key space of 2^56. Odette uses eight 64-bit keys, 2^512 values in all (see section 2).
+Total encryption is performed on 2048-bit blocks. Standard DES uses 64-bit blocks and has a key space of 2^56. SillyDES uses eight 64-bit keys, 2^512 values in all (see section 2).
 
 Two more ingredients tie the DES steps together. Before each DES step, and once more after the last one, the whole 2048-bit block is XORed with a *whitening* value. The nine whitening values are fixed for one file: they are computed with HMAC-SHA-512 from all eight keys and the file's random salt. This means every bit of every key influences every step, including the eight parity bits per key that DES itself ignores, and two files encrypted with the same keys still use different whitening.
 
@@ -131,7 +131,7 @@ Encryption is performed in sixteen steps.
 
 Block expansion swaps the upper 4 bits of a byte in the first half block with the lower 4 bits of the corresponding byte in the second half block. Thus, to decrypt the first half block, you must include the second half block as well, and vice versa.
 
-Although DES is supposed to have a multiplying property, Odette doesn't rely on it. Block expansion inputs new data in each 64-bit block before a new encryption is done.
+Although DES is supposed to have a multiplying property, SillyDES doesn't rely on it. Block expansion inputs new data in each 64-bit block before a new encryption is done.
 
 ```
 Step  0: Rounding the file size up to a multiple of 256 bytes.
@@ -172,13 +172,13 @@ The salt and the IV come from the system random generator on every encryption; t
 
 ---
 
-## 5. How to use Odette with e-mail software
+## 5. How to use SillyDES with e-mail software
 
-Encrypt whatever you like to transmit, using the `act=em` option. Copy the result into a message, and send the message. The recipient must export the message into a file, and decrypt that file using the `act=dm` option. Odette can search for the code in the file, since the code is encapsulated by identification lines.
+Encrypt whatever you like to transmit, using the `act=em` option. Copy the result into a message, and send the message. The recipient must export the message into a file, and decrypt that file using the `act=dm` option. SillyDES can search for the code in the file, since the code is encapsulated by identification lines.
 
 ---
 
-## 6. How to use Odette normal style
+## 6. How to use SillyDES normal style
 
 Encrypt using the `act=e` option, and decrypt using the `act=d` option. The output file now contains High-ASCII and should be treated as binary data.
 
@@ -225,7 +225,7 @@ Against a quantum computer the effective strength of a phrase halves (Grover's a
 
 ## 8. Intramural security
 
-This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. Odette disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the Argon2id phrase derivation reads memory at data-dependent addresses after its first half pass, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
+This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. SillyDES disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, but it cannot stop the system from swapping its memory to disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the Argon2id phrase derivation reads memory at data-dependent addresses after its first half pass, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
 
 ---
 
@@ -255,10 +255,10 @@ The program can generate fourteen error levels. You can use these in a shell scr
 
 ## 10. Disclaimer
 
-Odette performs a DES8 encryption (works on 2048-bit blocks) on text files or executables. Intramural security is not trivial.
+SillyDES performs a DES8 encryption (works on 2048-bit blocks) on text files or executables. Intramural security is not trivial.
 
 The Data Encryption Standard (DES) was issued by the U.S. National Bureau of Standards.
 
-Odette is free of charge, and provided as is. Andy van Wezel makes no claims and offers no warranties of any sort with Odette. Andy van Wezel also assumes no responsibility for any sort of damage resulting from apparent or actual use of Odette. The user accepts all responsibility for the use and distribution of the program. In some countries there are laws concerning encryption.
+SillyDES is free of charge, and provided as is. Andy van Wezel makes no claims and offers no warranties of any sort with SillyDES. Andy van Wezel also assumes no responsibility for any sort of damage resulting from apparent or actual use of SillyDES. The user accepts all responsibility for the use and distribution of the program. In some countries there are laws concerning encryption.
 
-Odette is released under the MIT License; see the [LICENSE](LICENSE) file for the full terms. You may use, copy, modify, merge, publish, distribute, sublicense and sell copies of it, provided the copyright and permission notice are kept in all copies or substantial portions of the software.
+SillyDES is released under the MIT License; see the [LICENSE](LICENSE) file for the full terms. You may use, copy, modify, merge, publish, distribute, sublicense and sell copies of it, provided the copyright and permission notice are kept in all copies or substantial portions of the software.

@@ -22,17 +22,17 @@ std::string errarg;
   switch (numer) {
     case 1:  fprintf(stderr, "ERROR#1: Can't read from: %s\n", a); break;
     case 2:  fprintf(stderr, "ERROR#2: Can't write to: %s\n", a); break;
-    case 3:  fputs("ERROR#3: Wrong number of parameters.\nType odette for help.\n", stderr); break;
-    case 4:  fprintf(stderr, "ERROR#4: Invalid option: %s\nType odette for help.\n", a); break;
+    case 3:  fputs("ERROR#3: Wrong number of parameters.\nType sillydes for help.\n", stderr); break;
+    case 4:  fprintf(stderr, "ERROR#4: Invalid option: %s\nType sillydes for help.\n", a); break;
     case 5:  fprintf(stderr, "ERROR#5: Faulty keyfile: %s\n", a); break;
-    case 6:  fputs("ERROR#6: Inputfile and outputfile must differ.\nType odette for help.\n", stderr); break;
+    case 6:  fputs("ERROR#6: Inputfile and outputfile must differ.\nType sillydes for help.\n", stderr); break;
     case 7:  fputs("ERROR#7: Not enough memory (phrase mode needs 2 GiB free).\n", stderr); break;
     case 8:  fprintf(stderr, "ERROR#8: Can't find begin of code in: %s\n", a); break;
-    case 9:  fprintf(stderr, "ERROR#9: Duplicate argument on commandline: %s\nType odette for help.\n", a); break;
-    case 10: fprintf(stderr, "ERROR#10: Argument missing: %s\nType odette for help.\n", a); break;
+    case 9:  fprintf(stderr, "ERROR#9: Duplicate argument on commandline: %s\nType sillydes for help.\n", a); break;
+    case 10: fprintf(stderr, "ERROR#10: Argument missing: %s\nType sillydes for help.\n", a); break;
     case 11: fprintf(stderr, "ERROR#11: Can't find end of code in: %s\n", a); break;
     case 12: fprintf(stderr, "ERROR#12: CRC error in: %s\n", a); break;
-    case 13: fputs("ERROR#13: Authentication failed (wrong key, or data damaged or not Odette 5.1.0).\n", stderr); break;
+    case 13: fputs("ERROR#13: Authentication failed (wrong key, or data damaged or not SillyDES 5.1.0).\n", stderr); break;
     case 14: fputs("ERROR#14: System random generator failed.\n", stderr); break;
     default: break;
   }
