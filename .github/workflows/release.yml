@@ -2,11 +2,14 @@
 # Copyright (c) 1993-1994, 2026 Andy van Wezel
 #
 # Publishes a release when a version tag such as v5.1.0 is pushed: builds and tests the binary,
-# generates its CycloneDX SBOM, attests the SBOM to the binary (verify with
-# `gh attestation verify <binary> --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom`;
-# without the type, gh looks for a build provenance attestation, which is not made) and attaches
-# binary, SBOM and SHA256SUMS to a GitHub Release. The text of the release is the section of CHANGELOG.md for the
-# version.
+# generates its CycloneDX SBOM, makes two attestations for the binary and attaches binary, SBOM
+# and SHA256SUMS to a GitHub Release. The text of the release is the section of CHANGELOG.md for
+# the version. The attestations, and how to verify them:
+#
+#   build provenance   gh attestation verify <binary> --repo avw1ein/sillydes
+#   SBOM               gh attestation verify <binary> --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom
+#
+# Releases up to 5.2.0 have the SBOM attestation only.
 
 name: release
 
@@ -63,9 +66,20 @@ jobs:
           (cd dist && sha256sum "$name" "$name.cdx.json" > SHA256SUMS)
           echo "NAME=$name" >> "$GITHUB_ENV"
 
+      # Without sbom-path or a predicate this attests the build provenance of the binary: which
+      # workflow, commit and runner made it. It is what `gh attestation verify` checks by default.
+      # The NODE_OPTIONS are those that actions/attest-build-provenance sets around the same call.
+      - name: Attest the build provenance of the binary
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        env:
+          NODE_OPTIONS: '--max-http-header-size=32768'
+        with:
+          subject-path: dist/${{ env.NAME }}
+
       # With sbom-path this makes an SBOM attestation, as the deprecated actions/attest-sbom did;
       # that action was a wrapper around this one and set the same NODE_OPTIONS.
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - name: Attest the SBOM to the binary
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         env:
           NODE_OPTIONS: '--max-http-header-size=32768'
         with:

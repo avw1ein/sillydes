@@ -7,7 +7,7 @@ description: Publish a new SillyDES release. Use when asked to make, cut, publis
 
 A release is a **version tag** `vX.Y.Z` on `main`. Pushing the tag runs
 [release.yml](../../workflows/release.yml), which builds, tests, generates the CycloneDX SBOM,
-attests it, and creates the GitHub Release with `sillydes-X.Y.Z-linux-x86_64`, its `.cdx.json` and
+attests the build provenance and the SBOM, and creates the GitHub Release with `sillydes-X.Y.Z-linux-x86_64`, its `.cdx.json` and
 `SHA256SUMS`. Everything before the tag is yours to do and verify; the tag is the point of no return.
 
 The same procedure is summarised for humans in `STRUCTURE.md`, section 10 ("Making a release").
@@ -154,7 +154,8 @@ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -
 
 The tag must point at the commit that passed CI. The workflow then: checks tag against
 `PACKAGE_VERSION`, builds with the CI flags, runs the tests, generates the SBOM, names the files
-after the release, attests the SBOM to the binary (`actions/attest` with `sbom-path`), and runs
+after the release, attests the build provenance of the binary and the SBOM to the binary
+(`actions/attest`, without and with `sbom-path`), and runs
 `gh release create --verify-tag --notes-file` with the changelog section.
 
 ## 6. Verify the release
@@ -162,14 +163,17 @@ after the release, attests the SBOM to the binary (`actions/attest` with `sbom-p
 ```sh
 gh release view vX.Y.Z --json url,assets --jq '.url, (.assets[].name)'   # 3 assets
 d=$(mktemp -d) && gh release download vX.Y.Z --dir "$d" && (cd "$d" && sha256sum -c SHA256SUMS)
-gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom
+gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes                                              # build provenance
+gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom   # SBOM
 chmod +x "$d/sillydes-X.Y.Z-linux-x86_64" && "$d/sillydes-X.Y.Z-linux-x86_64" | head -1   # banner shows X.Y.Z
 ```
 
-The attestation is an SBOM attestation, so the predicate type must be named: without it `gh` looks
-for a build provenance attestation and ends in `HTTP 404`, which says nothing about the release.
-`gh attestation` needs gh 2.49 or newer; Ubuntu's own package is older (the packages of
-cli.github.com are current).
+A release has two attestations for its binary. Without a predicate type `gh` checks the build
+provenance; the SBOM attestation needs its type named. Releases 5.1.1 and 5.2.0 have the SBOM
+attestation only, so for them the first command ends in `HTTP 404`, which says nothing about the
+release. The provenance step runs for the first time in the release after 5.2.0: if it fails there,
+nothing is published yet (section 7). `gh attestation` needs gh 2.49 or newer; Ubuntu's own package
+is older (the packages of cli.github.com are current).
 
 Report to the user: the release URL, the commit SHA, the binary's SHA-256, and whether the format
 changed. Clean up the temp directory.

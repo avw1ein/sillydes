@@ -10,6 +10,12 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
+  runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
+  the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.
+
 ## [5.2.0] - 2026-11-21
 
 **File format: new (5.2.0).** Files from earlier releases cannot be read, and files in the new
