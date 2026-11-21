@@ -15,6 +15,7 @@
 
 #include <psapi.h>
 
+#include <cstring>
 #include <thread>
 
 namespace {
@@ -289,4 +290,194 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
   CloseHandle(out_r);
   CloseHandle(err_r);
   return r;
+}
+
+namespace {
+
+template <class F>
+F kernel32_function(const char *name)
+{
+  FARPROC p = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), name);
+  F f = nullptr;
+  memcpy(&f, &p, sizeof f);  // neither compiler likes a cast between a function pointer and another type
+  return f;
+}
+
+// The pseudo-console functions are looked up, so that the tests build with every header set and a
+// Windows without them just skips.
+typedef HRESULT(WINAPI *CreatePseudoConsoleFn)(COORD, HANDLE, HANDLE, DWORD, void **);
+typedef void(WINAPI *ClosePseudoConsoleFn)(void *);
+const DWORD_PTR PSEUDOCONSOLE_ATTRIBUTE = 0x00020016;  // PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+
+void append_available(HANDLE pipe, std::string &into)
+{
+  DWORD avail = 0;
+  while (PeekNamedPipe(pipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+    char buf[4096];
+    DWORD n = 0;
+    if (!ReadFile(pipe, buf, avail < sizeof buf ? avail : (DWORD)sizeof buf, &n, nullptr) || n == 0) break;
+    into.append(buf, n);
+  }
+}
+
+void type_text(HANDLE pipe, const std::string &text)
+{
+  for (size_t off = 0; off < text.size();) {
+    DWORD done = 0;
+    if (!WriteFile(pipe, text.data() + off, (DWORD)(text.size() - off), &done, nullptr) || done == 0) return;
+    off += done;
+  }
+}
+
+}  // namespace
+
+bool can_run_on_terminal()
+{
+  return kernel32_function<CreatePseudoConsoleFn>("CreatePseudoConsole") != nullptr;
+}
+
+// The program gets a pseudo-console (ConPTY), as the terminal of Windows Terminal has. What is typed
+// goes in as UTF-8 and VT sequences, and the console turns it into key events: a character outside the
+// BMP reaches ReadConsoleW as a surrogate pair, as it does from a real keyboard.
+TerminalResult run_on_terminal(const std::string &exe, const std::vector<std::string> &args, const std::vector<TypedLine> &lines, int timeout_ms)
+{
+  TerminalResult r;
+  CreatePseudoConsoleFn create = kernel32_function<CreatePseudoConsoleFn>("CreatePseudoConsole");
+  ClosePseudoConsoleFn close_console = kernel32_function<ClosePseudoConsoleFn>("ClosePseudoConsole");
+  if (!create || !close_console) return r;
+  HANDLE in_r = nullptr, in_w = nullptr, out_r = nullptr, out_w = nullptr;
+  if (!CreatePipe(&in_r, &in_w, nullptr, 0) || !CreatePipe(&out_r, &out_w, nullptr, 0)) return r;
+  void *console = nullptr;
+  COORD size = { 120, 30 };
+  HRESULT hr = create(size, in_r, out_w, 0, &console);
+  CloseHandle(in_r);
+  CloseHandle(out_w);
+  if (FAILED(hr)) {
+    CloseHandle(in_w);
+    CloseHandle(out_r);
+    return r;
+  }
+
+  SIZE_T attr_size = 0;
+  InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_size);
+  std::vector<char> attr_space(attr_size);
+  LPPROC_THREAD_ATTRIBUTE_LIST list = (LPPROC_THREAD_ATTRIBUTE_LIST)attr_space.data();
+  bool ok = InitializeProcThreadAttributeList(list, 1, 0, &attr_size) != 0;
+  if (ok) ok = UpdateProcThreadAttribute(list, 0, PSEUDOCONSOLE_ATTRIBUTE, console, sizeof console, nullptr, nullptr) != 0;
+  std::wstring wexe = widen(exe), cmd;
+  quote_argument(wexe, cmd);
+  for (const std::string &a : args) {
+    cmd += L' ';
+    quote_argument(widen(a), cmd);
+  }
+  std::vector<wchar_t> cmdline(cmd.begin(), cmd.end());
+  cmdline.push_back(L'\0');
+  STARTUPINFOEXW si = {};
+  si.StartupInfo.cb = sizeof si;
+  si.lpAttributeList = list;
+  PROCESS_INFORMATION pi = {};
+  if (ok) ok = CreateProcessW(wexe.c_str(), cmdline.data(), nullptr, nullptr, FALSE, EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo, &pi) != 0;
+  if (!ok) {
+    close_console(console);
+    CloseHandle(in_w);
+    CloseHandle(out_r);
+    return r;
+  }
+  r.started = true;
+
+  const ULONGLONG deadline = GetTickCount64() + (ULONGLONG)timeout_ms;
+  size_t next = 0, from = 0, queries = 0;
+  bool exited = false;
+  while (!exited) {
+    append_available(out_r, r.output);
+    // The console may ask the terminal for the position of the cursor and wait for the answer.
+    for (size_t at; (at = r.output.find("\x1b[6n", queries)) != std::string::npos;) {
+      queries = at + 4;
+      type_text(in_w, "\x1b[1;1R");
+    }
+    while (next < lines.size()) {
+      size_t at = r.output.find(lines[next].after, from);
+      if (at == std::string::npos) break;
+      from = at + lines[next].after.size();
+      type_text(in_w, lines[next].text);
+      next++;
+    }
+    if (WaitForSingleObject(pi.hProcess, 20) == WAIT_OBJECT_0) exited = true;
+    if (!exited && GetTickCount64() > deadline) {
+      r.timed_out = true;
+      TerminateProcess(pi.hProcess, 1);
+      WaitForSingleObject(pi.hProcess, 5000);
+      exited = true;
+    }
+  }
+  // Closing the console ends the output pipe; it can block until the output has been read.
+  std::thread closer([&] { close_console(console); });
+  for (;;) {
+    char buf[4096];
+    DWORD n = 0;
+    if (!ReadFile(out_r, buf, sizeof buf, &n, nullptr) || n == 0) break;
+    r.output.append(buf, n);
+  }
+  closer.join();
+  DWORD code = 0;
+  GetExitCodeProcess(pi.hProcess, &code);
+  r.code = (int)code;
+  DeleteProcThreadAttributeList(list);
+  CloseHandle(pi.hProcess);
+  CloseHandle(pi.hThread);
+  CloseHandle(in_w);
+  CloseHandle(out_r);
+  return r;
+}
+
+std::string find_program(const std::string &name)
+{
+  wchar_t path[MAX_PATH + 1];
+  DWORD n = SearchPathW(nullptr, widen(name).c_str(), nullptr, MAX_PATH, path, nullptr);
+  return n > 0 && n <= MAX_PATH ? narrow(std::wstring(path, n)) : std::string();
+}
+
+int check_hardening(std::string &detail)
+{
+  detail.clear();
+  // The access control list: no other process of this user may read the memory, but it may still ask.
+  HANDLE h = OpenProcess(PROCESS_VM_READ, FALSE, GetCurrentProcessId());
+  if (h) {
+    CloseHandle(h);
+    detail = "a process of the same user can still open this one to read its memory";
+    return 1;
+  }
+  if (GetLastError() != ERROR_ACCESS_DENIED) {
+    detail = "opening this process for reading its memory failed with error " + std::to_string((unsigned)GetLastError()) + ", not access denied";
+    return 1;
+  }
+  h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, GetCurrentProcessId());
+  if (!h) {
+    detail = "the access control list leaves the owner without even the right to ask about the process";
+    return 1;
+  }
+  CloseHandle(h);
+  detail = "memory of the process cannot be opened by its owner";
+
+  typedef BOOL(WINAPI * GetPolicy)(HANDLE, int, PVOID, SIZE_T);
+  GetPolicy get = kernel32_function<GetPolicy>("GetProcessMitigationPolicy");
+  struct Expected {
+    int policy;
+    DWORD bits;
+    const char *name;
+  };
+  const Expected expected[] = { { 2, 1, "dynamic code prohibited" }, { 6, 1, "extension points disabled" },
+                                { 10, 5, "no remote images, system32 first" }, { 13, 1, "no child processes" } };
+  for (const Expected &e : expected) {
+    DWORD flags = 0;
+    if (!get || !get(GetCurrentProcess(), e.policy, &flags, sizeof flags)) {
+      detail += std::string("; not readable: ") + e.name;
+    } else if ((flags & e.bits) != e.bits) {
+      detail = std::string("the mitigation policy is not set: ") + e.name + " (flags " + std::to_string((unsigned)flags) + ")";
+      return 1;
+    } else {
+      detail += std::string("; ") + e.name;
+    }
+  }
+  return 0;
 }

@@ -21,6 +21,7 @@
 #endif
 #include <windows.h>
 
+#include <aclapi.h>
 #include <bcrypt.h>
 #include <malloc.h>
 
@@ -256,10 +257,62 @@ uint64_t available_memory()
   return avail;
 }
 
+namespace {
+
+// The policies of SetProcessMitigationPolicy that this program sets (PROCESS_MITIGATION_POLICY in
+// winnt.h). Each one takes a single DWORD of flags, so the structures are not needed, and the
+// function is looked up: it exists from Windows 8, and the later policies need a later Windows 10.
+const int POLICY_DYNAMIC_CODE = 2;     // bit 0: ProhibitDynamicCode
+const int POLICY_EXTENSION_POINT = 6;  // bit 0: DisableExtensionPoints
+const int POLICY_IMAGE_LOAD = 10;      // bit 0: NoRemoteImages, bit 2: PreferSystem32Images
+const int POLICY_CHILD_PROCESS = 13;   // bit 0: NoChildProcessCreation
+
+void set_policy(int policy, DWORD flags)
+{
+  typedef BOOL(WINAPI * SetPolicy)(int, PVOID, SIZE_T);
+  FARPROC f = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetProcessMitigationPolicy");
+  SetPolicy set = nullptr;
+  memcpy(&set, &f, sizeof set);  // neither compiler likes a cast between a function pointer and another type
+  if (set) set(policy, &flags, sizeof flags);
+}
+
+// Another process of the same user can read this one's memory (a debugger, a dump tool) because the
+// default access control list of a process allows its owner everything. Replace it by one that gives
+// the owner only what ending the process and asking about it needs. An administrator or a process with
+// SeDebugPrivilege still gets in: this keeps out the programs of the same user, nothing more.
+void restrict_process_access()
+{
+  HANDLE token = nullptr;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return;
+  alignas(8) BYTE user[256];  // a TOKEN_USER and its SID (at most 68 bytes)
+  DWORD got = 0;
+  if (GetTokenInformation(token, TokenUser, user, sizeof user, &got)) {
+    alignas(8) BYTE acl_space[128];  // an ACL of one entry with that SID
+    PACL acl = (PACL)acl_space;
+    if (InitializeAcl(acl, sizeof acl_space, ACL_REVISION) &&
+        AddAccessAllowedAce(acl, ACL_REVISION, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, ((TOKEN_USER *)user)->User.Sid))
+      SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                      acl, nullptr);
+  }
+  CloseHandle(token);
+}
+
+}  // namespace
+
 void harden_process()
 {
   // No dialog boxes: a crash ends the process instead of waiting for a person.
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+  restrict_process_access();
+  // No code generated at run time, no extension points (AppInit DLLs, global hooks, legacy IMEs), no
+  // images from network shares, no child process. The program needs none of them, and each is a way
+  // to get code into it. The strict handle check (an exception for an invalid handle) is left out on
+  // purpose: a single-threaded program that closes every handle once gains little, and a crash is
+  // worse than a failed call.
+  set_policy(POLICY_DYNAMIC_CODE, 1);
+  set_policy(POLICY_EXTENSION_POINT, 1);
+  set_policy(POLICY_IMAGE_LOAD, 1 | 4);
+  set_policy(POLICY_CHILD_PROCESS, 1);
 }
 
 void exit_process(int code)
@@ -460,7 +513,7 @@ bool read_secret_line(const char *prompt, SecretBuf &s)
   bool eof = false;
   for (;;) {
     DWORD got = 0;
-    if (in == INVALID_HANDLE_VALUE || !ReadFile(in, &c, 1, &got, nullptr) || got == 0) { eof = true; break; }
+    if (in == INVALID_HANDLE_VALUE || in == nullptr || !ReadFile(in, &c, 1, &got, nullptr) || got == 0) { eof = true; break; }
     if (c == '\n') break;
     s.push_back(c);
   }

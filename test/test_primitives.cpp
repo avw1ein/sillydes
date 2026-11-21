@@ -927,6 +927,16 @@ int main()
     if (avail != UINT64_MAX && avail > ((uint64_t)1 << 50)) { puts("FAIL: available_memory is beyond any machine"); fails++; }
   }
 
+  // harden_process, last because it changes the process for good (no dumps, no debugger of the same user, and on
+  // Windows no new code and no child process): the OS is asked what is in force.
+  {
+    harden_process();
+    std::string detail;
+    int state = check_hardening(detail);
+    if (state > 0) { printf("FAIL: process hardening: %s\n", detail.c_str()); fails++; }
+    else printf("info: process hardening: %s%s\n", state == 0 ? "" : "cannot be read back: ", detail.c_str());
+  }
+
   if (fails) return 1;
   puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id, DES and CRC-32 known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "

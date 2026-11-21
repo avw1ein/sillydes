@@ -514,6 +514,117 @@ void sources_are_ascii()
   passed("the sources are ASCII with LF line endings");
 }
 
+// ---- a phrase typed into a terminal
+
+void terminal_tests(const std::string &nfc)
+{
+  if (!can_run_on_terminal()) {
+    skipped("phrase typed into a terminal (this OS has no pseudo-terminal that a test can use)");
+    return;
+  }
+  put(T("t.txt"), "typed phrase test\n");
+  // Pieces of the phrase that would show if the program echoed what is typed.
+  const std::string probe1 = utf8({ 0x3A9, 0x3BC, 0x3AD, 0x3B3, 0x3B1 }), probe2 = utf8({ 'C', 'r', 0xE8, 'm', 'e' });
+  auto silent = [&](const TerminalResult &t) { return t.output.find(probe1) == std::string::npos && t.output.find(probe2) == std::string::npos; };
+  auto ran = [&](const TerminalResult &t, int code, const std::string &what) {
+    need(t.started, what + ": the program did not start");
+    need(!t.timed_out, what + ": the program waited for input that did not come; it showed: " + t.output);
+    need(t.code == code, what + ": exit code " + str(t.code) + ", wanted " + str(code) + "; it showed: " + t.output);
+  };
+  const std::string enter = "\r";
+
+  // Encryption asks twice. The phrase has Latin, Greek and Japanese text and a character outside the
+  // BMP (a surrogate pair on Windows), and must be the same keys as the same text through a pipe.
+  TerminalResult t = run_on_terminal(exe, act("e", T("t.txt"), T("t.bin"), "phrase"), { { "minimum", nfc + enter }, { "Repeat", nfc + enter } });
+  ran(t, 0, "encryption with a typed phrase");
+  need(silent(t), "the typed phrase was echoed");
+  sd_ok(act("d", T("t.bin"), T("t.out"), "phrase"), "decryption through a pipe of a file made with a typed phrase", with_stdin(nfc + "\n"));
+  need(get(T("t.out")) == get(T("t.txt")), "typed phrase and piped phrase give different keys");
+  t = run_on_terminal(exe, act("d", T("t.bin"), T("t.out2"), "phrase"), { { "minimum", nfc + enter } });
+  ran(t, 0, "decryption with a typed phrase");
+  need(silent(t), "the typed phrase was echoed on decryption");
+  need(get(T("t.out2")) == get(T("t.txt")), "typed decryption mismatch");
+  passed("a phrase typed into a terminal, with a character outside the BMP, is not echoed and gives the keys of the same phrase piped");
+
+  // A phrase that is too short, then one that does not match its repetition, then a good pair.
+  t = run_on_terminal(exe, act("e", T("t.txt"), T("t2.bin"), "phrase"),
+                      { { "minimum", "too short" + enter }, { "minimum", nfc + enter }, { "Repeat", nfc + "x" + enter },
+                        { "minimum", nfc + enter }, { "Repeat", nfc + enter } });
+  ran(t, 0, "retries at the prompt");
+  need(t.output.find("too short") != std::string::npos, "no message for a short phrase: " + t.output);
+  need(t.output.find("differ") != std::string::npos, "no message for phrases that differ: " + t.output);
+  sd_ok(act("d", T("t2.bin"), T("t2.out"), "phrase"), "decryption after retries", with_stdin(nfc + "\n"));
+  need(get(T("t2.out")) == get(T("t.txt")), "the pair accepted after the retries is not the phrase");
+  passed("a short phrase and a repetition that differs are asked again");
+
+  // The end of input: Ctrl+D on a Unix terminal, Ctrl+Z on Windows.
+#ifdef _WIN32
+  const std::string eof = "\x1a" + enter;
+#else
+  const std::string eof = "\x04";
+#endif
+  t = run_on_terminal(exe, act("e", T("t.txt"), T("t3.bin"), "phrase"), { { "minimum", eof } });
+  ran(t, 10, "the end of input at the prompt");
+  need(!file_exists(T("t3.bin")), "an output file after the end of input");
+  passed("the end of input at the phrase prompt is error 10");
+}
+
+#ifdef _WIN32
+// ---- PowerShell: what its pipe and its redirection hand to the program (README, section 7)
+
+// Runs a PowerShell script and returns what it exited with.
+RunResult powershell(const std::string &shell, const std::string &script)
+{
+  return run_program(shell, { "-NoProfile", "-NonInteractive", "-Command", script }, RunOptions());
+}
+
+void powershell_tests(const std::string &nfc)
+{
+  const std::string ps5 = find_program("powershell.exe"), ps7 = find_program("pwsh.exe");
+  if (ps5.empty() && ps7.empty()) {
+    skipped("PowerShell (not installed)");
+    return;
+  }
+  put(T("ps.txt"), "powershell test\n");
+  const std::string q = "'";
+  auto encrypt = [&](const std::string &shell, const std::string &prefix, const std::string &out) {
+    // The phrase is a literal of the script, which arrives as UTF-16; only the pipe to the program is in question.
+    const std::string script = prefix + q + nfc + q + " | & " + q + exe + q + " act=e in=" + q + T("ps.txt") + q + " out=" + q + out + q +
+                               " phrase; exit $LASTEXITCODE";
+    return powershell(shell, script);
+  };
+  auto decrypts = [&](const std::string &file) {
+    RunResult r = sd(act("d", file, T("ps.out"), "phrase"), with_stdin(nfc + "\n"));
+    return r.code == 0 && get(T("ps.out")) == get(T("ps.txt"));
+  };
+  if (!ps5.empty()) {
+    // The default of Windows PowerShell 5.1 is ASCII for what it pipes to a program: every other character is a ?.
+    RunResult r = encrypt(ps5, "", T("ps5.bin"));
+    printf("info: Windows PowerShell 5.1 piped the phrase as ASCII: encryption exit code %d, a file that %s with the phrase as UTF-8\n", r.code,
+           r.code == 0 && decrypts(T("ps5.bin")) ? "decrypts" : "does not decrypt");
+    // The advice of the README.
+    r = encrypt(ps5, "$OutputEncoding = New-Object System.Text.UTF8Encoding $false; ", T("ps5u.bin"));
+    need(r.code == 0, "Windows PowerShell 5.1 with a UTF-8 $OutputEncoding: encryption failed: " + r.err + r.out);
+    need(decrypts(T("ps5u.bin")), "Windows PowerShell 5.1 with a UTF-8 $OutputEncoding does not give the keys of the UTF-8 phrase");
+    // > writes UTF-16 with a byte order mark; the key file must still be read.
+    const std::string redirect = "Get-Content -Raw " + q + R("sample.key") + q + " > " + q + T("ps5.key") + q;
+    powershell(ps5, redirect);
+    need(get(T("ps5.key")).compare(0, 2, B({ 0xFF, 0xFE })) == 0, "Windows PowerShell 5.1 did not write UTF-16 with >");
+    sd_ok(act("dm", R("hello.sdes"), T("ps5.hello"), T("ps5.key")), "decryption with a key file written by Windows PowerShell 5.1");
+    need(get(T("ps5.hello")).compare(0, 6, "Hello,") == 0, "a key file written by Windows PowerShell 5.1 decrypts to something else");
+  }
+  if (!ps7.empty()) {
+    RunResult r = encrypt(ps7, "", T("ps7.bin"));
+    need(r.code == 0, "PowerShell 7: encryption failed: " + r.err + r.out);
+    need(decrypts(T("ps7.bin")), "PowerShell 7 does not pipe the phrase as UTF-8");
+    powershell(ps7, "Get-Content -Raw " + q + R("sample.key") + q + " > " + q + T("ps7.key") + q);
+    sd_ok(act("dm", R("hello.sdes"), T("ps7.hello"), T("ps7.key")), "decryption with a key file written by PowerShell 7");
+    need(get(T("ps7.hello")).compare(0, 6, "Hello,") == 0, "a key file written by PowerShell 7 decrypts to something else");
+  }
+  passed("PowerShell: the pipe with a UTF-8 $OutputEncoding (and PowerShell 7 by default) gives the keys of the UTF-8 phrase; a key file written with > is read");
+}
+#endif
+
 // ---- memory residue (Linux: a preloaded library searches the exited process)
 
 std::string mask(const std::string &s)
@@ -663,6 +774,10 @@ int main(int argc, char **argv)
   data_is_bytes();
   same_file();
   sources_are_ascii();
+  terminal_tests(nfc);
+#ifdef _WIN32
+  powershell_tests(nfc);
+#endif
   residue(nfc, other);
 
   remove_tree(tmp);

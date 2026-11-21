@@ -82,7 +82,7 @@ add_executable(sillydes src/main.cpp)
 target_link_libraries(sillydes PRIVATE sillydes_core)
 
 if(WIN32)
-  target_link_libraries(sillydes_core PUBLIC bcrypt)
+  target_link_libraries(sillydes_core PUBLIC bcrypt advapi32)  # advapi32: the access control list of the process
   if(MINGW)
     target_link_options(sillydes PRIVATE -municode)  # wmain, the wide arguments
   endif()
@@ -184,7 +184,7 @@ if(SILLYDES_BUILD_TESTS)
     add_executable(sillydes_scan src/main.cpp test/residue_core.cpp)
     target_link_libraries(sillydes_scan PRIVATE sillydes_core_scan)
     if(WIN32)
-      target_link_libraries(sillydes_core_scan PUBLIC bcrypt)
+      target_link_libraries(sillydes_core_scan PUBLIC bcrypt advapi32)
       if(MINGW)
         target_link_options(sillydes_scan PRIVATE -municode)
       endif()

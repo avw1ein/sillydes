@@ -2,9 +2,9 @@
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
 // What the unit tests need from the operating system and the program does not: a name for a
-// temporary file, deleting it, silencing the error stream, and the memory-lock figures. One
-// implementation per OS (test_os_posix.cpp, test_os_win32.cpp), so that test_primitives.cpp
-// includes no OS header.
+// temporary file, deleting it, silencing the error stream, the memory-lock figures, what the
+// hardening of the process did, and a terminal to run the program in. One implementation per OS
+// (test_os_posix.cpp, test_os_win32.cpp), so that test_primitives.cpp includes no OS header.
 
 #pragma once
 
@@ -56,3 +56,28 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
 // True where run_program can limit the memory of the program: the address space on Linux, the commit
 // charge of a job object on Windows. macOS has no such limit that a program can set.
 bool can_limit_address_space();
+
+// A program run with a terminal for standard input, output and error, as a person would use it: a
+// pseudo-terminal on POSIX, a pseudo-console (ConPTY) on Windows.
+struct TypedLine {
+  std::string after;  // typed once the output of the program, from the previous line on, contains this
+  std::string text;   // UTF-8; "\r" is the Enter key (Ctrl+D is "\x04" on POSIX, Ctrl+Z "\x1a" on Windows)
+};
+struct TerminalResult {
+  bool started = false;
+  bool timed_out = false;  // the program was killed after timeout_ms
+  int code = -1;
+  std::string output;      // what the terminal showed, escape sequences included
+};
+// False where the OS has no such thing (Windows before 10 1809).
+bool can_run_on_terminal();
+TerminalResult run_on_terminal(const std::string &exe, const std::vector<std::string> &args, const std::vector<TypedLine> &lines,
+                               int timeout_ms = 90000);
+
+// The full path of a program found through the search path of the OS, or an empty string.
+std::string find_program(const std::string &name);
+
+// What harden_process (called first) did to this process, as the OS reports it: 0 if everything it
+// should have done is visible, 1 if something is missing, -1 if the OS has no way to tell. `detail`
+// says what was checked or what is missing.
+int check_hardening(std::string &detail);

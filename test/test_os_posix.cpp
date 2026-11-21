@@ -13,14 +13,19 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#else
+#include <sys/prctl.h>
 #endif
 
 std::string temp_file_name()
@@ -226,4 +231,130 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
   while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
   r.code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
   return r;
+}
+
+bool can_run_on_terminal() { return true; }
+
+namespace {
+
+long now_ms()
+{
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+// The program turns the echo off after it has written the prompt; typing before that would show the
+// phrase. The line discipline echoes at once, so unlike a Windows console it needs the wait.
+void wait_for_echo_off(int master)
+{
+  for (int i = 0; i < 400; i++) {
+    termios t;
+    if (tcgetattr(master, &t) == 0 && !(t.c_lflag & ECHO)) return;
+    usleep(5000);
+  }
+}
+
+}  // namespace
+
+TerminalResult run_on_terminal(const std::string &exe, const std::vector<std::string> &args, const std::vector<TypedLine> &lines, int timeout_ms)
+{
+  TerminalResult r;
+  int master = posix_openpt(O_RDWR | O_NOCTTY);
+  if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0) return r;
+  const char *name = ptsname(master);
+  if (!name) return r;
+  const std::string slave = name;
+  std::vector<std::string> argv_s;
+  argv_s.push_back(exe);
+  argv_s.insert(argv_s.end(), args.begin(), args.end());
+  std::vector<char *> argv;
+  for (std::string &a : argv_s) argv.push_back(&a[0]);
+  argv.push_back(nullptr);
+  pid_t pid = fork();
+  if (pid < 0) return r;
+  if (pid == 0) {
+    setsid();
+    int s = open(slave.c_str(), O_RDWR);  // the first terminal opened after setsid
+    if (s < 0) _exit(126);
+    ioctl(s, TIOCSCTTY, 0);
+    dup2(s, 0);
+    dup2(s, 1);
+    dup2(s, 2);
+    if (s > 2) close(s);
+    close(master);
+    execv(exe.c_str(), argv.data());
+    _exit(127);
+  }
+  r.started = true;
+  const long deadline = now_ms() + timeout_ms;
+  size_t next = 0, from = 0;
+  for (;;) {
+    if (now_ms() > deadline) {
+      r.timed_out = true;
+      kill(pid, SIGKILL);
+      break;
+    }
+    pollfd p = { master, POLLIN, 0 };
+    int k = poll(&p, 1, 50);
+    if (k > 0 && (p.revents & (POLLIN | POLLHUP | POLLERR))) {
+      char buf[4096];
+      ssize_t n = read(master, buf, sizeof buf);
+      if (n > 0) r.output.append(buf, (size_t)n);
+      else if (n == 0 || errno != EINTR) break;  // the program has gone: EIO on Linux, end of file on macOS
+    }
+    while (next < lines.size()) {
+      size_t at = r.output.find(lines[next].after, from);
+      if (at == std::string::npos) break;
+      from = at + lines[next].after.size();
+      wait_for_echo_off(master);
+      const std::string &text = lines[next].text;
+      for (size_t off = 0; off < text.size();) {
+        ssize_t n = write(master, text.data() + off, text.size() - off);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        off += (size_t)n;
+      }
+      next++;
+    }
+  }
+  int status = 0;
+  while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+  if (WIFEXITED(status)) r.code = WEXITSTATUS(status);
+  close(master);
+  return r;
+}
+
+std::string find_program(const std::string &name)
+{
+  const char *path = getenv("PATH");
+  std::string dirs = path ? path : "";
+  for (size_t start = 0; start <= dirs.size();) {
+    size_t end = dirs.find(':', start);
+    if (end == std::string::npos) end = dirs.size();
+    std::string candidate = dirs.substr(start, end - start) + "/" + name;
+    if (access(candidate.c_str(), X_OK) == 0) return candidate;
+    start = end + 1;
+  }
+  return std::string();
+}
+
+int check_hardening(std::string &detail)
+{
+  rlimit rl;
+  if (getrlimit(RLIMIT_CORE, &rl) != 0 || rl.rlim_cur != 0) {
+    detail = "core dumps are not switched off (RLIMIT_CORE)";
+    return 1;
+  }
+#ifdef __APPLE__
+  detail = "RLIMIT_CORE is 0; whether PT_DENY_ATTACH is set cannot be read back";
+  return 0;
+#else
+  if (prctl(PR_GET_DUMPABLE) != 0) {
+    detail = "the process is still dumpable (PR_SET_DUMPABLE)";
+    return 1;
+  }
+  detail = "RLIMIT_CORE is 0 and the process is not dumpable";
+  return 0;
+#endif
 }
