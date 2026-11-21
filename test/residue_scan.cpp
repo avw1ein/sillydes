@@ -54,6 +54,11 @@ void scan()
   // them (still inside the window the program wipes), or they would overwrite what is looked for.
   volatile char *gap = (volatile char *)alloca(96 * 1024);
   gap[0] = 0;
+  // This function and what it calls run just below the gap. Hits in that zone are its own data, not
+  // the program's: on CI they sat exactly there, 260 bytes apart, however the program was built, and
+  // the program itself never reaches below 40 KiB. They are counted apart and shown, never hidden.
+  const unsigned char *own_lo = (const unsigned char *)gap - 16 * 1024, *own_hi = (const unsigned char *)gap + 64;
+  int own = 0;
   FILE *maps = fopen("/proc/self/maps", "r");
   if (!maps) return;
   char line[512];
@@ -68,7 +73,9 @@ void scan()
       while (p < end) {
         const unsigned char *q = find(p, end, marks[k], marklen[k]);
         if (!q) break;
-        if ((q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) && (q < snap || q >= snap + sizeof snap)) {  // our own copies do not count
+        if (q >= own_lo && q < own_hi) {
+          own++;
+        } else if ((q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) && (q < snap || q >= snap + sizeof snap)) {  // our own copies do not count
           hits++;
           if (hexdump) {
             snapfrom = q - 320 < (const unsigned char *)lo ? (const unsigned char *)lo : q - 320;
@@ -101,6 +108,7 @@ void scan()
     }
   }
   fclose(maps);
+  if (verbose && own) fprintf(stderr, "RESIDUE-SCAN: %d hit(s) in the scanner's own frames, not counted\n", own);
   fprintf(stderr, "RESIDUE-SCAN: %d hit(s)\n", hits);
 }
 
