@@ -27,8 +27,8 @@
     { "name": "debug", "configurePreset": "debug" }
   ],
   "testPresets": [
-    { "name": "default", "configurePreset": "default", "output": { "outputOnFailure": true } },
-    { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true } },
-    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } }
+    { "name": "default", "configurePreset": "default", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
+    { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
+    { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true, "verbosity": "verbose" } }
   ]
 }
