@@ -99,6 +99,13 @@ Args parse_args(const std::vector<std::string> &argv)
   return a;
 }
 
+// Not inlined into main: everything run() keeps on the stack (and what its callees were inlined
+// into it) must lie below main's frame, because scrub_stack wipes below main and cannot reach main's own frame.
+#if defined(_MSC_VER)
+__declspec(noinline)
+#else
+__attribute__((noinline))
+#endif
 int run(const std::vector<std::string> &argv)
 {
   if (argv.size() == 1) { usage(); return 3; }
