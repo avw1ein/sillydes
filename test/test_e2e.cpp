@@ -603,17 +603,18 @@ void powershell_tests(const std::string &nfc)
     RunResult r = sd(act("d", file, T("ps.out"), "phrase"), with_stdin(nfc + "\n"));
     return r.code == 0 && get(T("ps.out")) == get(T("ps.txt"));
   };
-  // cmd.exe: echo writes in the code page of the console, which chcp 65001 turns into UTF-8. Reported,
-  // not required: this is what the README can say about it.
+  // cmd.exe: echo writes in the code page of the console, which chcp 65001 turns into UTF-8 (the runners
+  // start with 65001, so 437 is set to see the other case). Reported, not required: this is what the
+  // README can say about it.
   const std::string cmd = find_program("cmd.exe");
   if (!cmd.empty()) printf("info: the code page of cmd.exe here: %s", run_program(cmd, { "/c", "chcp" }, RunOptions()).out.c_str());
   for (int i = 0; i < 2 && !cmd.empty(); i++) {
     const std::string out = T(i ? "cmd65001.bin" : "cmd.bin");
     // cmd takes a / for the start of an option: the paths need backslashes.
     auto bs = [](const std::string &path) { return replace_all(path, "/", "\\"); };
-    const std::string script = std::string(i ? "chcp 65001>nul & " : "") + "echo " + nfc + "| " + bs(exe) + " act=e in=" + bs(T("ps.txt")) + " out=" + bs(out) + " phrase";
+    const std::string script = std::string(i ? "chcp 65001>nul & " : "chcp 437>nul & ") + "echo " + nfc + "| " + bs(exe) + " act=e in=" + bs(T("ps.txt")) + " out=" + bs(out) + " phrase";
     RunResult r = run_program(cmd, { "/c", script }, RunOptions());
-    printf("info: cmd.exe%s piped the phrase: encryption exit code %d, a file that %s with the phrase as UTF-8\n", i ? " after chcp 65001" : "", r.code,
+    printf("info: cmd.exe%s piped the phrase: encryption exit code %d, a file that %s with the phrase as UTF-8\n", i ? " after chcp 65001" : " after chcp 437 (the default of many installations)", r.code,
            r.code == 0 && decrypts(out) ? "decrypts" : "does not decrypt");
   }
   if (!ps5.empty()) {
