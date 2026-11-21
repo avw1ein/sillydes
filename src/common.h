@@ -85,5 +85,9 @@ void lockdown();
 // Faults in and locks a window of stack below the caller, so that keys, key schedules and hash
 // intermediates held in local variables cannot be swapped out. Call once, early in main; best effort.
 void lock_stack();
+// Wipes the stack window below the caller. Call it from main once everything has returned: the
+// compiler may leave plaintext or key bytes in spilled registers and temporaries of functions that
+// have returned, and which ones differs from compiler to compiler.
+void scrub_stack();
 // Locks the pages of [p, p + n) in RAM; false (and nothing locked) if the limit does not allow it.
 bool lock_memory(void *p, size_t n);

@@ -151,6 +151,20 @@ __attribute__((noinline)) bool lock_stack_window(size_t window, size_t page)
   return mlock((void *)lo, hi - lo) == 0;
 }
 
+// The stack window that lock_stack locks and scrub_stack wipes: 256 KiB, less under a small stack limit.
+size_t stack_window(size_t page)
+{
+  size_t cap = 256 * 1024;
+  rlimit rl;
+  if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur / 4 < cap) cap = rl.rlim_cur / 4;
+  return cap / page * page;
+}
+
+__attribute__((noinline)) void wipe_below(size_t window)
+{
+  wipe(alloca(window), window);
+}
+
 }  // namespace
 
 void *secure_alloc(size_t n)
@@ -205,9 +219,14 @@ bool lock_memory(void *p, size_t n)
 
 void lock_stack()
 {
-  size_t page = page_size(), cap = 256 * 1024;
-  rlimit rl;
-  if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur / 4 < cap) cap = rl.rlim_cur / 4;
-  for (size_t w = cap / page * page; w >= 4 * page; w = w / 2 / page * page)
+  size_t page = page_size();
+  for (size_t w = stack_window(page); w >= 4 * page; w = w / 2 / page * page)
     if (lock_stack_window(w, page)) return;
+}
+
+void scrub_stack()
+{
+  size_t page = page_size();
+  size_t w = stack_window(page);
+  if (w >= 4 * page) wipe_below(w);
 }

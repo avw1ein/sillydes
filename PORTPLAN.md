@@ -21,6 +21,7 @@ Done first and independent of the port (no platform layer, no CMake needed); the
 | Key file | `readkeyfile` parses a `readfile` buffer instead of `fopen`/`fgets`; a missing file is now error 1 from `readfile`, a directory error 1. |
 | Argon2id | Takes pointer and length, not `std::string`; returns `SecretBuf`; the 2 GiB table is a `SecureAllocator` vector that is reserved, `lock_memory`d (best effort, only when `RLIMIT_MEMLOCK` allows) and then zeroed. |
 | Locking | `lock_stack()` in `main` touches and `mlock`s a 256 KiB stack window below `main` (halves down to 16 KiB under a small limit), so every local variable of the program, key schedules and hash intermediates included, stays out of swap. Never unlocked; ends with the process. |
+| Stack scrub | `scrub_stack()` wipes the same 256 KiB stack window before `main` returns. Found by CI: with gcc 13 (ubuntu-latest) two copies of the plaintext survived in stale frames after decryption, where gcc 15 left none; which temporaries spill is compiler-dependent, so wiping the window is the robust fix. Checked with an injected leak: 811 hits without the scrub, 0 with it. |
 | Small gaps | SHA-512 message schedule and the HMAC inner digest are wiped; the DES S-box output array is wiped once per layer. |
 
 Differences from the original M6 idea: no single secret arena. Stack objects are covered by the stack window and heap secrets by the page-sized `LockedAllocator`, which needed no change of ownership in the cipher or the container.
@@ -29,7 +30,7 @@ Verified: all existing tests; new unit tests (errors as exceptions, key file par
 
 Known limits that remain: the data buffer is never locked (it can be as large as the file); the 2 GiB table is locked only if the limit allows it; the lock is best effort and silent, so encrypted swap is still the advice; heap blocks below 64 KiB of `Buf` are wiped but not locked; `Sha512::block` locals in registers cannot be wiped. The SHA-512 schedule wipe has no measured effect (the slot is overwritten by the next block), it is only correct.
 
-Lessons that carry into the port: sanitizers replace `mlock` by a no-op, so the locking tests must skip under them; the residue test relies on `LD_PRELOAD` and `/proc/self/maps` (Linux only).
+Lessons that carry into the port: the residue test must run on every compiler in the CI matrix, as stack residue depends on it; a stack window is needed on every OS (Windows: `_alloca` + `SecureZeroMemory`); sanitizers replace `mlock` by a no-op, so the locking tests must skip under them; the residue test relies on `LD_PRELOAD` and `/proc/self/maps` (Linux only).
 
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.

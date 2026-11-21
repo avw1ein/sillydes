@@ -133,12 +133,15 @@ int main(int argc, char *argv[])
 {
   lockdown();
   lock_stack();
+  int rc;
   try {
-    return run(argc, argv);
+    rc = run(argc, argv);
   } catch (const ExitError &e) {
-    return e.code;
+    rc = e.code;
   } catch (const std::bad_alloc &) {
     report_error(7);
-    return 7;
+    rc = 7;
   }
+  scrub_stack();
+  return rc;
 }

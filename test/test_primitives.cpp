@@ -196,6 +196,26 @@ static int exit_code(F fn)
 #endif
 #endif
 
+// Leaves a pattern in a large stack frame, and counts how much of it a frame of the same size
+// finds in uninitialised memory at the same place.
+__attribute__((noinline)) static void leave_pattern()
+{
+  volatile uint8_t junk[30000];
+  for (size_t i = 0; i < sizeof junk; i++) junk[i] = 0xA7;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuninitialized"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+__attribute__((noinline)) static size_t find_pattern()
+{
+  volatile uint8_t probe[30000];  // read on purpose before it is written
+  size_t n = 0;
+  for (size_t i = 0; i < sizeof probe; i++) n += probe[i] == 0xA7;
+  return n;
+}
+#pragma GCC diagnostic pop
+
 static long vmlck_kb()
 {
   FILE *f = fopen("/proc/self/status", "r");
@@ -536,6 +556,18 @@ int main()
     Buf c = a;
     ok = ok && c == a;
     if (!ok) { puts("FAIL: secret buffers lose data when they grow"); fails++; }
+  }
+
+  // scrub_stack must remove what finished functions left on the stack. The control first shows that
+  // the pattern is there, since under a sanitizer or another optimiser the frames may not line up.
+  {
+    leave_pattern();
+    if (find_pattern() < 1000) {
+      puts("skipped: stack scrub test (the stack frames do not line up in this build)");
+    } else {
+      scrub_stack();
+      if (find_pattern() != 0) { puts("FAIL: scrub_stack left data on the stack"); fails++; }
+    }
   }
 
   // Locking is best effort, so these run only when RLIMIT_MEMLOCK leaves room for them.
