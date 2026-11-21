@@ -4,7 +4,8 @@
 # Publishes a release when a version tag such as v5.1.0 is pushed: builds and tests the binary,
 # generates its CycloneDX SBOM, attests the SBOM to the binary (verify with
 # `gh attestation verify <binary> --repo avw1ein/sillydes`) and attaches binary, SBOM and
-# SHA256SUMS to a GitHub Release.
+# SHA256SUMS to a GitHub Release. The text of the release is the section of CHANGELOG.md for the
+# version.
 
 name: release
 
@@ -35,6 +36,19 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: The changelog must describe this version
+        run: |
+          awk -v v="$VERSION" '
+            /^## \[/ { on = (index($0, "## [" v "]") == 1); next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no entry for $VERSION: add a '## [$VERSION] - date' section" >&2
+            exit 1
+          fi
+          echo "" >> notes.md
+          echo "Full changelog: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/CHANGELOG.md" >> notes.md
+
       - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
       - run: make test
       - run: make sbom
@@ -58,4 +72,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --verify-tag --title "SillyDES $VERSION" --generate-notes
+            --verify-tag --title "SillyDES $VERSION" --notes-file notes.md

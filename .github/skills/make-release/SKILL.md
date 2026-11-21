@@ -54,9 +54,12 @@ Determine these before touching anything. Take them from the request; ask the us
    `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`). Releases are made only from
    the tip of the default branch after `git fetch origin`; if the user names another branch or
    commit, ask.
-4. **Release notes.** The workflow uses `--generate-notes`. Ask only if the user wants specific
-   text; add it afterwards with `gh release edit vX.Y.Z --notes-file ...`. For a format change the
-   notes must say that files from earlier releases cannot be read.
+4. **Release notes.** They live in `CHANGELOG.md` (step 3, item 4); the workflow publishes the
+   section of the version as the GitHub Release text and stops if it is missing. Write the entry from
+   `git log --oneline vPREV..HEAD`, grouped by what matters to a user (Security, Added, Changed,
+   Fixed, Documentation), and show it to the user if they want to word it themselves. Every entry
+   begins with a bold line saying whether the file format changed; for a format change it must say
+   that files from earlier releases cannot be read.
 5. **Go-ahead for the irreversible part** (step 5 below). If the request already says to publish,
    proceed after a one-paragraph summary; otherwise ask once, stating version, format decision and
    the commit SHA.
@@ -97,8 +100,12 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
    grep -rn "SillyDES [0-9]\+\.[0-9]\+\.[0-9]\+" --include='*.md' --include='*.h' --include='*.cpp' --include='*.sh' . | grep -v '^./.git/'
    ```
    Every hit must be either one of the four new titles or a format reference.
-4. Nothing else carries the version: the usage banner and the SBOM read `PACKAGE_VERSION`.
-5. Verify exactly as CI does, from a clean tree (the 2 GiB phrase tests need the memory):
+4. Add the `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` below `## [Unreleased]` (move anything
+   that is listed under Unreleased into it) and update the compare links at the end of the file.
+   Test the extraction the workflow uses:
+   `awk -v v=X.Y.Z '/^## \[/ { on = (index($0, "## [" v "]") == 1); next } on { print }' CHANGELOG.md`
+5. Nothing else carries the version: the usage banner and the SBOM read `PACKAGE_VERSION`.
+6. Verify exactly as CI does, from a clean tree (the 2 GiB phrase tests need the memory):
    ```sh
    make clean
    make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
@@ -107,7 +114,7 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
    ```
    `./sillydes` with no arguments must print the new version. Check the SBOM's
    `metadata.component.version`. `sillydes.cdx.json` is generated and git-ignored; never commit it.
-6. Commit only the intended files with a message such as `Release X.Y.Z` (add the co-author trailer
+7. Commit only the intended files with a message such as `Release X.Y.Z` (add the co-author trailer
    if the rules you work under require it). The commit must contain no unrelated changes.
 
 ## 4. Push the commit and wait for CI
@@ -137,7 +144,7 @@ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -
 The tag must point at the commit that passed CI. The workflow then: checks tag against
 `PACKAGE_VERSION`, builds with the CI flags, runs the tests, generates the SBOM, names the files
 after the release, attests the SBOM to the binary (`actions/attest-sbom`), and runs
-`gh release create --verify-tag --generate-notes`.
+`gh release create --verify-tag --notes-file` with the changelog section.
 
 ## 6. Verify the release
 
@@ -160,7 +167,8 @@ changed. Clean up the temp directory.
 - **Release already exists** (even a bad one): never move or reuse the tag; users may have the files.
   Delete the release and tag only if it was never announced and the user says so; otherwise publish
   the next patch version.
-- **Wrong notes or title only:** `gh release edit vX.Y.Z ...`, no new tag.
+- **Wrong notes or title only:** fix `CHANGELOG.md` with a normal commit, then update the release text with
+  `gh release edit vX.Y.Z --notes-file <section>`; no new tag.
 - A tag whose name is not `v<number>.<number>.<number>` does not trigger the workflow (the old tag
   `v5.03` is such a tag; `v5.1.0` predates the workflow and was published by hand).
 
@@ -200,5 +208,5 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    "releases before N cannot read this one"); `STRUCTURE.md` (fixtures, test descriptions, section 10).
    If the cipher itself changed, `ANALYSIS.md` must be re-reviewed, not just renamed.
 7. `grep -rn "SillyDES OLD" .` must find nothing except deliberate history.
-8. Then follow sections 3 (items 2, 5, 6), 4, 5 and 6. State in the release notes that files of earlier
+8. Then follow sections 3 (items 2, 4, 6, 7), 4, 5 and 6. State in the release notes that files of earlier
    releases cannot be read and which release to use to convert them.

@@ -20,7 +20,7 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 9. [Error levels](#9-error-levels)
 10. [Disclaimer](#10-disclaimer)
 
-See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
 
 ---
 
@@ -99,7 +99,7 @@ To get help:
 ./sillydes
 ```
 
-The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.1.0, and every later release reads and writes it until the format itself changes. That is why an e-mail message starts with `*BEGIN SillyDES 5.1.0 message` whichever release made it.
+The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.1.0, and every later release reads and writes it until the format itself changes (the [changelog](CHANGELOG.md) says for each release whether it did). That is why an e-mail message starts with `*BEGIN SillyDES 5.1.0 message` whichever release made it.
 
 Files in older formats cannot be read, and releases before 5.1.0 cannot read this one. This includes files made by the program under its former name, Odette, up to and including Odette 5.1.0.
 
