@@ -50,7 +50,7 @@ unicode-check: tools/gen_unicode test/unicode_conformance
 tools/gen_unicode: tools/gen_unicode.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-test/unicode_conformance: test/unicode_conformance.cpp obj/text.o obj/common.o
+test/unicode_conformance: test/unicode_conformance.cpp obj/text.o obj/common.o obj/platform_posix.o
 	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^
 
 # CycloneDX SBOM of the binary just built; the file holds its hash, so it is generated, not committed.
