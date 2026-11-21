@@ -31,6 +31,9 @@ sillydes: obj/main.o $(OBJS)
 test/test_primitives: test/test_primitives.cpp test/test_os_posix.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) $(HARDEN) $(LDHARDEN) -Isrc -o $@ $^
 
+test/test_e2e: test/test_e2e.cpp test/test_os_posix.cpp $(OBJS)
+	$(CXX) $(CXXFLAGS) $(HARDEN) $(LDHARDEN) -Isrc -o $@ $^
+
 test/residue_scan.so: test/residue_scan.cpp
 	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $<
 
@@ -40,9 +43,10 @@ obj/%.o: src/%.cpp
 
 -include obj/*.d
 
-test: sillydes test/test_primitives test/residue_scan.so
+test: sillydes test/test_primitives test/test_e2e test/residue_scan.so
 	./test/test_primitives
-	bash test/test.sh
+	./test/test_e2e ./sillydes . ./test/residue_scan.so
+	@if command -v cmake >/dev/null 2>&1; then cmake -DBINARY=./sillydes -DCOMPILER_ID=$(if $(findstring clang,$(CXX)),Clang,GNU) -P cmake/check_hardening.cmake; else echo "skipped: hardening check (needs cmake)"; fi
 
 # Regenerates the S-box circuits; the output is committed, so this is not part of a normal build.
 gen: tools/gen_des_sbox
@@ -77,7 +81,7 @@ sbom: sillydes
 	mv sillydes.cdx.json.tmp sillydes.cdx.json
 
 clean:
-	rm -rf obj sillydes test/test_primitives test/residue_scan.so test/unicode_conformance tools/gen_des_sbox tools/gen_unicode \
+	rm -rf obj sillydes test/test_primitives test/test_e2e test/residue_scan.so test/unicode_conformance tools/gen_des_sbox tools/gen_unicode \
 	  src/unicode_tables.h.tmp sillydes.cdx.json sillydes.cdx.json.tmp
 
 .PHONY: test gen unicode unicode-check sbom clean

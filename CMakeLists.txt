@@ -159,22 +159,27 @@ if(SILLYDES_BUILD_TESTS)
       COMMAND ${CMAKE_COMMAND} -DBINARY=$<TARGET_FILE:sillydes> -DCOMPILER_ID=${CMAKE_CXX_COMPILER_ID}
               -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_hardening.cmake)
   endif()
-  # Round trips through the binary itself, on every OS (until test_e2e.cpp, PORTPLAN.md todo 10).
-  add_test(NAME smoke
-    COMMAND ${CMAKE_COMMAND} -DSILLYDES=$<TARGET_FILE:sillydes> -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DWORK=${CMAKE_BINARY_DIR}/smoke
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/smoke.cmake)
-
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SILLYDES_BASH)
-    # LD_PRELOAD helper of test.sh: searches the process for leftover secrets as it exits.
+  # End-to-end tests: the real binary, on every OS the same way.
+  add_executable(test_e2e test/test_e2e.cpp ${SILLYDES_TEST_OS_SOURCE})
+  target_link_libraries(test_e2e PRIVATE sillydes_core)
+  if(MSVC)
+    target_compile_options(test_e2e PRIVATE /wd4456)
+  endif()
+  set(SILLYDES_E2E_ARGS $<TARGET_FILE:sillydes> ${CMAKE_CURRENT_SOURCE_DIR})
+  if(SILLYDES_SANITIZE)
+    # The sanitizers reserve address space (a limit would stop them) and bring their own allocator
+    # (the scanner's LD_PRELOAD does not go with it).
+    list(APPEND SILLYDES_E2E_ARGS --no-address-limit)
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # LD_PRELOAD helper of test_e2e: searches the process for leftover secrets as it exits.
     add_library(residue_scan SHARED test/residue_scan.cpp)
     set_target_properties(residue_scan PROPERTIES PREFIX "" SUFFIX ".so" POSITION_INDEPENDENT_CODE ON)
-    # test.sh works from the root of the source tree and calls ./sillydes there; run_test_sh.cmake
-    # builds such a tree of links in the build directory so that the source tree stays clean.
-    add_test(NAME e2e_shell
-      COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DROOT=${CMAKE_BINARY_DIR}/test_root
-              -DBASH=${SILLYDES_BASH} -DSILLYDES=$<TARGET_FILE:sillydes> -DRESIDUE_SCAN=$<TARGET_FILE:residue_scan>
-              -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_test_sh.cmake)
+    if(NOT SILLYDES_SANITIZE)
+      list(APPEND SILLYDES_E2E_ARGS $<TARGET_FILE:residue_scan>)
+    endif()
   endif()
+  add_test(NAME e2e COMMAND test_e2e ${SILLYDES_E2E_ARGS})
 
   # Constant-time check with Valgrind's Memcheck (ctgrind style, PORTPLAN.md 5.3); needs valgrind.
   find_program(SILLYDES_VALGRIND valgrind)
