@@ -38,9 +38,9 @@ int nmarks;
 bool verbose;
 bool hexdump;
 
-// A plain search. memmem is not used: for a needle longer than 32 bytes glibc's version left working
-// data on the stack that this scan then found in its own frames, which looked like residue of the
-// program (the hits moved with the scanner's frames, and only the 33-byte mark ever hit).
+// A plain search, so that what the scanner does with a mark (and where it keeps it) is visible here and
+// not hidden in a library function. Hits in this scanner's own frames were what failed CI before; whether
+// the library's memmem was the one holding a copy of the 33-byte mark was never established.
 const unsigned char *find(const unsigned char *p, const unsigned char *end, const unsigned char *needle, size_t n)
 {
   if (n == 0 || (size_t)(end - p) < n) return nullptr;
