@@ -120,6 +120,22 @@ Findings that carry on:
 - `GetCurrentThreadStackLimits` is not declared by the MSYS2 headers; the stack base comes from `VirtualQuery` (`AllocationBase`).
 - MSYS2 marks MINGW64 as deprecated; the job uses UCRT64.
 
+## 0e. Todos 9 and 7, done: build hardening and constant-time helpers
+
+Build hardening (`cmake/harden.cmake`, the same list in the Makefile for the Linux release build until todo 13):
+- Linux, gcc and clang: `-fstack-protector-strong`, `-fstack-clash-protection`, `-fcf-protection=full` (x86-64) or `-mbranch-protection=standard` (arm64), `-D_FORTIFY_SOURCE=3` (not in Debug, not with the sanitizers), PIE, `-z relro -z now -z noexecstack`. macOS: stack protector and fortify level 2 (PIE is the default; clang reports the Linux-only flags as unused, which `-Werror` turns into errors, hence the Linux condition). MinGW: stack protector, `--dynamicbase --nxcompat --high-entropy-va`. MSVC: `/GS /sdl /guard:cf /Qspectre`, `/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF /CETCOMPAT`.
+- Every flag is tried first (`check_cxx_compiler_flag`); `SILLYDES_HARDEN=OFF` turns the block off.
+- `cmake/check_hardening.cmake` (CTest `hardening`) reads the finished binary: ELF (PIE, stack not executable, RELRO, BIND_NOW, `__stack_chk_fail`, IBT and SHSTK, or BTI and PAC instructions on arm64) and PE (the DllCharacteristics bits for ASLR, high-entropy ASLR, DEP and, with MSVC, CFG). `test.sh` carries the ELF part for the Makefile build. Verified on all runners.
+- `SILLYDES_SANITIZE=ON` (ASan and UBSan, gcc and clang): CI jobs on ubuntu-latest and macos-latest run `primitives`, `hardening` and `smoke`; `test.sh` is left out because its LD_PRELOAD scanner does not go with the sanitizer's allocator, and the stack layout test is skipped (red zones).
+- A new job `linux-arm64` (`ubuntu-24.04-arm`) runs the whole suite natively, residue scan included.
+
+Constant-time: `value_barrier`, `ct_equal` (the MAC compare), the barrier around the key-bit masks in `Des::setkey`, a branch-free `hex_digit` for the key file (every byte value is tested), and DIT. Tests: `ct_equal` for a difference in every bit of every position; the key file with all 256 byte values in a digit place. Not verified yet: that the compiler keeps these branch-free (todo 8: ctgrind, disassembly gate, timing).
+
+Findings:
+- Ubuntu's arm64 toolchain does not leave a BTI marker in the GNU property note (the marker survives only if every input has it), so the arm64 check looks for `bti` and `paciasp` in the disassembly. Clang on macOS gives "unused argument" for Linux-only flags: with `-Werror` that is an error.
+- **MSVC AddressSanitizer: tried, dropped.** With `/MT` and with `/MD` the link fails on the missing `clang_rt.asan_*_runtime_thunk-x86_64.lib` on the `windows-latest` image; MSVC ASan stays open (needs an image with that component or an explicit library path).
+- An arm64 build can be run on this machine: `g++-aarch64-linux-gnu` and `qemu-user` (binfmt is registered), with `QEMU_LD_PREFIX=/usr/aarch64-linux-gnu`; the whole suite except the residue scan passes that way, which is a quick arm64 bench for todo 8.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -306,16 +322,16 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 |---|---|---|
 | DES layer, setkey | Constant-time by construction | bitsliced, boolean S-boxes, constant indices, `0u - bit` masks |
 | SHA-512 / HMAC / BLAKE2b | Constant-time by construction | K512[i] indexed by public counter |
-| Tag compare in unseal | Correct pattern, but compiler may make it early-exit | ct_equal() helper with optimisation barrier |
+| Tag compare in unseal | **Done (0e).** Correct pattern, but compiler may make it early-exit | `ct_equal()` with `value_barrier` |
 | length_mask, pad256, unpad256 | Run after authentication; only leak is public length | keep; test that bad data never reaches them |
-| readkeyfile / htoa | Not constant-time: branches per key character | branch-free hex decode |
+| readkeyfile / htoa | **Done (0e).** Branches per key character | branch-free `hex_digit`; an invalid digit is reported after the whole key is read |
 | getphrase length check | Branches on length | leave |
 | Phrase canonical form (text.cpp) | Not constant-time: table lookups and branches depend on the phrase | leave; same class as the Argon2id addressing, and an ASCII phrase touches no table |
 | Argon2id | Data-dependent addressing in 2nd half of pass 0 | documented only; note same on all OSes, shared hosts/VMs are the exposure |
 
 ### 5.2 Compiler/arch risk
-- value_barrier() (empty asm on GCC/Clang, volatile read on MSVC) around mask creation in setkey, ct_equal, hex decode.
-- arm64: set DIT (`msr dit, #1`) around the cipher where available (Apple M, ARMv8.4+).
+- **Done (0e).** `value_barrier()` (empty asm on GCC/Clang, volatile read on MSVC) around mask creation in setkey, `ct_equal` and the hex decode.
+- **Done on Linux and macOS arm64 (0e).** DIT (`msr dit, #1`) set once in `harden_process`, after asking the OS whether the CPU has it (`getauxval` HWCAP, `sysctl hw.optional.arm.FEAT_DIT`); the program has no threads. Windows arm64 is open.
 - Confirm BlaMka's 32x32->64 multiply stays constant-time per target.
 
 ### 5.3 Verification
@@ -382,9 +398,9 @@ How the work proceeds, because there is no local test bench for the ports:
 4. memory-hygiene (after 2, 15): now only the non-Linux parts (M9, Windows/macOS locking, WER exclusion, ReadConsoleW)
 5. windows-port (after 3, 4, 14, 15); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW); written here, built and tested only on the Windows runners (section 7.1)
 6. macos-port (after 3, 4, 14, 15); written here, built and tested only on the macOS runners (section 7.1)
-7. ct-hardening (after 2)
+7. ct-hardening (after 2): **done** (section 0e); the verification is todo 8
 8. ct-verification (after 7)
-9. build-hardening (after 1)
+9. build-hardening (after 1): **done** (section 0e)
 10. tests-portable (after 3, 14)
 11. ci-matrix (after 5, 6, 9, 10): completes the matrix (interop, arm64, extras); the early runner jobs of todo 15 already exist by then
 12. docs-update (after 8, 11)

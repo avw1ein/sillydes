@@ -17,7 +17,8 @@ the section of the tag's version as the text of the GitHub Release.
 - First source for Windows (`src/platform_win32.cpp`, `wmain`) and macOS, built and tested by the
   `build` workflow on the Windows (MSVC, MinGW-w64) and macOS (arm64, Intel) runners. These
   builds are not released yet: the memory locking, the end-to-end tests and the hardening of the
-  Windows and macOS versions are still to come (PORTPLAN.md).
+  Windows and macOS versions are still to come (PORTPLAN.md). The workflow also runs on a native
+  arm64 Linux runner and with AddressSanitizer and UndefinedBehaviorSanitizer.
 - Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
   the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.
@@ -29,6 +30,12 @@ the section of the tag's version as the text of the GitHub Release.
   behave as before; the usage text and every error message are unchanged.
 - The binary is linked with `-z relro -z now` on every compiler (every symbol is bound at load
   time, the relocations are read-only); Ubuntu's gcc already did this, clang did not.
+- Build hardening on every compiler and system: stack protector, stack clash protection, control-flow
+  markers (IBT and shadow stack on x86-64, BTI and pointer authentication on arm64), fortified C
+  library calls, PIE and a non-executable stack on Linux; ASLR, DEP and control flow guard on
+  Windows. A test checks the finished binary for them.
+- Security: the MAC comparison and the hexadecimal decoding of a key file no longer branch on secret
+  bytes, and on arm64 CPUs with the feature the data-independent timing mode (DIT) is switched on.
 
 ### Fixed
 
