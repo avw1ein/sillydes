@@ -123,7 +123,7 @@ void SillyDesCipher::cbc_decrypt(uint8_t *p, size_t n, const uint8_t *iv) const
 void pad256(Buf &b, uint8_t lenmask)
 {
   size_t cnt = b.size() % 256, len = b.size();
-  reserve_wiped(b, len - cnt + 256);
+  b.reserve(len - cnt + 256);
   b.resize(len - cnt + 256);
   if (cnt + 1 < 256) randbytes(&b[len], 255 - cnt);
   b[b.size() - 1] = (uint8_t)(cnt ^ lenmask);

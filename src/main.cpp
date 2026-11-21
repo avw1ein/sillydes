@@ -97,11 +97,8 @@ Args parse_args(int argc, char *argv[])
   return a;
 }
 
-}  // namespace
-
-int main(int argc, char *argv[])
+int run(int argc, char *argv[])
 {
-  lockdown();
   if (argc == 1) { usage(); return 3; }
   Args args = parse_args(argc, argv);
 
@@ -116,19 +113,32 @@ int main(int argc, char *argv[])
 
   if (!args.keyfile.empty()) readkeyfile(args.keyfile, keys.key);
 
-  try {
-    Buf d = readfile(args.in);
-    if (args.encrypt) {
-      seal(d, keys, DEFAULT_KDF);
-      if (!args.binary) d = high2low(d);
-    } else {
-      if (!args.binary) d = low2high(d, args.in);
-      unseal(d, keys);
-    }
-    writefile(args.out, d);
-    wipe(d.data(), d.size());
-  } catch (const std::bad_alloc &) {
-    errorexit(7);
+  Buf d = readfile(args.in);
+  if (args.encrypt) {
+    seal(d, keys, DEFAULT_KDF);
+    if (!args.binary) d = high2low(d);
+  } else {
+    if (!args.binary) d = low2high(d, args.in);
+    unseal(d, keys);
   }
+  writefile(args.out, d);
   return 0;
+}
+
+}  // namespace
+
+// Every failure is an exception that ends up here, so the destructors of the keys, the cipher and
+// the data buffer have run and wiped before the process exits.
+int main(int argc, char *argv[])
+{
+  lockdown();
+  lock_stack();
+  try {
+    return run(argc, argv);
+  } catch (const ExitError &e) {
+    return e.code;
+  } catch (const std::bad_alloc &) {
+    report_error(7);
+    return 7;
+  }
 }

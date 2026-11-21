@@ -22,7 +22,7 @@ The code is split into small units, each with one job. Source files are in [src/
 | Unit | Files | Responsibility |
 |---|---|---|
 | Entry point | [main.cpp](src/main.cpp) | Argument parsing, orchestration, `bad_alloc` handling |
-| Common | [common.h](src/common.h), [common.cpp](src/common.cpp) | `Buf` type, format constants, error exits, file I/O, random bytes |
+| Common | [common.h](src/common.h), [common.cpp](src/common.cpp) | `Buf` and `SecretBuf` types with wiping allocators, format constants, error exits, file I/O, random bytes, memory locking |
 | Versions | [version.h](src/version.h) | Program version; name and magic of the file format |
 | Keys | [keys.h](src/keys.h), [keys.cpp](src/keys.cpp) | Key file parser, phrase prompt, KDF parameter check, key derivation |
 | Container | [container.h](src/container.h), [container.cpp](src/container.cpp) | `seal` and `unseal`: file format, MAC, order of operations |
@@ -62,7 +62,7 @@ flowchart TD
     kdf["kdf<br/>argon2id"]
     blake2b["blake2b<br/>Blake2b, blake2b_long"]
     sha512["sha512<br/>Sha512, Hmac512"]
-    common["common<br/>Buf, constants, file I/O,<br/>randbytes, errorexit"]
+    common["common<br/>Buf, SecretBuf, constants, file I/O,<br/>randbytes, errorexit"]
 
     main --> armor
     main --> container
@@ -159,7 +159,7 @@ Free functions by unit:
 
 | Unit | Functions |
 |---|---|
-| common | `readfile`, `writefile`, `reserve_wiped`, `randbytes`, `wipe`, `lockdown`, `errorexit`; global `errarg` names the file or argument the next error message refers to |
+| common | `Buf` and `SecretBuf` with their wiping allocators, `readfile`, `writefile`, `randbytes`, `wipe`, `lockdown`, `lock_stack`, `lock_memory`, `errorexit` and `ExitError`; global `errarg` names the file or argument the next error message refers to |
 | keys | `readkeyfile`, `getphrase(confirm)`, `kdf_ok`, `derive_keys` |
 | container | `seal`, `unseal` |
 | sillydes_cipher | `pad256`, `unpad256` |
@@ -171,7 +171,7 @@ Free functions by unit:
 
 ### 4.1 Top level
 
-`main` first calls `lockdown`, which sets the core-file limit to zero and clears the dumpable flag, so a crash leaves no core file and other processes of the same user cannot attach a debugger or read the process memory. It then parses exactly four arguments (`act=`, `in=`, `out=`, and `key=` or `phrase`); any other count, a duplicate, an unknown option or a missing argument ends the program with an error code. It then obtains key input, rejects an input that is the same file as the output (by name and by device/inode), reads the input and runs the selected pipeline. Output is written last and only if everything before it succeeded.
+`main` first calls `lockdown`, which sets the core-file limit to zero and clears the dumpable flag, so a crash leaves no core file and other processes of the same user cannot attach a debugger or read the process memory, and then `lock_stack`, which locks a window of stack in RAM. It runs everything else inside one `try` block (see section 8). It then parses exactly four arguments (`act=`, `in=`, `out=`, and `key=` or `phrase`); any other count, a duplicate, an unknown option or a missing argument ends the program with an error code. It then obtains key input, rejects an input that is the same file as the output (by name and by device/inode), reads the input and runs the selected pipeline. Output is written last and only if everything before it succeeded.
 
 ```mermaid
 flowchart TD
@@ -226,7 +226,7 @@ sequenceDiagram
     K-->>C: KeyMaterial (key, mackey, lenmask)
     C->>O: construct(key, salt)
     Note over O: 8 key schedules and 9 whitening blocks (36 HMACs)
-    C->>C: reserve room for header, padding and tag (old storage wiped)
+    C->>C: reserve room for header, padding and tag
     C->>O: pad256(data, lenmask) then cbc_encrypt(data, iv), both in place
     loop each 256-byte block i
         O->>O: tweak(i), XOR chain and tweak, encrypt_block, XOR tweak
@@ -354,11 +354,11 @@ stateDiagram-v2
     Accepted --> [*] : trailing spaces removed
 ```
 
-Echo is switched off on a terminal. Piped input is read once and never confirmed.
+Echo is switched off on a terminal, and switched back on by a destructor however the prompt is left. The phrase is read with `read(2)`, one byte at a time, into a `SecretBuf`, so no stdio buffer holds a copy and a phrase of any length can grow the buffer without leaving a stale one. Piped input is read once and never confirmed.
 
 ## 8. Error handling
 
-All failures end in `errorexit(code)`, which prints a message to stderr and calls `exit(code)`; there are no exceptions in normal control flow (only `bad_alloc` is caught in `main`). The global `errarg` carries the file name or argument for the message. Key-file errors name only the file.
+All failures end in `errorexit(code)`, which prints a message to stderr and throws `ExitError{code}`; `main` catches it, and `bad_alloc` (reported as error 7), and returns the code. There is no `exit` call on an error path, because `exit` would skip the destructors that wipe the keys, the cipher state and the data buffer. Nothing else uses exceptions, and nothing may catch `ExitError` except `main` and the tests. The global `errarg` carries the file name or argument for the message. Key-file errors name only the file.
 
 | Code | Raised by | Meaning |
 |---|---|---|
@@ -374,7 +374,7 @@ All failures end in `errorexit(code)`, which prints a message to stderr and call
 
 ## 9. Build and test structure
 
-The Makefile compiles every `src/*.cpp` except `main.cpp` into `obj/*.o` (with automatic header dependencies), links `main.o` plus those objects into `sillydes`, and links the same objects with `test/test_primitives.cpp` into a unit test binary. `make gen` builds [tools/gen_des_sbox.cpp](tools/gen_des_sbox.cpp) and rewrites [src/des_sbox_ct.h](src/des_sbox_ct.h); the generated header is committed, so a normal build does not need it.
+The Makefile compiles every `src/*.cpp` except `main.cpp` into `obj/*.o` (with automatic header dependencies), links `main.o` plus those objects into `sillydes`, links the same objects with `test/test_primitives.cpp` into a unit test binary, and builds [test/residue_scan.cpp](test/residue_scan.cpp) into a shared object that `test.sh` preloads. `make gen` builds [tools/gen_des_sbox.cpp](tools/gen_des_sbox.cpp) and rewrites [src/des_sbox_ct.h](src/des_sbox_ct.h); the generated header is committed, so a normal build does not need it. `make sbom` runs [tools/gen_sbom.sh](tools/gen_sbom.sh) on the built binary and writes `sillydes.cdx.json`, a CycloneDX 1.5 SBOM with the binary's SHA-256, the shared libraries `ldd` reports (one component per distribution package, with version, purl and file hashes), the compiler and the source commit; it is generated rather than committed because it holds the hash of the binary, and it is Linux only.
 
 ```mermaid
 flowchart LR
@@ -389,8 +389,8 @@ flowchart LR
     shtest --> make
 ```
 
-- `test_primitives` checks BLAKE2b (RFC 7693 and hashlib cross-checks), Argon2's $H'$, SHA-512, HMAC (RFC 4231), Argon2id (RFC 9106 and the reference implementation's vectors), DES and CRC-32 against published vectors, checks the KDF header bounds, checks every generated S-box circuit on all 64 inputs against the FIPS 46 tables, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, two `seal` calls on the same input share neither salt, IV nor ciphertext, and a phrase-mode container with non-default KDF parameters opens again.
-- `test.sh` runs the real binary: decryption of files written by release 5.1.0 (`hello.sdes` and [test/format-5.1.0/](test/format-5.1.0/)), round trips in all four modes for several sizes, phrase mode (2 GiB), refusal of a short phrase and of phrase mode under a 1.5 GB address-space limit, wrong-key and corrupted-input failures, truncation and block-edit detection, out-of-range KDF parameters, rejection of files of another format version, fresh salt per encryption, and container size.
+- `test_primitives` checks BLAKE2b (RFC 7693 and hashlib cross-checks), Argon2's $H'$, SHA-512, HMAC (RFC 4231), Argon2id (RFC 9106 and the reference implementation's vectors), DES and CRC-32 against published vectors, checks the KDF header bounds, checks every generated S-box circuit on all 64 inputs against the FIPS 46 tables, checks that the bitsliced DES layer equals 32 single-word calls with independent lanes, pins one core block with a fixed key and salt to a stored answer, and checks cipher properties: equal blocks give unrelated ciphertext, every key bit matters, salt and block index change the tweak, one changed input bit or word changes every output word in both directions, eight identical DES keys still give distinct layers, two `seal` calls on the same input share neither salt, IV nor ciphertext, and a phrase-mode container with non-default KDF parameters opens again. It also checks that errors are `ExitError` exceptions, the key file parser (comments, tabs, a missing final newline, and every kind of faulty key file), that `Buf` and `SecretBuf` keep their contents while they grow across the page and 64 KiB thresholds, and, where `RLIMIT_MEMLOCK` allows (it skips otherwise, and under sanitizers, which turn `mlock` into a no-op), that `lock_stack` and `SecretBuf` lock memory, `SecretBuf` unlocks it when freed and `lock_memory` past the limit locks nothing.
+- `test.sh` runs the real binary: decryption of files written by release 5.1.0 (`hello.sdes` and [test/format-5.1.0/](test/format-5.1.0/)), round trips in all four modes for several sizes, phrase mode (2 GiB), refusal of a short phrase and of phrase mode under a 1.5 GB address-space limit, wrong-key and corrupted-input failures, truncation and block-edit detection, out-of-range KDF parameters, rejection of files of another format version, fresh salt per encryption, container size, and memory residue: the preloaded scanner searches the exited process for the key text, the key bytes, the phrase (5000 characters, longer than the read buffer) and the plaintext, after encryption, after decryption and after a failed authentication, and a positive control shows that the scanner finds a mark that is there.
 
 ## 10. Design notes for maintainers
 
@@ -399,7 +399,17 @@ flowchart LR
 - **File format.** The on-disk format is defined by `HDR_LEN`, `MAGIC` (byte 2 the format's major version, byte 3 minor·16+patch) and `FORMAT_NAME`, which is hashed into the keys through the labels `"SillyDES 5.1.0 white"`, `"... tweak"` and `"... mac"` and written in the e-mail tags; changing any of them breaks existing files. The meaning of the four KDF parameter bytes is part of the format too, which is why the change from scrypt to Argon2id started a new format; so are the cipher, the padding, what the MAC covers and the e-mail encoding. When one of these changes, set `FORMAT_NAME` and `MAGIC` to the release that makes the change.
 - **Format fixtures.** `hello.sdes` and the files in [test/format-5.1.0/](test/format-5.1.0/) were written by release 5.1.0, and `test.sh` decrypts them. Do not regenerate them: a release that fails that test has changed the format, whatever its notes say. Only a deliberate format change replaces them, with files written by the new release.
 - **Randomisation is mandatory.** Salt and IV are drawn in `seal` only. Do not add a deterministic mode or a caller-supplied salt or IV; see section 4.2 and [ANALYSIS.md](ANALYSIS.md), section 11.
-- **Memory model.** Whole files are held in memory, in one buffer: `readfile` reads a regular file straight into a buffer of its size with unbuffered `read`, `seal` and `unseal` transform that buffer in place, and `writefile` writes it with unbuffered `write`. No second copy of the plaintext is made, in the heap or in stdio. When a buffer must grow (`reserve_wiped`), the old storage is wiped before it is freed. Argon2id allocates 2 GiB in phrase mode, after checking that the machine has it.
+- **Memory model.** Whole files are held in memory, in one buffer: `readfile` reads a regular file straight into a buffer of its size with unbuffered `read`, `seal` and `unseal` transform that buffer in place, and `writefile` writes it with unbuffered `write`. No second copy of the plaintext is made, in the heap or in stdio. `Buf` is a `std::vector` with `SecureAllocator`, which wipes every block before it is released, so a buffer that grows, shrinks or is destroyed leaves no copy; blocks of 64 KiB and more get their own mapping, excluded from core dumps. Argon2id allocates 2 GiB in phrase mode, after checking that the machine has it.
 - **No global state** other than `errarg`; the DES tables are compile-time constants indexed only by loop counters.
 - **Constant time.** `Des` must stay free of key- or data-dependent memory addresses and branches. Edit the S-boxes only through [tools/gen_des_sbox.cpp](tools/gen_des_sbox.cpp) and `make gen`.
 - **Secrets are wiped.** `KeyInput`, `KeyMaterial`, `Des`, `SillyDesCipher`, `Blake2b` and `Sha512` zeroise their key material, schedules, whitening and HMAC pad states in their destructors with `explicit_bzero`; the key-file parser, the phrase confirmation copy and the Argon2id intermediates (including the 2 GiB table) are wiped before they go out of scope. The per-block tweak, the bitsliced state inside `Des::layer` and the padding removed by `unpad256` are wiped as well, and `main` wipes the data buffer after writing it. The one buffer that holds the user's data is therefore the only place where plaintext exists, and only for as long as it is needed. Keep new code holding key material or plaintext inside one of these types, or wipe it explicitly.
+- **Secrets are kept out of stdio and `std::string`.** The phrase is a `SecretBuf` (a vector with `LockedAllocator`: private pages, `mlock`ed best effort, excluded from dumps, wiped and unmapped when freed) read byte by byte with `read(2)`; the key file goes through `readfile`. A `std::string` keeps short contents inside the object, where no allocator can wipe it, and `getchar` and `fopen` leave copies in library buffers, so none of them may hold a secret. [test/residue_scan.cpp](test/residue_scan.cpp), preloaded by `test.sh`, searches the exited process for the phrase, the key and the plaintext, and the test fails if any is left.
+- **Making a release.** A release is a version tag; [release.yml](.github/workflows/release.yml) does the rest. In order:
+  1. Decide whether the file format changes. Usually it does not, and then `FORMAT_NAME` and `MAGIC` stay as they are (see *Two versions* and *File format* above). If it does, change both together and add new fixtures under `test/format-*`.
+  2. Set `PACKAGE_VERSION` in [version.h](src/version.h) and update the headings that name the program version (the titles of [README.md](README.md), this file and [ANALYSIS.md](ANALYSIS.md)). Leave the places that name the *format*.
+  3. Run what CI runs, from a clean tree: `make clean`, `make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"`, `make test`, and `make sbom` to check that the SBOM still generates.
+  4. Commit and push to `main`, and wait for the `build` workflow to go green.
+  5. Tag that commit `vX.Y.Z` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must equal `v` plus `PACKAGE_VERSION`; the workflow stops at its first step if it does not. Only tags of the form `v<number>.<number>.<number>` trigger it.
+  6. The workflow builds with the CI flags, runs the tests, generates the CycloneDX SBOM ([tools/gen_sbom.sh](tools/gen_sbom.sh)), attests the SBOM to the binary, and creates the GitHub Release with `sillydes-X.Y.Z-linux-x86_64`, its `.cdx.json` and `SHA256SUMS`. Check the release page afterwards, and verify one download with `sha256sum -c SHA256SUMS` and `gh attestation verify sillydes-X.Y.Z-linux-x86_64 --repo avw1ein/sillydes`.
+
+  Never move or reuse a published tag: a pushed tag is not run again, and users may already have its files. If a run fails before the last step, nothing was published, so fix the cause and re-run the failed workflow; if a bad release did go out, delete the release and the tag and publish the next patch version instead. The SBOM holds the hash of the CI-built binary and is attached to the release; it is never committed. The tag `v5.1.0` already exists from before the workflow, so it will not trigger it; the first automated release is the next version.

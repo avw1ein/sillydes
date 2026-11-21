@@ -2,3 +2,6 @@ obj/
 sillydes
 test/test_primitives
 tools/gen_des_sbox
+test/residue_scan.so
+sillydes.cdx.json
+sillydes.cdx.json.tmp

@@ -13,13 +13,16 @@ sillydes: obj/main.o $(OBJS)
 test/test_primitives: test/test_primitives.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^
 
+test/residue_scan.so: test/residue_scan.cpp
+	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $<
+
 obj/%.o: src/%.cpp
 	@mkdir -p obj
 	$(CXX) $(CXXFLAGS) -MMD -MP -c -o $@ $<
 
 -include obj/*.d
 
-test: sillydes test/test_primitives
+test: sillydes test/test_primitives test/residue_scan.so
 	./test/test_primitives
 	bash test/test.sh
 
@@ -30,7 +33,12 @@ gen: tools/gen_des_sbox
 tools/gen_des_sbox: tools/gen_des_sbox.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $<
 
-clean:
-	rm -rf obj sillydes test/test_primitives tools/gen_des_sbox
+# CycloneDX SBOM of the binary just built; the file holds its hash, so it is generated, not committed.
+sbom: sillydes
+	bash tools/gen_sbom.sh ./sillydes > sillydes.cdx.json.tmp
+	mv sillydes.cdx.json.tmp sillydes.cdx.json
 
-.PHONY: test gen clean
+clean:
+	rm -rf obj sillydes test/test_primitives test/residue_scan.so tools/gen_des_sbox sillydes.cdx.json sillydes.cdx.json.tmp
+
+.PHONY: test gen sbom clean

@@ -82,9 +82,8 @@ inline void sbox(const uint32_t *r, const uint32_t *k, uint32_t *f)
 }
 
 // L ^= P(S(E(R) ^ K)) over all 32 lanes.
-void round_(uint32_t *l, const uint32_t *r, const uint32_t *k)
+void round_(uint32_t *l, const uint32_t *r, const uint32_t *k, uint32_t *f)
 {
-  uint32_t f[32];
   sbox<0>(r, k, f);
   sbox<1>(r, k, f);
   sbox<2>(r, k, f);
@@ -124,7 +123,7 @@ void Des::setkey(const uint8_t key[8])
 void Des::layer(uint8_t *b, bool encrypt) const
 {
   // t[i] holds bit i+1 (FIPS numbering) of all 32 words, one word per lane.
-  uint32_t t[64], lr[64], out[64];
+  uint32_t t[64], lr[64], out[64], f[32];
   for (int w = 0; w < 32; w++) {
     const uint8_t *p = b + 8 * w;
     t[w] = (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
@@ -136,7 +135,7 @@ void Des::layer(uint8_t *b, bool encrypt) const
   for (int i = 0; i < 64; i++) lr[i] = t[ip[i] - 1];
   uint32_t *l = lr, *r = lr + 32;
   for (int i = 0; i < 16; i++) {
-    round_(l, r, ks_[encrypt ? i : 15 - i]);
+    round_(l, r, ks_[encrypt ? i : 15 - i], f);
     uint32_t *x = l; l = r; r = x;
   }
   // The final swap: the preoutput is R16 || L16.
@@ -157,6 +156,7 @@ void Des::layer(uint8_t *b, bool encrypt) const
   wipe(t, sizeof t);
   wipe(lr, sizeof lr);
   wipe(out, sizeof out);
+  wipe(f, sizeof f);
 }
 
 void Des::block(uint8_t *block, bool encrypt) const

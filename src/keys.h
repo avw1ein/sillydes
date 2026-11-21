@@ -8,7 +8,7 @@
 // Where the keys come from: eight 64-bit keys from a key file, or a phrase run through Argon2id.
 struct KeyInput {
   bool usephrase = false;
-  std::string phrase;
+  SecretBuf phrase;  // wiped by its allocator, also when it grows
   uint8_t key[NL][8] = {};  // only meaningful when !usephrase
 
   ~KeyInput();
@@ -26,8 +26,9 @@ struct KeyMaterial {
 void readkeyfile(const std::string &name, uint8_t key[NL][8]);
 
 // Reads a phrase (no echo on a terminal); asks twice on a terminal when confirm is set.
-// Trailing spaces are removed; at least 20 other characters are required.
-std::string getphrase(bool confirm);
+// Trailing spaces are removed; at least 20 other characters are required. Reads stdin with
+// read(2) a byte at a time, so no stdio buffer ever holds a copy.
+SecretBuf getphrase(bool confirm);
 
 bool kdf_ok(const KdfParams &k);
 

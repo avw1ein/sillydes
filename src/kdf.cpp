@@ -56,7 +56,7 @@ void compress(const Block &prev, const Block &ref, Block &next, bool with_xor)
   wipe(&Z, sizeof Z);
 }
 
-void store32(Buf &b, uint32_t w) { for (int i = 0; i < 4; i++) b.push_back((uint8_t)(w >> (8 * i))); }
+void store32(SecretBuf &b, uint32_t w) { for (int i = 0; i < 4; i++) b.push_back((uint8_t)(w >> (8 * i))); }
 
 void block_from_bytes(Block &b, const uint8_t *p)
 {
@@ -97,7 +97,7 @@ void require_memory(uint64_t need)
 
 struct Argon2 {
   uint32_t passes, lanes, mblocks, lane_len, seg_len;
-  std::vector<Block> mem;
+  std::vector<Block, SecureAllocator<Block>> mem;  // wiped by the allocator on every path out
 
   Block &at(uint32_t lane, uint32_t idx) { return mem[(size_t)lane * lane_len + idx]; }
 
@@ -159,8 +159,8 @@ struct Argon2 {
 
 }  // namespace
 
-Buf argon2id(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p, size_t outlen,
-             const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen)
+SecretBuf argon2id(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p,
+                   size_t outlen, const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen)
 {
   Argon2 a;
   a.passes = t;
@@ -170,10 +170,11 @@ Buf argon2id(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t m
   a.mblocks = a.lane_len * p;
 
   // H0 over the parameters and all inputs, each variable-length input preceded by its length.
-  Buf h0in;
+  SecretBuf h0in;
+  h0in.reserve(10 * 4 + pwlen + slen + seclen + adlen);  // exact, so the password is never copied on growth
   store32(h0in, p); store32(h0in, (uint32_t)outlen); store32(h0in, m_kib); store32(h0in, t);
   store32(h0in, ARGON2_VERSION); store32(h0in, ARGON2_ID);
-  store32(h0in, (uint32_t)pw.size()); h0in.insert(h0in.end(), pw.begin(), pw.end());
+  store32(h0in, (uint32_t)pwlen); h0in.insert(h0in.end(), pw, pw + pwlen);
   store32(h0in, (uint32_t)slen); h0in.insert(h0in.end(), salt, salt + slen);
   store32(h0in, (uint32_t)seclen); if (seclen) h0in.insert(h0in.end(), secret, secret + seclen);
   store32(h0in, (uint32_t)adlen); if (adlen) h0in.insert(h0in.end(), ad, ad + adlen);
@@ -182,7 +183,13 @@ Buf argon2id(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t m
   wipe(h0in.data(), h0in.size());
 
   require_memory((uint64_t)a.mblocks * sizeof(Block));
-  try { a.mem.resize(a.mblocks); } catch (const std::bad_alloc &) { errorexit(7); }
+  try {
+    a.mem.reserve(a.mblocks);
+    // Every block derives from the phrase, so a swapped-out page is as good as a key. Locked before
+    // it is first touched; without the privilege or limit for 2 GiB this fails and is skipped.
+    lock_memory(a.mem.data(), a.mblocks * sizeof(Block));
+    a.mem.resize(a.mblocks);
+  } catch (const std::bad_alloc &) { errorexit(7); }
 
   uint8_t blk[sizeof(Block)];
   for (uint32_t l = 0; l < p; l++) {
@@ -202,11 +209,10 @@ Buf argon2id(const std::string &pw, const uint8_t *salt, size_t slen, uint32_t m
   for (uint32_t l = 1; l < p; l++)
     for (int i = 0; i < BLOCK_WORDS; i++) c.v[i] ^= a.at(l, a.lane_len - 1).v[i];
   block_to_bytes(blk, c);
-  Buf out(outlen);
+  SecretBuf out(outlen);
   blake2b_long(out.data(), outlen, blk, sizeof blk);
 
   wipe(&c, sizeof c);
   wipe(blk, sizeof blk);
-  wipe(a.mem.data(), a.mem.size() * sizeof(Block));
   return out;
 }

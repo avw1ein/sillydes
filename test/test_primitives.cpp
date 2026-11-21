@@ -3,7 +3,11 @@
 //
 // Unit tests for the hash primitives and the block cipher.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #include "blake2b.h"
 #include "common.h"
@@ -154,8 +158,61 @@ static std::string sha512(const std::string &m)
 
 static std::string a2(const char *pw, const char *salt, uint32_t m, uint32_t t, uint32_t p)
 {
-  Buf b = argon2id(pw, (const uint8_t *)salt, strlen(salt), m, t, p, 32);
+  SecretBuf b = argon2id((const uint8_t *)pw, strlen(pw), (const uint8_t *)salt, strlen(salt), m, t, p, 32);
   return hex(b.data(), b.size());
+}
+
+// Error messages go to stderr; the tests that provoke them keep the output readable.
+struct QuietStderr {
+  int saved;
+  QuietStderr() : saved(dup(STDERR_FILENO))
+  {
+    int nul = open("/dev/null", O_WRONLY);
+    dup2(nul, STDERR_FILENO);
+    close(nul);
+  }
+  ~QuietStderr()
+  {
+    dup2(saved, STDERR_FILENO);
+    close(saved);
+  }
+};
+
+// The ExitError code that fn() throws, or -1 if it returns.
+template <class F>
+static int exit_code(F fn)
+{
+  QuietStderr q;
+  try { fn(); } catch (const ExitError &e) { return e.code; }
+  return -1;
+}
+
+// The sanitizers replace mlock by a call that succeeds and locks nothing.
+#if defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+#define SANITIZED 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
+#define SANITIZED 1
+#endif
+#endif
+
+static long vmlck_kb()
+{
+  FILE *f = fopen("/proc/self/status", "r");
+  long kb = -1;
+  char line[128];
+  while (f && fgets(line, sizeof line, f))
+    if (sscanf(line, "VmLck: %ld kB", &kb) == 1) break;
+  if (f) fclose(f);
+  return kb;
+}
+
+static std::string write_temp(const std::string &text)
+{
+  char name[] = "/tmp/sillydes_test_XXXXXX";
+  int fd = mkstemp(name);
+  if (fd >= 0) { if (write(fd, text.data(), text.size()) < 0) {} close(fd); }
+  return name;
 }
 
 int main()
@@ -202,7 +259,7 @@ int main()
     std::string pw(32, '\x01');
     uint8_t salt[16], sec[8], ad[12];
     memset(salt, 2, sizeof salt); memset(sec, 3, sizeof sec); memset(ad, 4, sizeof ad);
-    Buf o = argon2id(pw, salt, sizeof salt, 32, 3, 4, 32, sec, sizeof sec, ad, sizeof ad);
+    SecretBuf o = argon2id((const uint8_t *)pw.data(), pw.size(), salt, sizeof salt, 32, 3, 4, 32, sec, sizeof sec, ad, sizeof ad);
     check("argon2id rfc9106", hex(o.data(), o.size()), "0d640df58d78766c08c037a34a8b53c9d01ef0452d75b65eb52520e96b01e659");
   }
   check("argon2id m=256 t=2 p=1", a2("password", "somesalt", 256, 2, 1), "9dfeb910e80bad0311fee20f9c0e2b12c17987b4cac90c2ef54d5b3021c68bfe");
@@ -416,7 +473,8 @@ int main()
   {
     KeyInput ki;
     ki.usephrase = true;
-    ki.phrase = "a phrase of twenty+ characters";
+    const char phr[] = "a phrase of twenty+ characters";
+    ki.phrase.assign(phr, phr + strlen(phr));
     Buf msg(100);
     randbytes(msg.data(), msg.size());
     Buf f = msg;
@@ -427,9 +485,91 @@ int main()
     if (f != msg) { puts("FAIL: phrase seal/unseal round trip"); fails++; }
   }
 
+
+  // Errors are exceptions, so the destructors on the way out wipe the keys and the data.
+  {
+    Buf junk(HDR_LEN + 256 + TAG_LEN, 0x42);
+    KeyInput ki;
+    memcpy(ki.key, key, sizeof ki.key);
+    if (exit_code([&] { unseal(junk, ki); }) != 13) { puts("FAIL: unseal of garbage does not throw ExitError 13"); fails++; }
+    if (exit_code([] { errorexit(14); }) != 14) { puts("FAIL: errorexit does not throw its code"); fails++; }
+  }
+
+  // The key file parser: comments, blank lines, tabs and a missing final newline are fine;
+  // anything else that is not exactly eight 16-digit hexadecimal keys is error 5.
+  {
+    const char *good = "; comment\n\n  0001020304050607 trailing words\n\t08090A0B0C0D0E0F\n"
+                       "1011121314151617\n1819202122232425\n2627282930313233\n3435363738394041\n"
+                       "4243444546474849\n; no newline after the last key\n5051525354555657";
+    std::string f = write_temp(good);
+    uint8_t k[NL][8];
+    readkeyfile(f, k);
+    if (k[0][0] != 0x00 || k[0][7] != 0x07 || k[1][0] != 0x08 || k[1][7] != 0x0F || k[7][0] != 0x50 || k[7][7] != 0x57)
+      { puts("FAIL: key file parsed wrongly"); fails++; }
+    unlink(f.c_str());
+    const struct { const char *first; int more; } bad[] = {
+      { "0001020304050607\n", 6 },  // seven keys
+      { "000102030405060\n", 7 },   // 15 digits
+      { "000102030405060G\n", 7 },  // not hexadecimal
+      { "00010203040506070\n", 7 }  // 17 digits
+    };
+    for (const auto &c : bad) {
+      std::string text = c.first;
+      for (int i = 0; i < c.more; i++) text += "0001020304050607\n";
+      f = write_temp(text);
+      uint8_t kk[NL][8];
+      if (exit_code([&] { readkeyfile(f, kk); }) != 5) { puts("FAIL: faulty key file accepted"); fails++; }
+      unlink(f.c_str());
+    }
+    uint8_t kk[NL][8];
+    if (exit_code([&] { readkeyfile("/nonexistent/sillydes.key", kk); }) != 1) { puts("FAIL: missing key file is not error 1"); fails++; }
+  }
+
+  // Both secret buffer types keep their contents while they grow, across the page and the
+  // 64 KiB mapping thresholds.
+  {
+    Buf a;
+    SecretBuf b;
+    for (size_t i = 0; i < 200000; i++) { a.push_back((uint8_t)(i * 7)); b.push_back((uint8_t)(i * 13)); }
+    bool ok = true;
+    for (size_t i = 0; i < 200000; i++) ok = ok && a[i] == (uint8_t)(i * 7) && b[i] == (uint8_t)(i * 13);
+    Buf c = a;
+    ok = ok && c == a;
+    if (!ok) { puts("FAIL: secret buffers lose data when they grow"); fails++; }
+  }
+
+  // Locking is best effort, so these run only when RLIMIT_MEMLOCK leaves room for them.
+  {
+    rlimit rl;
+    long limit_kb = getrlimit(RLIMIT_MEMLOCK, &rl) != 0 ? 0 : rl.rlim_cur == RLIM_INFINITY ? 1L << 40 : (long)(rl.rlim_cur / 1024);
+    long before = vmlck_kb();
+#ifdef SANITIZED
+    before = -1;
+#endif
+    if (before < 0 || limit_kb < 1024) {
+      puts("skipped: memory locking tests (RLIMIT_MEMLOCK below 1 MiB, no /proc, or a sanitizer build)");
+    } else {
+      lock_stack();
+      long after_stack = vmlck_kb();
+      if (after_stack <= before) { puts("FAIL: lock_stack locked nothing"); fails++; }
+      {
+        SecretBuf s(100);
+        if (vmlck_kb() < after_stack + 4) { puts("FAIL: SecretBuf is not locked"); fails++; }
+      }
+      if (vmlck_kb() != after_stack) { puts("FAIL: SecretBuf stays locked after it is freed"); fails++; }
+      if (limit_kb < (512L << 10)) {
+        size_t big = (size_t)(limit_kb + (64 << 10)) * 1024;  // 64 MiB over the limit
+        void *p = secure_alloc(big);
+        if (lock_memory(p, big) || vmlck_kb() != after_stack) { puts("FAIL: lock_memory past the limit"); fails++; }
+        secure_free(p, big);
+      }
+    }
+  }
+
   if (fails) return 1;
   puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id, DES and CRC-32 known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "
-       "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container");
+       "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container; "
+       "errors as exceptions; key file parser; secret buffers");
   return 0;
 }

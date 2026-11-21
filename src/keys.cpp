@@ -3,6 +3,7 @@
 
 #include "keys.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <termios.h>
@@ -35,7 +36,6 @@ uint8_t length_mask(const uint8_t key[NL][8])
 
 KeyInput::~KeyInput()
 {
-  if (!phrase.empty()) wipe(&phrase[0], phrase.size());
   wipe(key, sizeof key);
 }
 
@@ -45,83 +45,105 @@ KeyMaterial::~KeyMaterial()
   wipe(mackey, sizeof mackey);
 }
 
+// The file is read through readfile, so no stdio buffer holds a copy of the key text, and the Buf
+// wipes it on every path out of here, errors included.
 void readkeyfile(const std::string &name, uint8_t key[NL][8])
 {
-  errarg = name;
-  FILE *fh = fopen(name.c_str(), "r");
-  if (!fh) errorexit(1);
-  char line[256];
-  std::string parse;
+  const Buf f = readfile(name);
+  const size_t size = f.size();
+  size_t pos = 0;
   for (int n = 0; n < NL; n++) {
-    bool got = false;
-    while (fgets(line, sizeof line, fh)) {
-      const char *p = line;
-      while (*p == ' ' || *p == '\t') p++;
-      parse.clear();
-      while (*p && *p != ' ' && *p != '\t' && *p != '\n') parse += *p++;
-      if (!parse.empty() && parse[0] != ';') { got = true; break; }
+    size_t tok = 0, len = 0;
+    while (pos < size) {
+      size_t end = pos;
+      while (end < size && f[end] != '\n') end++;
+      size_t s = pos;
+      while (s < end && (f[s] == ' ' || f[s] == '\t')) s++;
+      size_t t = s;
+      while (t < end && f[t] != ' ' && f[t] != '\t') t++;
+      pos = end < size ? end + 1 : end;
+      if (t > s && f[s] != ';') { tok = s; len = t - s; break; }
     }
     errarg = name;  // never echo key material
-    if (!got || parse.size() != 16) { fclose(fh); errorexit(5); }
+    if (len != 16) errorexit(5);
     for (int i = 0; i < 16; i += 2) {
-      int hi = htoa(parse[i]), lo = htoa(parse[i + 1]);
-      if (hi < 0 || lo < 0) { fclose(fh); errorexit(5); }
+      int hi = htoa((char)f[tok + i]), lo = htoa((char)f[tok + i + 1]);
+      if (hi < 0 || lo < 0) errorexit(5);
       key[n][i / 2] = (uint8_t)((hi << 4) | lo);
     }
   }
-  fclose(fh);
-  wipe(line, sizeof line);
-  wipe(&parse[0], parse.size());
 }
 
 namespace {
 
-// Reads one line without echo on a terminal; false on EOF before any character.
-bool read_hidden(const char *prompt, std::string &s, bool tty)
-{
-  fputs(prompt, stderr);
-  fflush(stderr);
-  termios old{};
-  if (tty) {
+// Puts the terminal back in its old mode however the scope is left.
+struct NoEcho {
+  bool on;
+  termios old;
+  explicit NoEcho(bool tty) : on(tty), old()
+  {
+    if (!on) return;
     tcgetattr(STDIN_FILENO, &old);
     termios t = old;
     t.c_lflag &= ~ECHO;
     tcsetattr(STDIN_FILENO, TCSANOW, &t);
   }
-  s.clear();
-  s.reserve(1024);  // typing byte by byte must not leave partial copies in freed heap blocks
-  int c;
-  while ((c = getchar()) != EOF && c != '\n') s += (char)c;
-  if (tty) {
+  ~NoEcho()
+  {
+    if (!on) return;
     tcsetattr(STDIN_FILENO, TCSANOW, &old);
     fputc('\n', stderr);
   }
-  return !(c == EOF && s.empty());
+};
+
+// Reads one line without echo on a terminal; false on EOF before any character.
+bool read_hidden(const char *prompt, SecretBuf &s, bool tty)
+{
+  fputs(prompt, stderr);
+  fflush(stderr);
+  NoEcho noecho(tty);
+  s.clear();
+  s.reserve(4096);  // a page; growth beyond it is wiped by the allocator
+  uint8_t c = 0;
+  bool eof = false;
+  for (;;) {
+    ssize_t k = read(STDIN_FILENO, &c, 1);
+    if (k < 0 && errno == EINTR) continue;
+    if (k <= 0) { eof = true; break; }
+    if (c == '\n') break;
+    s.push_back(c);
+  }
+  wipe(&c, sizeof c);
+  return !(eof && s.empty());
+}
+
+size_t trimmed_size(const SecretBuf &s)
+{
+  size_t n = s.size();
+  while (n > 0 && s[n - 1] == ' ') n--;
+  return n;
 }
 
 }  // namespace
 
-std::string getphrase(bool confirm)
+SecretBuf getphrase(bool confirm)
 {
-  std::string s, again;
+  SecretBuf s, again;
   bool tty = isatty(STDIN_FILENO);
   for (;;) {
     if (!read_hidden("Enter key phrase (minimum 20 characters): ", s, tty)) { errarg = "phrase"; errorexit(10); }
-    size_t last = s.find_last_not_of(' ');
-    if (last == std::string::npos || last < 19) {
+    if (trimmed_size(s) < 20) {
       fputs("Phrase too short.\n", stderr);
       if (!tty) { errarg = "phrase"; errorexit(10); }
       continue;
     }
     if (confirm && tty) {
       if (!read_hidden("Repeat key phrase: ", again, tty)) { errarg = "phrase"; errorexit(10); }
-      bool same = again == s;
-      wipe(&again[0], again.size());
-      if (!same) { fputs("Phrases differ.\n", stderr); continue; }
+      if (again != s) { fputs("Phrases differ.\n", stderr); continue; }
     }
     break;
   }
-  s.resize(s.find_last_not_of(' ') + 1);
+  s.resize(trimmed_size(s));
   return s;
 }
 
@@ -135,7 +157,7 @@ KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams
 {
   KeyMaterial km;
   if (in.usephrase) {
-    Buf dk = argon2id(in.phrase, salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey);
+    SecretBuf dk = argon2id(in.phrase.data(), in.phrase.size(), salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey);
     memcpy(km.key, dk.data(), NL * 8);
     memcpy(km.mackey, dk.data() + NL * 8, sizeof km.mackey);
     wipe(dk.data(), dk.size());

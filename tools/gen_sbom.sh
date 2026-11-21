@@ -1,0 +1,143 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copyright (c) 1993-1994, 2026 Andy van Wezel
+#
+# Writes a CycloneDX 1.5 SBOM (JSON) for a built sillydes binary to stdout: the binary with its
+# SHA-256, the shared libraries it really loads (from ldd, with their distribution package, version
+# and SHA-256 where dpkg or rpm knows them) and the compiler that built it. Linux only.
+#
+#   tools/gen_sbom.sh ./sillydes > sillydes.cdx.json        (or: make sbom)
+#
+# SOURCE_DATE_EPOCH, if set, fixes the timestamp.
+set -eu
+BIN=${1:-./sillydes}
+cd "$(dirname "$0")/.."
+[ -x "$BIN" ] || { echo "gen_sbom: $BIN is not built; run make first" >&2; exit 1; }
+
+esc() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '%s' "$s"; }
+sha() { sha256sum "$1" | cut -d' ' -f1; }
+
+VERSION=$(sed -n 's/^#define PACKAGE_VERSION "\(.*\)"/\1/p' src/version.h)
+FORMAT=$(sed -n 's/^#define FORMAT_NAME "SillyDES \(.*\)"/\1/p' src/version.h)
+REPO=$(git config --get remote.origin.url 2>/dev/null | sed 's#\.git$##; s#^git@github.com:#https://github.com/#' || true)
+COMMIT=$(git rev-parse HEAD 2>/dev/null || true)
+DIRTY=false
+if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then DIRTY=true; fi
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then STAMP=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%dT%H:%M:%SZ); else STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ); fi
+SERIAL=$(cat /proc/sys/kernel/random/uuid)
+DISTRO_ID=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' || true)
+DISTRO_ID=${DISTRO_ID:-linux}
+DISTRO_VER=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"' || true)
+ARCH=$(uname -m)
+
+CXX_BIN=${CXX:-g++}
+CXX_FULL=$("$CXX_BIN" --version 2>/dev/null | head -n 1 || true)
+CXX_VER=$("$CXX_BIN" -dumpfullversion 2>/dev/null || true)
+CXX_NAME=$(basename "$CXX_BIN")
+
+# Packages (name, version, arch) that own a file, empty if the file belongs to none we can query.
+owner() {
+  local f=$1 pkg=""
+  if command -v dpkg >/dev/null 2>&1; then
+    pkg=$(dpkg -S "$f" 2>/dev/null | head -n 1 | cut -d: -f1 || true)
+    if [ -n "$pkg" ]; then
+      dpkg-query -W -f='deb\t${Package}\t${Version}\t${Architecture}\n' "$pkg" 2>/dev/null | head -n 1 || true
+      return
+    fi
+  fi
+  if command -v rpm >/dev/null 2>&1; then
+    rpm -qf --qf 'rpm\t%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n' "$f" 2>/dev/null | head -n 1 || true
+  fi
+}
+
+# One line per distinct file the binary loads; the dynamic loader is listed by ldd without "=>".
+LIBS=$(ldd "$BIN" | awk '/=>/ { print $3 } !/=>/ && $1 ~ /^\// { print $1 }' | while read -r p; do readlink -f "$p"; done | sort -u)
+
+# One component per package (a package may own several loaded files); a file no package manager
+# knows becomes a component of its own.
+declare -A pkgmeta pkgfiles
+order=()
+for f in $LIBS; do
+  name=$(basename "$f")
+  info=$(owner "$f")
+  kind=""; pname=""; pver=""; parch=""
+  if [ -n "$info" ]; then IFS=$'\t' read -r kind pname pver parch <<<"$info"; fi
+  key="${kind:-file}|${pname:-$name}|$pver|$parch"
+  if [ -z "${pkgmeta[$key]+x}" ]; then pkgmeta[$key]=$key; pkgfiles[$key]=""; order+=("$key"); fi
+  pkgfiles[$key]+="${pkgfiles[$key]:+,
+}        { \"name\": \"file\", \"value\": \"$(esc "$f")\" },
+        { \"name\": \"file-sha256\", \"value\": \"$(sha "$f")\" }"
+done
+
+comp=""
+deps=""
+for key in "${order[@]}"; do
+  IFS='|' read -r kind pname pver parch <<<"$key"
+  ref="pkg:$pname"
+  entry="    {
+      \"bom-ref\": \"$(esc "$ref")\",
+      \"type\": \"library\",
+      \"name\": \"$(esc "$pname")\","
+  [ -n "$pver" ] && entry+="
+      \"version\": \"$(esc "$pver")\","
+  entry+="
+      \"description\": \"Loaded dynamically at run time\","
+  if [ "$kind" != file ]; then
+    qual="arch=$parch"
+    [ -n "$DISTRO_VER" ] && qual="$qual&distro=$DISTRO_ID-$DISTRO_VER"
+    entry+="
+      \"purl\": \"pkg:$kind/$DISTRO_ID/$(esc "$pname")@$(esc "$pver")?$qual\","
+  fi
+  entry+="
+      \"properties\": [
+${pkgfiles[$key]}
+      ]
+    }"
+  comp+="${comp:+,
+}$entry"
+  deps+="${deps:+, }\"$(esc "$ref")\""
+done
+
+cat <<EOF
+{
+  "\$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:$SERIAL",
+  "version": 1,
+  "metadata": {
+    "timestamp": "$STAMP",
+    "tools": {
+      "components": [
+        { "type": "application", "name": "$(esc "$CXX_NAME")"$([ -n "$CXX_VER" ] && printf ', "version": "%s"' "$(esc "$CXX_VER")"), "description": "$(esc "$CXX_FULL")" },
+        { "type": "application", "name": "tools/gen_sbom.sh", "description": "Generated this document from the binary and ldd" }
+      ]
+    },
+    "component": {
+      "bom-ref": "sillydes",
+      "type": "application",
+      "name": "SillyDES",
+      "version": "$VERSION",
+      "description": "Command line file encryption: eight DES layers on 2048-bit blocks, HMAC-SHA-512 authentication, Argon2id phrase derivation. DES, SHA-512, HMAC, BLAKE2b, Argon2id and CRC-32 are implemented in this repository from their standards; no cryptographic library is linked.",
+      "author": "Andy van Wezel",
+      "licenses": [ { "license": { "id": "MIT" } } ],
+      "purl": "pkg:github/avw1ein/sillydes@$VERSION",
+      "hashes": [ { "alg": "SHA-256", "content": "$(sha "$BIN")" } ],
+      "externalReferences": [ { "type": "vcs", "url": "$(esc "$REPO")" } ],
+      "properties": [
+        { "name": "platform", "value": "linux-$ARCH" },
+        { "name": "file-format", "value": "$(esc "$FORMAT")" },
+        { "name": "source-commit", "value": "$COMMIT" },
+        { "name": "source-tree-modified", "value": "$DIRTY" },
+        { "name": "bundled-implementations", "value": "DES (FIPS 46-3), SHA-512 (FIPS 180-4), HMAC (RFC 2104), BLAKE2b (RFC 7693), Argon2id (RFC 9106), CRC-32 (IEEE 802.3)" }
+      ]
+    }
+  },
+  "components": [
+$comp
+  ],
+  "dependencies": [
+    { "ref": "sillydes", "dependsOn": [ $deps ] }
+  ]
+}
+EOF

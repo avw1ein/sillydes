@@ -3,11 +3,13 @@
 
 #include "common.h"
 
+#include <alloca.h>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/resource.h>
@@ -16,7 +18,7 @@
 
 std::string errarg;
 
-[[noreturn]] void errorexit(int numer)
+void report_error(int numer)
 {
   const char *a = errarg.c_str();
   switch (numer) {
@@ -36,11 +38,16 @@ std::string errarg;
     case 14: fputs("ERROR#14: System random generator failed.\n", stderr); break;
     default: break;
   }
-  exit(numer);
+}
+
+[[noreturn]] void errorexit(int numer)
+{
+  report_error(numer);
+  throw ExitError{numer};
 }
 
 // Unbuffered, so no stdio copy of the data exists; a regular file is read straight into a
-// buffer of its size, anything else grows by doubling with the old storage wiped.
+// buffer of its size, anything else grows by doubling (Buf wipes the storage it leaves behind).
 Buf readfile(const std::string &name)
 {
   errarg = name;
@@ -53,13 +60,12 @@ Buf readfile(const std::string &name)
   size_t n = 0;
   for (;;) {
     if (n == data.size()) {
-      reserve_wiped(data, data.size() < 65536 ? 65536 : 2 * data.size());
+      data.reserve(data.size() < 65536 ? 65536 : 2 * data.size());
       data.resize(data.capacity());
     }
     ssize_t k = read(fd, data.data() + n, data.size() - n);
     if (k < 0) {
       if (errno == EINTR) continue;
-      wipe(data.data(), n);
       close(fd);
       errorexit(1);
     }
@@ -88,16 +94,6 @@ void writefile(const std::string &name, const Buf &data)
   if (close(fd) != 0) errorexit(2);
 }
 
-void reserve_wiped(Buf &b, size_t cap)
-{
-  if (cap <= b.capacity()) return;
-  Buf next;
-  next.reserve(cap);
-  next.assign(b.begin(), b.end());
-  wipe(b.data(), b.size());
-  b.swap(next);
-}
-
 void randbytes(uint8_t *p, size_t n)
 {
   while (n > 0) {
@@ -121,4 +117,97 @@ void lockdown()
   const rlimit nocore = { 0, 0 };
   setrlimit(RLIMIT_CORE, &nocore);
   prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+}
+
+namespace {
+
+const size_t MAPPED_MIN = 64 * 1024;  // from here on a block gets a mapping of its own
+
+size_t page_size()
+{
+  long ps = sysconf(_SC_PAGESIZE);
+  return ps > 0 ? (size_t)ps : 4096;
+}
+
+size_t round_up(size_t n, size_t unit) { return (n + unit - 1) / unit * unit; }
+
+void *map_pages(size_t n)
+{
+  void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) throw std::bad_alloc();
+  madvise(p, n, MADV_DONTDUMP);
+  return p;
+}
+
+// Faults in `window` bytes of stack below this frame, then locks them together with the page that
+// holds this frame; the caller's frame, which holds the long-lived secrets, is above it.
+__attribute__((noinline)) bool lock_stack_window(size_t window, size_t page)
+{
+  volatile uint8_t *low = (volatile uint8_t *)alloca(window);
+  for (size_t off = window; off >= page; off -= page) low[off - 1] = 0;  // top down: the stack grows downwards
+  low[0] = 0;
+  uintptr_t lo = ((uintptr_t)low + page - 1) & ~(uintptr_t)(page - 1);
+  uintptr_t hi = ((uintptr_t)__builtin_frame_address(0) | (page - 1)) + 1;
+  return mlock((void *)lo, hi - lo) == 0;
+}
+
+}  // namespace
+
+void *secure_alloc(size_t n)
+{
+  if (n == 0) n = 1;
+  if (n >= MAPPED_MIN) return map_pages(round_up(n, page_size()));
+  void *p = malloc(n);
+  if (!p) throw std::bad_alloc();
+  return p;
+}
+
+void secure_free(void *p, size_t n) noexcept
+{
+  if (!p) return;
+  if (n == 0) n = 1;
+  if (n >= MAPPED_MIN) {
+    size_t len = round_up(n, page_size());
+    wipe(p, len);
+    munmap(p, len);
+  } else {
+    wipe(p, n);
+    free(p);
+  }
+}
+
+void *locked_alloc(size_t n)
+{
+  size_t len = round_up(n ? n : 1, page_size());
+  void *p = map_pages(len);
+  mlock(p, len);  // best effort: past RLIMIT_MEMLOCK the block stays unlocked, but is still wiped and not dumped
+  return p;
+}
+
+void locked_free(void *p, size_t n) noexcept
+{
+  if (!p) return;
+  size_t len = round_up(n ? n : 1, page_size());
+  wipe(p, len);
+  munlock(p, len);
+  munmap(p, len);
+}
+
+bool lock_memory(void *p, size_t n)
+{
+  size_t page = page_size();
+  uintptr_t lo = (uintptr_t)p & ~(uintptr_t)(page - 1);
+  uintptr_t hi = round_up((uintptr_t)p + n, page);
+  if (mlock((void *)lo, hi - lo) == 0) return true;
+  munlock((void *)lo, hi - lo);
+  return false;
+}
+
+void lock_stack()
+{
+  size_t page = page_size(), cap = 256 * 1024;
+  rlimit rl;
+  if (getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur / 4 < cap) cap = rl.rlim_cur / 4;
+  for (size_t w = cap / page * page; w >= 4 * page; w = w / 2 / page * page)
+    if (lock_stack_window(w, page)) return;
 }

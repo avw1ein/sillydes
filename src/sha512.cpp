@@ -54,6 +54,7 @@ void Sha512::block(const uint8_t *p)
     hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
   }
   h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  explicit_bzero(w, sizeof w);  // the first block of an HMAC is the key pad
 }
 
 void Sha512::update(const uint8_t *p, size_t n)
@@ -110,4 +111,5 @@ void Hmac512::mac(const uint8_t *msg, size_t n, uint8_t out[64]) const
   Sha512 b = outer;
   b.update(d, 64);
   b.final(out);
+  explicit_bzero(d, sizeof d);
 }
