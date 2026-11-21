@@ -603,6 +603,16 @@ void powershell_tests(const std::string &nfc)
     RunResult r = sd(act("d", file, T("ps.out"), "phrase"), with_stdin(nfc + "\n"));
     return r.code == 0 && get(T("ps.out")) == get(T("ps.txt"));
   };
+  // cmd.exe: echo writes in the code page of the console, which chcp 65001 turns into UTF-8. Reported,
+  // not required: this is what the README can say about it.
+  const std::string cmd = find_program("cmd.exe");
+  for (int i = 0; i < 2 && !cmd.empty(); i++) {
+    const std::string out = T(i ? "cmd65001.bin" : "cmd.bin");
+    const std::string script = std::string(i ? "chcp 65001>nul & " : "") + "echo " + nfc + "| " + exe + " act=e in=" + T("ps.txt") + " out=" + out + " phrase";
+    RunResult r = run_program(cmd, { "/c", script }, RunOptions());
+    printf("info: cmd.exe%s piped the phrase: encryption exit code %d, a file that %s with the phrase as UTF-8\n", i ? " after chcp 65001" : "", r.code,
+           r.code == 0 && decrypts(out) ? "decrypts" : "does not decrypt");
+  }
   if (!ps5.empty()) {
     // The default of Windows PowerShell 5.1 is ASCII for what it pipes to a program: every other character is a ?.
     RunResult r = encrypt(ps5, "", T("ps5.bin"));
