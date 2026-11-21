@@ -22,7 +22,7 @@ The code is split into small units, each with one job. Source files are in [src/
 | Unit | Files | Responsibility |
 |---|---|---|
 | Entry point | [main.cpp](src/main.cpp) | Argument parsing (the arguments arrive as UTF-8 strings), orchestration, `bad_alloc` handling |
-| Platform | [platform.h](src/platform.h), [platform_posix.cpp](src/platform_posix.cpp) | Everything that needs an operating system and nothing else does: file calls, system random generator, same-file test, available memory, process hardening, memory and stack locking, the wiping allocators' back end, messages, the phrase prompt without echo. No other file includes an OS header |
+| Platform | [platform.h](src/platform.h), [platform_posix.cpp](src/platform_posix.cpp) (Linux, macOS), [platform_win32.cpp](src/platform_win32.cpp) (Windows) | Everything that needs an operating system and nothing else does: file calls, system random generator, same-file test, available memory, process hardening, memory and stack locking, the wiping allocators' back end, messages, the phrase prompt without echo. No other file includes an OS header |
 | Common | [common.h](src/common.h), [common.cpp](src/common.cpp) | `Buf` and `SecretBuf` types with wiping allocators, format constants, error messages and exits, `readfile` and `writefile`, size arithmetic that cannot wrap around |
 | Versions | [version.h](src/version.h) | Program version; name and magic of the file format |
 | Keys | [keys.h](src/keys.h), [keys.cpp](src/keys.cpp) | Key file parser, phrase prompt, KDF parameter check, key derivation |
@@ -167,7 +167,7 @@ Free functions by unit:
 | Unit | Functions |
 |---|---|
 | common | `Buf` and `SecretBuf` with their wiping allocators, `readfile`, `writefile`, `randbytes`, `wipe`, `checked_add`, `checked_mul`, `errorexit` and `ExitError`; global `errarg` names the file or argument the next error message refers to |
-| platform | `secure_zero`, `os_random`, `open_input`, `read_input`, `open_output`, `write_output`, `close_file`, `same_file`, `available_memory`, `harden_process`, `exit_process`, `lock_memory`, `lock_stack`, `scrub_stack`, `secure_alloc`, `locked_alloc` (and their `free`), `write_message`, `stdin_is_terminal`, `read_secret_line` |
+| platform (`platform_posix.cpp` for Linux and macOS, `platform_win32.cpp` for Windows) | `secure_zero`, `os_random`, `open_input`, `read_input`, `open_output`, `write_output`, `close_file`, `same_file`, `available_memory`, `harden_process`, `exit_process`, `lock_memory`, `lock_stack`, `scrub_stack`, `secure_alloc`, `locked_alloc` (and their `free`), `write_message`, `stdin_is_terminal`, `read_secret_line` |
 | keys | `readkeyfile`, `getphrase(confirm)`, `kdf_ok`, `derive_keys` |
 | container | `seal`, `unseal` |
 | sillydes_cipher | `pad256`, `unpad256` |

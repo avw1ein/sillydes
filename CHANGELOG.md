@@ -14,6 +14,10 @@ the section of the tag's version as the text of the GitHub Release.
 
 - A CMake build next to the Makefile (`cmake --preset default`, see the README), tested with gcc
   and clang by the `build` workflow. The program is unchanged by it.
+- First source for Windows (`src/platform_win32.cpp`, `wmain`) and macOS, built and tested by the
+  `build` workflow on the Windows (MSVC, MinGW-w64) and macOS (arm64, Intel) runners. These
+  builds are not released yet: the memory locking, the end-to-end tests and the hardening of the
+  Windows and macOS versions are still to come (PORTPLAN.md).
 - Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
   the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.

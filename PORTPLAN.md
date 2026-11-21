@@ -100,6 +100,26 @@ Lessons that carry into the port:
 - **Vector registers keep plaintext, and code that runs after the wipe can save them on the stack.** CI found plaintext (a whole decrypted 512-byte buffer, with its padding) on the stack after a key file decryption, only with clang and only on runners whose CPU has AVX-512 (about two of three clang runs; the same binary never leaked on other runners, and `GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX512F,...` made the leak go away). The data sat in the dead stack just below `main`, in a zone that `scrub_stack` had wiped: a check right after the scrub found it clean, so it was written afterwards, while the process exited. `LD_BIND_NOW=1` made the leak go away although the program itself was already linked with `-z now`. The reading that fits: glibc's EVEX `memmove` copies through `zmm16` and up (512 bytes in eight registers), `vzeroupper` does not clear those, and at exit a lazily bound symbol of a system library (libstdc++ is not linked with `-z now`) ran the dynamic linker's resolver, which saves all vector registers on the stack. Why gcc did not show it was not established (its code probably overwrote the registers; the register contents depend on the compiler). Fix: `exit_process` (`_exit`) right after `scrub_stack`, so that no exit-time code runs; the residue scanner has its own `_exit` for that. The same applies to every OS: whatever runs after the scrub may spill registers (a signal handler, a loader), so end the process directly, and expect other vector widths (NEON on arm64, AVX on Windows) to hold secrets in the same way. The residue scan can only show this on a CPU with the wide registers: read the CPU model in the log, and rerun the job several times (`gh run rerun`, then `gh api .../attempts/N` for each result), since the runner pool mixes AVX2 and AVX-512 machines.
 - Runner CPUs differ between runs of one job (AMD EPYC 7763, 9V74 and 9V45, Intel Xeon 8370C, 8573C and 6975P-C all appeared), so a test that passes once proves little for code that depends on the CPU; read the model from `/proc/cpuinfo` in the log, rerun a job several times (`gh run rerun`; read each attempt with `gh api .../attempts/N`), and compare variants inside one job.
 
+## 0d. Step 15, done: the first Windows and macOS code, and the runner jobs
+
+What exists now, all green on the runners (Linux g++ and clang++, Windows MSVC and MinGW-w64 UCRT64, macOS arm64 and Intel):
+- `src/platform_win32.cpp`: the whole platform API with W functions only (`CreateFileW`, `BCryptGenRandom`, `VirtualAlloc`/`VirtualLock`, `ReadConsoleW` with echo off, `WriteConsoleW`, `SecureZeroMemory`, `TerminateProcess` as `exit_process`). `wmain` in `main.cpp` converts the arguments with `utf8_args` (unpaired surrogate: error 4) and calls `run`; MinGW links with `-municode`. A file is opened without sharing for writing, a link is refused by looking at the handle before the file is truncated (the equivalent of `O_NOFOLLOW`).
+- `src/platform_posix.cpp` has `__APPLE__` branches: `memset_s`, `getentropy`, `host_statistics64` for the free memory, no `prctl`, no `MADV_DONTDUMP`.
+- `test/test_os.h` with `test_os_posix.cpp` and `test_os_win32.cpp`: temporary file, delete, silence stderr, lock figures. `test_primitives.cpp` includes no OS header any more.
+- `cmake/smoke.cmake`, the CTest test `smoke`: usage, binary and armored round trips with a key file (a plaintext with CR, LF and 0x1A), no CR in armor, the committed fixtures, a phrase from a file, error codes 1 and 6. It runs on every OS and goes when `test_e2e.cpp` (todo 10) exists.
+- CI: `windows-msvc` (`/W4 /WX`, static runtime), `windows-mingw` (MSYS2 UCRT64, static), `macos` on `macos-latest` and `macos-15-intel`; each builds with CMake and runs `ctest`.
+- The code was first compiled with a local MinGW cross compiler (compile only, never run); that caught nothing the runners did not also catch, so it is a convenience and not a step.
+
+Not done, best effort until todo 4: `lock_stack` is empty on Windows, `VirtualLock` is not preceded by a working set increase, the secret pages are not kept out of crash dumps, macOS has no `PT_DENY_ATTACH`; the memory-lock tests skip on both. The residue and end-to-end tests are Linux-only until todo 10. Windows arm64 and the macOS `available_memory` (an estimate) are unverified.
+
+Findings that carry on:
+- MSVC `/W4` found conversions in `armor.cpp` and `des.cpp` (`int` to `char`, `uint32_t` to `uint8_t`) that gcc and clang do not report with `-Wall -Wextra`; fixed with explicit casts. `/wd4456` (shadowing) is set for the test target only, where blocks reuse names on purpose.
+- `file(WRITE)` of CMake is a text-mode write: on Windows `\n` becomes CR LF. Byte-exact input for the phrase and CR tests has to come from C++ (`test_e2e.cpp`) or a committed fixture.
+- The scrub test allows 80 bytes on Windows instead of 16: 40 were measured, the 32 bytes of x64 home space of the callees live in the frame of `scrub_stack` itself. Whatever sits in those bytes in `main`'s old frame is not wiped; todo 4 should measure what that can hold.
+- `memset_s` needs `__STDC_WANT_LIB_EXT1__` before the first include on macOS.
+- `GetCurrentThreadStackLimits` is not declared by the MSYS2 headers; the stack base comes from `VirtualQuery` (`AllocationBase`).
+- MSYS2 marks MINGW64 as deprecated; the job uses UCRT64.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -114,9 +134,9 @@ Steps 1 to 3 (section 0c) moved the OS calls of `common.cpp`, `kdf.cpp`, `keys.c
 | src/keys.cpp | termios, isatty, STDIN_FILENO, fopen(name,"r") | `read_secret_line`, `stdin_is_terminal`; the key file already goes through `readfile` |
 | src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes | `same_file()`; argv is a vector of UTF-8 strings, `wmain` is open |
 | src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() | done |
-| test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test still uses fcntl, unistd and rlimit for temporary files, the stderr redirection and the locking checks (todo 10) |
+| test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test's OS needs (temporary files, stderr, lock figures) are in `test/test_os_posix.cpp` and `test_os_win32.cpp` (section 0d) |
 | test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | open (todo 10) |
-| Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake and a `cmake` job exist; the Makefile goes with todo 13; other OSes are open |
+| Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake, a `cmake` job (g++, clang++), `windows-msvc`, `windows-mingw` and `macos` jobs exist; the Makefile (Linux only) goes with todo 13 |
 
 ### 1.2 Latent bugs a port would trigger
 Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; section 3.4 solves them. Step 0b fixed 2, 3, 7 and 11 to 16 (section 0b). Open for the Windows port: 4, 9, and of 10 the conversion at the console, since the phrase rules themselves are done. "Measured" means reproduced on Linux with the 5.1.1 binary, before step 0b. Those bugs are not Windows-only: a key file or a phrase file made on Windows fails on Linux today.
@@ -370,7 +390,7 @@ How the work proceeds, because there is no local test bench for the ports:
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)
 14. text-interchange: **done** (section 0b), released as 5.2.0
-15. ci-runners-early (after 1, 2): a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them. It needs a first `platform_win32.cpp` (and the macOS branches of `platform_posix.cpp`) that compile and do the minimum, and the OS headers of `test_primitives.cpp` guarded or moved (todo 10 in part); start with those and let the runner log lead from there
+15. ci-runners-early (after 1, 2): **done** (section 0d); a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them. It needs a first `platform_win32.cpp` (and the macOS branches of `platform_posix.cpp`) that compile and do the minimum, and the OS headers of `test_primitives.cpp` guarded or moved (todo 10 in part); start with those and let the runner log lead from there
 
 ## 10. Risks
 - errorexit -> exception: done in step 0, with the error table exercised by `test.sh`; keep nothing but `main` and the tests catching `ExitError`, and never call `exit` on an error path (it skips the wiping destructors).
