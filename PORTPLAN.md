@@ -9,6 +9,7 @@
 | Text | UTF-8 inside the program (phrase, file names, messages). Windows uses only W functions, never the ANSI or OEM code page |
 | Phrase | One canonical form, part of format 5.2.0 and the same for encryption and decryption: well-formed UTF-8, no control characters, NFKC without invisible characters. The Unicode tables are frozen per format |
 | KDF side channel | Argon2id data-dependent addressing is documented only (ANALYSIS.md section 8); no Argon2i mode |
+| Where things run | Everything that is not Linux is built, run and verified only on GitHub Actions runners (real Windows and macOS, section 7.1). No cross-compiler, Wine or osxcross is used, on this machine or in CI. This machine writes and tests the Linux side; a Windows or macOS result counts only when a runner has produced it |
 
 CMake fails on non-64-bit targets and `static_assert(sizeof(void*) == 8)`.
 
@@ -280,7 +281,8 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - **Done (step 0b), in test.sh; port to test_e2e.cpp.** Text interchange, end to end: new fixture `test/format-5.2.0/hello-utf8-phrase.sdes` (Latin, Greek, CJK and one character outside the BMP) opened with NFC, NFD, full-width, CRLF and BOM input and with an invisible character inserted; a phrase that is not UTF-8 is refused without a KDF run; a 5.1.0 file is refused; a data file containing 0x0D 0x0A 0x1A; non-ASCII input, output and key file names; the residue scan with a non-ASCII phrase.
 - New, Windows only: a phrase typed into a console through injected key events (WriteConsoleInputW), including a surrogate pair; a piped CRLF phrase; a redirected message is UTF-8.
 - Error 7 without ulimit: injectable available_memory() in test builds; keep ulimit test on Linux.
-- Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`.
+- Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`. This runs only on the GitHub runners (section 7.1).
+- Windows and macOS tests exist only as runner results: write each test so that it also fails loudly when its precondition is missing (no console, `mlock` limit) instead of passing silently, and print the reason for every skip.
 
 ## 7. Build, CI, release
 - CMakeLists.txt: C++11, extensions off; targets sillydes, test_primitives, test_e2e, gen_des_sbox, gen_unicode; options SILLYDES_REGENERATE_SBOX and SILLYDES_REGENERATE_UNICODE (the latter takes a directory with the Unicode data files); per-compiler flags from 4.2; install rule; presets. Delete Makefile; update README section 1, STRUCTURE.md, and the "Linux command line port" comment in main.cpp.
@@ -289,6 +291,29 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - **Done (step 0b)** as the workflow `unicode.yml` with the Makefile targets `unicode` and `unicode-check`: download the Unicode data files of the pinned version (checked against stored SHA-256 sums), confirm that the generator reproduces the committed `src/unicode_tables.h`, and run the complete `NormalizationTest.txt`. Port the two targets to CMake.
 - Optional release: Authenticode, macOS codesign + notarization, SHA-256 sums, SBOM, reproducible-build check.
 - SECURITY.md: threat model and known limits (swap, Argon2 cache timing, same-user admin on Windows).
+
+### 7.1 Where each part runs (decision: non-Linux only on GitHub Actions)
+The Windows and macOS code is written here but never built or run here: no MinGW cross-compiler, no Wine, no osxcross, not as a local check and not as a CI shortcut. The runners are real operating systems, so they test the things an emulator would only approximate (console input and echo, `VirtualQuery`, process DACL, WER, working-set locking, `mlock`, `vm_region`, hardened runtime).
+
+| Part | Where | Notes |
+|---|---|---|
+| Linux x64 (gcc, clang), sanitizers, valgrind ct test, the Makefile and CMake builds | This machine and CI | Both give a result; CI decides |
+| Linux arm64 | CI (arm64 runner) | Not needed locally |
+| Windows MSVC x64, MSYS2 mingw64 | CI only (`windows-latest`) | The MinGW flags and `-municode` are checked by the MSYS2 job, which is native |
+| Windows arm64 | CI only (arm64 runner, if available to the repository; otherwise a documented gap) | |
+| macOS arm64, macOS Intel | CI only (`macos-` runners) | codesign checked there; notarization needs the maintainer's Apple account and secrets and stays out of scope until chosen |
+| Cross-OS interop | CI only | Jobs upload files and the others download them |
+| Big-endian (s390x) | CI under QEMU user mode | optional, unchanged |
+
+How the work proceeds, because there is no local test bench for the ports:
+- A branch `port/<todo>` per Windows or macOS todo, pushed early; the runner log is the feedback. Merge to `main` only when the whole matrix is green.
+- Windows and macOS code is kept small and behind the platform layer, so that most of each change compiles on Linux and only the thin OS calls are first compiled on the runner. Each platform file is compiled on Linux as far as it can be (the portable and POSIX parts), and the rest relies on the runner.
+- Order of work: first a CI job that only builds and runs `test_primitives` on Windows and macOS (todo 1 and the platform layer give the stubs), then one OS feature per push (files, phrase input, memory, hardening), each with its own test.
+- Runner logs must carry what a local run would have shown: compiler version, OS version, KDF time (section 4.4), the skipped tests and why (`mlock` limit, no console).
+- Interactive checks (a phrase typed into a console) use injected key events (`WriteConsoleInputW`) in the Windows job; macOS uses a pty (`script` or `forkpty`). Nothing relies on a human at a keyboard.
+- A runner is a server image, not a user's machine: small default `mlock` and working-set limits, no desktop session, possibly Defender slowing the 2 GiB test. Tests skip with a message below a limit. What a runner cannot show is listed in section 10.
+- Cost and limits: public repository runners are free; the matrix runs the 2 GiB tests on every runner, so a run takes minutes. Keep Windows arm64 and macOS Intel jobs on pull requests and release tags if a quota ever bites.
+- A release stays a Linux release until the Windows and macOS jobs, interop included, are green on the release commit; the release workflow then adds their binaries.
 
 ## 8. Documentation
 - README (the format, key file, armor and phrase parts are done in step 0b; the OS-specific parts remain): sections 1 (CMake, supported OS, format 5.2.0 and that 5.1.1 converts older files), 5 (line endings and encodings accepted in armored text), 7 (Windows quoting; key file line endings and encodings; the phrase rules: what is folded, what is refused, the PowerShell 5.1 advice and the other limits of 3.4; "every character your computer accepts is allowed" no longer holds), 8 (exact per-OS hardening), 9 (error 7 per OS).
@@ -301,17 +326,18 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 1. cmake-baseline
 2. platform-layer (after 1); move `secure_alloc`, `locked_alloc`, `lock_stack`, `lock_memory` and the secret-line input into it
 3. portable-fixes (after 2)
-4. memory-hygiene (after 2): now only the non-Linux parts (M9, Windows/macOS locking, WER exclusion, ReadConsoleW)
-5. windows-port (after 3, 4, 14); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW)
-6. macos-port (after 3, 4, 14)
+4. memory-hygiene (after 2, 15): now only the non-Linux parts (M9, Windows/macOS locking, WER exclusion, ReadConsoleW)
+5. windows-port (after 3, 4, 14, 15); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW); written here, built and tested only on the Windows runners (section 7.1)
+6. macos-port (after 3, 4, 14, 15); written here, built and tested only on the macOS runners (section 7.1)
 7. ct-hardening (after 2)
 8. ct-verification (after 7)
 9. build-hardening (after 1)
 10. tests-portable (after 3, 14)
-11. ci-matrix (after 5, 6, 9, 10)
+11. ci-matrix (after 5, 6, 9, 10): completes the matrix (interop, arm64, extras); the early runner jobs of todo 15 already exist by then
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)
 14. text-interchange: **done** (section 0b), released as 5.2.0
+15. ci-runners-early (after 1): a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them
 
 ## 10. Risks
 - errorexit -> exception: done in step 0, with the error table exercised by `test.sh`; keep nothing but `main` and the tests catching `ExitError`, and never call `exit` on an error path (it skips the wiping destructors).
@@ -324,3 +350,5 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - Folding does not cover look-alikes that Unicode keeps apart, and Windows PowerShell 5.1 replaces non-ASCII characters by `?` before the program sees them. Both are documented limits; a random ASCII phrase avoids them.
 - The Unicode data is under the Unicode License v3; the generated header must carry the notice.
 - Argon2 timing leak remains by decision; docs must say so on every platform.
+- No local test bench for Windows and macOS: every defect there costs a push and a runner cycle, and a runner is a server image. What a runner cannot show stays unverified and is named in the release notes: real Windows 10 and older builds, a user's terminal emulator or mintty, real PowerShell 5.1 profiles, macOS Gatekeeper and notarization on a user's machine, machines with less than 2 GiB free. Mitigation: small platform files, early runner jobs (todo 15), one OS feature per push, loud skips, and no release of a Windows or macOS binary before the whole matrix is green on the release commit.
+- Runner images and their labels change (`windows-latest`, `macos-latest` move to newer OS versions); pin the labels once the matrix works, and update them on purpose.
