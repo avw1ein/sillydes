@@ -145,7 +145,7 @@ Findings:
 - Results are in ANALYSIS.md section 8.
 
 Findings:
-- A first timing run on Windows found |t| = -16 for `ct_equal` in every round. The two classes compared against two different arrays; the address (alignment, aliasing) was the difference. With both classes compared against one buffer the value is about 1. A timing test must keep the memory layout the same for both classes.
+- A first timing run on Windows found |t| = -16 for `ct_equal` in every round. The two classes compared against two different arrays; the address (alignment, aliasing) was the difference. With both classes compared against one buffer the value is about 1. A timing test must keep the memory layout the same for both classes: the nightly arm64 run later gave |t| = 17 for the `unseal` test, which copied its input from two different buffers; since then every test prepares the class's input (untimed) in one shared buffer and times only the call, and three attempts on all four platforms were clean.
 - Valgrind marks the return value of the program as undefined if it is derived from a secret (the control); results have to be declassified before they are used.
 - Still open from 5.3: a macOS Valgrind equivalent does not exist (Valgrind does not run on current macOS), and Windows has only the timing test; BlaMka's multiply on each target (`mul` 32x32 to 64) is covered only by the timing test, which does not exercise Argon2id.
 
