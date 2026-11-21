@@ -25,9 +25,10 @@ struct KeyMaterial {
 
 void readkeyfile(const std::string &name, uint8_t key[NL][8]);
 
-// Reads a phrase (no echo on a terminal); asks twice on a terminal when confirm is set.
-// Trailing spaces are removed; at least 20 other characters are required. Reads stdin with
-// read(2) a byte at a time, so no stdio buffer ever holds a copy.
+// Reads a phrase (no echo on a terminal); asks twice on a terminal when confirm is set. Reads
+// stdin with read(2) a byte at a time, so no stdio buffer ever holds a copy. The line is brought
+// into the canonical form of the file format (canonical_phrase in text.h); a phrase that has
+// none is asked again on a terminal and is error 10 otherwise.
 SecretBuf getphrase(bool confirm);
 
 bool kdf_ok(const KdfParams &k);

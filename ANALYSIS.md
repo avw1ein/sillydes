@@ -31,8 +31,8 @@ $$s_0 = P_{256}(u),\qquad s_{l+1} = P_{g_l}\big(D_{k_l}(s_l \oplus W_l)\big)\ (l
 
 with $g_l = 16\cdot 2^{\,l \bmod 5}$ bytes, that is 16, 32, 64, 128, 256, 16, 32 for $l=0,\dots,6$. With $K = k_0\|\cdots\|k_7$ (all 64 bytes) and the 16-byte salt from the file header, the whitening and the per-block tweak are
 
-$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.1.0 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
-\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.1.0 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
+$$W_j = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.2.0 white"}\,\|\,\text{salt}\,\|\,j\,\|\,c\big)_{c=0..3},\qquad
+\Delta_i = \mathrm{HMAC\text{-}SHA\text{-}512}_{K}\big(\text{"SillyDES 5.2.0 tweak"}\,\|\,\text{salt}\,\|\,i\,\|\,c\big)_{c=0..3},$$
 
 four 64-byte outputs each, $i$ the 8-byte big-endian block index. The whitening costs 36 HMAC calls once per file; the tweak costs 4 per block, with the HMAC pad states computed once.
 
@@ -49,7 +49,7 @@ Key material by mode:
 | | Key-file mode | Phrase mode |
 |---|---|---|
 | $K$ (DES keys) | the 64 bytes of the file | Argon2id output bytes 0..63 |
-| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"SillyDES 5.1.0 mac"})$ | Argon2id output bytes 64..127 |
+| $K_{mac}$ | $\mathrm{HMAC\text{-}SHA\text{-}512}_K(\text{"SillyDES 5.2.0 mac"})$ | Argon2id output bytes 64..127 |
 | Salt | input to $W_j$ and $\Delta_i$ | input to Argon2id, $W_j$ and $\Delta_i$ |
 | Varies per file | salt, hence all $W_j$ and $\Delta_i$, and IV | salt, hence $K$, $K_{mac}$, all $W_j$, $\Delta_i$, and IV |
 
@@ -160,7 +160,7 @@ The numbers above $2^{512}$ are an artefact of treating the whitening as indepen
 
 With no partial-key test (section 5.2), the quantum generic attack is Grover over the whole key:
 
-| | AES-256 | SillyDES 5.1.0, key file | Hypothetical 512-bit cipher |
+| | AES-256 | SillyDES 5.2.0, key file | Hypothetical 512-bit cipher |
 |---|---|---|---|
 | Key bits | 256 | 512 (448 DES bits, 64 bits that only feed whitening and tweak) | 512 |
 | Grover iterations | $2^{128}$ | $2^{256}$ | $2^{256}$ |
@@ -324,7 +324,7 @@ All figures in this section are heuristic trail counts and cost models on a cust
 | Full-block collisions | In plain CBC, $c_i = c_j$ leaks $m_i \oplus m_j = c_{i-1} \oplus c_{j-1}$ (Sweet32 on 64-bit ciphers). Here it would need about $2^{1024}$ blocks, and even then the tweak turns the leak into $m_i\oplus m_j = c_{i-1}\oplus c_{j-1}\oplus\Delta_i\oplus\Delta_j$, with an unknown right-hand side. Quantum collision finding applies to data an attacker can query, not to stored ciphertext, so it changes little here. |
 | Word collisions | Occur at the random rate and carry no information; see below. |
 | Data ceiling | The program reads the whole file into memory, so the practical limit per file is RAM. |
-| Memory hygiene | Core dumps are disabled and the process is marked non-dumpable at startup, so a crash leaves no core file and same-user processes cannot read its memory. Keys, key schedules, whitening, HMAC pad states, the phrase and all KDF intermediates are zeroised with `explicit_bzero` when they go out of scope, on error paths too: a failure is an exception that unwinds to `main` instead of a call to `exit`, so the destructors run. Every `std::vector` that holds data or a secret has an allocator that wipes the block before it is released, so growth leaves no stale copy; the phrase is read with `read(2)` into such a vector, not through stdio, and the key file is read through the same wiped buffer as the data. Keys, key schedules, the phrase and the hash intermediates are kept in RAM on a best-effort basis: a window of 256 KiB of stack, and the page-sized blocks of the phrase and of the derived keys, are locked with `mlock` as far as `RLIMIT_MEMLOCK` allows, and blocks of 64 KiB and more are excluded from core dumps. The 2 GiB Argon2id table is locked too when the limit permits, which is rare for an ordinary user; otherwise it, and always the data buffer, can be swapped out. Measured by test/residue_scan.cpp: after the program has exited, normally or with error 13, a search of its own heap, stack and mappings finds no copy of the phrase (a 5000-character one included), the key text, the key bytes or the plaintext. Before `main` returns, the 256 KiB stack window is wiped as well (`scrub_stack`), because which temporaries and spilled registers of finished functions keep plaintext or key bytes depends on the compiler and cannot be audited from the source. The scan finds a deliberately unwiped 400-byte or 30 KB stack array without it and nothing with it; no leak of this kind has been found in the program itself. Encrypted swap closes the remaining gap. |
+| Memory hygiene | Core dumps are disabled and the process is marked non-dumpable at startup, so a crash leaves no core file and same-user processes cannot read its memory. Keys, key schedules, whitening, HMAC pad states, the phrase and all KDF intermediates are zeroised with `explicit_bzero` when they go out of scope, on error paths too: a failure is an exception that unwinds to `main` instead of a call to `exit`, so the destructors run. Every `std::vector` that holds data or a secret has an allocator that wipes the block before it is released, so growth leaves no stale copy; the phrase is read with `read(2)` into such a vector, not through stdio, its code points during normalisation are held in vectors of the same kind, and the key file is read through the same wiped buffer as the data. Keys, key schedules, the phrase and the hash intermediates are kept in RAM on a best-effort basis: a window of 256 KiB of stack, and the page-sized blocks of the phrase and of the derived keys, are locked with `mlock` as far as `RLIMIT_MEMLOCK` allows, and blocks of 64 KiB and more are excluded from core dumps. The 2 GiB Argon2id table is locked too when the limit permits, which is rare for an ordinary user; otherwise it, and always the data buffer, can be swapped out. Measured by test/residue_scan.cpp: after the program has exited, normally or with error 13, a search of its own heap, stack and mappings finds no copy of the phrase (a 5000-character one included, and for a phrase outside ASCII its 32-bit code points as well), the key text, the key bytes or the plaintext. Before `main` returns, the 256 KiB stack window is wiped as well (`scrub_stack`), because which temporaries and spilled registers of finished functions keep plaintext or key bytes depends on the compiler and cannot be audited from the source. The scan finds a deliberately unwiped 400-byte or 30 KB stack array without it and nothing with it; no leak of this kind has been found in the program itself. Encrypted swap closes the remaining gap. |
 | CRC-32 (e-mail mode) | Unkeyed, detects accidents only. The HMAC is authoritative. |
 | Cost | 256 DES operations, 4 HMAC-SHA-512 calls (8 SHA-512 compressions with the pad states precomputed) and 12 XORs of 256 bytes per block. |
 
@@ -336,7 +336,8 @@ and the right-hand side is an unknown PRF output, different for every pair of bl
 
 Passphrase derivation:
 
-- Trailing spaces are removed from the phrase; at least 20 other characters are required and there is no upper limit. Every byte of the phrase enters the KDF.
+- The phrase is first brought into a canonical form, which is part of the file format: it must be well-formed UTF-8 without control characters; it is normalised to NFKC (Unicode 18.0.0) with the default-ignorable code points removed; trailing spaces are dropped. At least 20 characters must be left and there is no upper limit. Every byte of the canonical form enters the KDF.
+- **Canonical form and entropy:** the folding maps several spellings to one phrase, so that a phrase gives the same keys on every system. It merges only what is one text to the person typing it: composed and decomposed accents, full-width and ordinary forms, the kinds of space, the presence of invisible characters. An attacker who guesses phrases never had to try those spellings apart, because a guess is a text too. Case and look-alike characters are not merged. A phrase of random printable ASCII is not changed at all, so the lengths in section 7 of the README hold as they stand.
 - Argon2id (RFC 9106, version 0x13) over the phrase and a random 16-byte salt yields 128 bytes: 64 for the eight DES keys and 64 for the MAC key. The implementation is the project's own, with BLAKE2b written for it; it passes the RFC 9106 vector and eight vectors of the reference implementation (section 12).
 - **Parameters:** $m = 2^{21}$ KiB (2 GiB), $t = 1$ pass, $p = 4$ lanes, the first recommendation of RFC 9106 section 4. The lanes are computed one after another, so the running time is that of a single thread.
 - **Work per guess:** $t \cdot m = 2^{21}$ block compressions, each two BLAKE2b-style rounds over 1 KiB, plus three BLAKE2b hashes that cost almost nothing. All 128 output bytes come from the same memory-hard pass, so verifying a guess through plaintext structure saves nothing. Encrypting 1 MiB in phrase mode takes 1.9 s against 0.09 s with a key file, so the KDF costs about 1.8 s **(measured)**, zeroing and wiping of the 2 GiB included.
@@ -344,7 +345,7 @@ Passphrase derivation:
 - **Strength:** guess count times that cost. The 20-character minimum is set for random input: 20 printable ASCII characters carry about 131 bits, 39 carry 256 and 78 carry 512 (6.57 bits each). English text carries about 1 to 1.5 bits per character, so a 20-character sentence gives only $2^{20}$ to $2^{30}$ guesses, and even 100 characters give $2^{100}$ to $2^{150}$. The 512-bit key bound only applies to random keys, and a key file reaches it directly.
 - **Quantum:** Grover halves the entropy: $H$ bits of phrase entropy give about $2^{H/2}$ iterations, each needing a reversible Argon2id with 2 GiB of partly data-dependent memory access. That makes each iteration expensive, but I have not costed it and I am not aware of a published bound for it. To reach $2^{128}$ quantum security from a phrase takes 256 bits of entropy: about 39 random printable characters (6.57 bits each), or about 170 to 250 characters of English text. Use a key file or a random phrase from a password manager. AES-256 with a passphrase-derived key has the same limit. In this mode the phrase, not the 512-bit keys, is the limit for every attacker.
 - **Human factor:** the phrase is the only part of the system chosen by a person, and a memorable phrase follows the statistics of a language, which is what a guessing program exploits. Typing errors, reuse and disclosure are not addressed by any KDF. The README therefore recommends a password manager's random string over a phrase from memory.
-- **Side channel:** Argon2id's second half of the first pass and all later passes index memory by data derived from the phrase; on a shared machine, cache observation of that access pattern can test phrase guesses offline. The data-independent first half is what distinguishes Argon2id from scrypt here: an observer gets no information from it, and the trade-off attacks that pure data-independent addressing (Argon2i) permits are blocked by the dependent half. This is the compromise RFC 9106 recommends.
+- **Side channel:** Argon2id's second half of the first pass and all later passes index memory by data derived from the phrase; on a shared machine, cache observation of that access pattern can test phrase guesses offline. The data-independent first half is what distinguishes Argon2id from scrypt here: an observer gets no information from it, and the trade-off attacks that pure data-independent addressing (Argon2i) permits are blocked by the dependent half. This is the compromise RFC 9106 recommends. The normalisation before it is not constant-time either: for a phrase outside ASCII its table lookups and branches depend on the characters. The exposure is the same, a local observer on a shared machine, and an ASCII phrase touches no table.
 - **Resource check:** before the 2 GiB are allocated, the program compares the requirement with `MemAvailable` from `/proc/meminfo` and with the address-space and data limits of the process, and stops with error 7 if either is too small ([src/kdf.cpp](src/kdf.cpp), `require_memory`). Without this, Linux would overcommit the allocation and kill the process when the pages are touched, without an exit code. The check reads only public data and runs before any key material is derived.
 - **Header limits:** $\log_2 m$, $t$ and $p$ are stored in the header. When reading a file they must satisfy $10\le\log_2 m\le 21$ (1 MiB to 2 GiB), $1\le t\le 4$, $1\le p\le 8$, and the fourth byte must be zero; anything else fails with error 13 ([src/keys.cpp](src/keys.cpp), `kdf_ok`). Changing them changes the derived keys, so a modified header also fails authentication. In key-file mode the parameters are written and authenticated but not used.
 
@@ -356,7 +357,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 - **Secret, not public, masks.** A public per-block value (a counter, a hash of the index) would leave $G$'s input and output differences known to the attacker and change nothing. The mask must be a PRF of the key.
 - **Independent masks, not a geometric sequence.** XTS derives its masks as $\Delta_i = \Delta_0\cdot\alpha^i$ in $\mathrm{GF}(2^{128})$, so that consecutive masks are related by a public linear map. Here every $\Delta_i$ is a fresh PRF output, so $\Delta_i\oplus\Delta_j$ is unknown for every pair. This costs four HMAC calls per block instead of one multiplication, and it is why section 6.1 can say that no two blocks have a known difference, and why no Simon-type attack finds a linear relation between masks (section 6.5).
 - **Salt in the tweak and the whitening.** The salt is random per file and authenticated. Feeding it to both PRFs means that two files made with the same key file share no mask at all, so blocks at equal positions in different files are as unrelated as blocks in one file. In phrase mode the salt already changes $K$; including it again is harmless.
-- **Domain separation.** The labels `SillyDES 5.1.0 white`, `SillyDES 5.1.0 tweak` and `SillyDES 5.1.0 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
+- **Domain separation.** The labels `SillyDES 5.2.0 white`, `SillyDES 5.2.0 tweak` and `SillyDES 5.2.0 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
 - **Chaining retained.** CBC inside the tweak costs one XOR and makes $c_i$ depend on the whole message prefix (section 7).
 - **Cost.** About 14 percent of the running time: 16 MiB takes 1.22 s each way, 256 DES operations and 8 SHA-512 compressions per block **(measured)**.
 - **Derived from the same key as the layers.** Masks that were independent keys would be stripped by Grover-meets-Simon in Q2 and the attack would continue against the inner cascade. Because the masks are PRF outputs of $K$, the "inner key" of that attack is $K$ itself (section 6.5). This is an observation, not a proof, and no file-encryption attacker has a superposition oracle anyway.
@@ -370,7 +371,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 ### 10.2 Parameters
 
-| | AES-256 | SillyDES 5.1.0 |
+| | AES-256 | SillyDES 5.2.0 |
 |---|---|---|
 | Block size | 128 bits | 2048 bits (64-bit DES words inside) |
 | Key material | 32 bytes | 64 bytes, plus a 64-byte MAC key derived from it |
@@ -382,7 +383,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 ### 10.3 Security levels and speed
 
-| Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | SillyDES 5.1.0, key file |
+| Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | SillyDES 5.2.0, key file |
 |---|---|---|
 | Classical key search | $2^{256}$ | $2^{512}$ (heuristic, section 5.2) |
 | Quantum key search (Q1) | $2^{128}$ iterations | $2^{256}$ for the cipher and for the MAC (heuristic, section 5.4) |
@@ -425,9 +426,18 @@ AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With 
 | One flipped input bit or one changed input word, 64 trials each way through the core | all 32 output words change, 896 to 1152 output bits flip, unit test |
 | Eight identical DES keys: avalanche holds, output unrelated to input, encrypting twice is not the identity, unit test | pass |
 | Same plaintext sealed twice: salt, IV and first block all differ, both unseal correctly, unit test | pass |
-| Container magic `SD 5 0x10`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
-| Version byte changed to 1; e-mail tags rewritten to another version | error 13; error 8 |
-| Files written by release 5.1.0: e-mail style and binary with the key file, e-mail style with a phrase | decrypt |
+| Container magic `SD 5 0x20`, reserved byte zero, size $280 + 256(\lfloor n/256\rfloor+1) + 64$, unit test | pass |
+| Version byte and e-mail tags changed to those of format 5.1.0 | error 13; error 8 |
+| Files of format 5.2.0: e-mail style and binary with the key file, e-mail style with an ASCII phrase and with a phrase of Latin, Greek and Japanese text and a character outside the BMP | decrypt |
+| Normalisation against the conformance file of Unicode 18.0.0 (`make unicode-check`): 20171 cases, each from all five columns; the 1094910 code points the file does not list | NFKC column reproduced; unchanged |
+| Phrase folding on the same file and on every single code point: the five columns of a line fold to one result, no ignorable code point is left, a second pass changes nothing | pass |
+| Normalisation and folding of 200000 random strings (combining marks, decomposable, Hangul, ignorable and other characters assigned in Unicode 16.0.0) against Python's `unicodedata` | equal |
+| The committed Unicode tables against the generator's output from the data files of 18.0.0 (checked by SHA-256); SHA-512 of the tables, unit test | identical; pass |
+| One key file with LF, CR LF and CR line endings, with a byte order mark and as UTF-16 in both byte orders; e-mail text in the same variants and inside a mail message | same keys; decodes |
+| The non-ASCII phrase typed another way (decomposed accents, no-break space, ohm and micro signs, full-width and half-width forms, zero width space, soft hyphen, trailing ideographic space, byte order mark, CR LF) | same keys, file decrypts |
+| Phrase in Latin-1, in UTF-16, with a tab, with an arrow-key sequence, of nine characters in 27 bytes; under a 1.5 GB address-space limit | error 10, no output, no key derivation |
+| Data with CR, LF, 0x1A and NUL bytes, both modes; file names outside ASCII | byte-exact; pass |
+| Phrase canonical form, e-mail decoder and key file parser on 420000 random and damaged inputs under ASan and UBSan | no finding; every accepted phrase is stable under a second pass |
 | Salt bytes of two encryptions of one file | differ |
 | Round trips through the program, sizes 0, 1, 255, 256, 257, 1000, 5000, both modes | pass |
 | Key file differing in one parity bit | error 13 |

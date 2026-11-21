@@ -12,13 +12,18 @@ trap 'rm -rf "$T"' EXIT
 grep -q "^Hello," "$T/hello.txt"
 echo "ok: hello.sdes decrypts"
 
-# Written by release 5.1.0 and never regenerated: these fail as soon as the file format changes.
+# Written when format 5.2.0 was introduced and never regenerated: these fail as soon as the file
+# format changes, and the phrase rules are part of it. The third file was made with a phrase of
+# Latin, Greek, Japanese and one character outside the BMP (U_NFC, escaped to keep this file ASCII).
 P="The quick brown fox jumps over the lazy dog, again and again."
-./sillydes act=d in=test/format-5.1.0/hello.bin out="$T/f1.txt" key=sample.key
+U_NFC=$'Cr\xc3\xa8me br\xc3\xbbl\xc3\xa9e, \xce\xa9\xce\xbc\xce\xad\xce\xb3\xce\xb1, \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe3\x81\xae\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88, \xf0\x9d\x84\x9e clef'
+./sillydes act=d in=test/format-5.2.0/hello.bin out="$T/f1.txt" key=sample.key
 cmp "$T/hello.txt" "$T/f1.txt"
-echo "$P" | ./sillydes act=dm in=test/format-5.1.0/hello-phrase.sdes out="$T/f2.txt" phrase 2>/dev/null
+echo "$P" | ./sillydes act=dm in=test/format-5.2.0/hello-phrase.sdes out="$T/f2.txt" phrase 2>/dev/null
 cmp "$T/hello.txt" "$T/f2.txt"
-echo "ok: files written by release 5.1.0 decrypt (binary, and e-mail style with a phrase)"
+printf '%s\n' "$U_NFC" | ./sillydes act=dm in=test/format-5.2.0/hello-utf8-phrase.sdes out="$T/f3.txt" phrase 2>/dev/null
+cmp "$T/hello.txt" "$T/f3.txt"
+echo "ok: files of format 5.2.0 decrypt (binary, and e-mail style with an ASCII and a non-ASCII phrase)"
 
 for size in 0 1 255 256 257 1000 5000; do
   head -c "$size" /dev/urandom > "$T/in.bin"
@@ -107,10 +112,12 @@ printf '\x00' | dd of="$T/t6" bs=1 seek=5 conv=notrunc 2>/dev/null
 fail13 ./sillydes act=d in="$T/t6" out="$T/x" key=sample.key
 echo "ok: bit flip, truncation, header change and out-of-range KDF parameters fail"
 
+# The magic and the tags of the previous format, 5.1.0.
 cp "$T/rep.enc" "$T/t5"
-printf '\x01' | dd of="$T/t5" bs=1 seek=3 conv=notrunc 2>/dev/null
+printf '\x10' | dd of="$T/t5" bs=1 seek=3 conv=notrunc 2>/dev/null
 fail13 ./sillydes act=d in="$T/t5" out="$T/x" key=sample.key
-sed 's/SillyDES 5\.1\.0/SillyDES 5.0.0/' "$T/p.txt" > "$T/old.txt"
+sed 's/SillyDES 5\.2\.0/SillyDES 5.1.0/' "$T/p.txt" > "$T/old.txt"
+if cmp -s "$T/p.txt" "$T/old.txt"; then echo "FAIL: e-mail text of another version not built"; exit 1; fi
 rc=0; ./sillydes act=dm in="$T/old.txt" out="$T/x" key=sample.key 2>/dev/null || rc=$?
 [ "$rc" -eq 8 ] || { echo "FAIL: e-mail tags of another version accepted"; exit 1; }
 echo "ok: files of another version are rejected"
@@ -122,6 +129,81 @@ W="A completely different phrase that is long enough to be accepted."
 rc=0; echo "$W" | ./sillydes act=dm in="$T/p.txt" out="$T/x" phrase 2>/dev/null || rc=$?
 [ "$rc" -eq 13 ] || { echo "FAIL: wrong phrase accepted"; exit 1; }
 echo "ok: wrong phrase fails authentication"
+
+# Text from other systems. A key file, an e-mail text or a phrase that was made, saved or piped
+# on another system must work as it is: other line endings, a byte order mark, UTF-16 (what
+# Windows PowerShell 5.1 writes with `>`), and for a phrase another way of typing the same text.
+crlf() { sed 's/$/\r/' "$1"; }
+cronly() { tr '\n' '\r' < "$1"; }
+bom() { printf '\xef\xbb\xbf'; cat "$1"; }
+utf16le() { printf '\xff\xfe'; printf "$(od -An -v -tx1 "$1" | tr -d '\n' | sed 's/ \(..\)/\\x\1\\x00/g')"; }
+crlf sample.key > "$T/k-crlf"; cronly sample.key > "$T/k-cr"; bom sample.key > "$T/k-bom"
+crlf sample.key > "$T/k.tmp"; utf16le "$T/k.tmp" > "$T/k-utf16"
+for k in k-crlf k-cr k-bom k-utf16; do
+  ./sillydes act=dm in=hello.sdes out="$T/ti.out" key="$T/$k" || { echo "FAIL: key file variant $k"; exit 1; }
+  cmp "$T/hello.txt" "$T/ti.out"
+done
+crlf hello.sdes > "$T/m-crlf"; cronly hello.sdes > "$T/m-cr"
+tail -n +2 hello.sdes > "$T/m.tmp"; bom "$T/m.tmp" > "$T/m-bom"   # the mark directly before *BEGIN
+utf16le "$T/m-crlf" > "$T/m-utf16"
+for m in m-crlf m-cr m-bom m-utf16; do
+  ./sillydes act=dm in="$T/$m" out="$T/ti.out" key=sample.key || { echo "FAIL: e-mail text variant $m"; exit 1; }
+  cmp "$T/hello.txt" "$T/ti.out"
+done
+./sillydes act=dm in="$T/m-utf16" out="$T/ti.out" key="$T/k-utf16"
+cmp "$T/hello.txt" "$T/ti.out"
+if grep -q "$(printf '\r')" hello.sdes "$T/p.txt"; then echo "FAIL: e-mail text is written with CR"; exit 1; fi
+echo "ok: key files and e-mail text with CR LF, CR, a byte order mark and as UTF-16 are read"
+
+# The same phrase from a Windows pipe: a byte order mark, trailing spaces and CR LF.
+printf '\xef\xbb\xbf%s   \r\n' "$P" | ./sillydes act=dm in=test/format-5.2.0/hello-phrase.sdes out="$T/ti.out" phrase 2>/dev/null
+cmp "$T/hello.txt" "$T/ti.out"
+# The non-ASCII phrase typed in another way: decomposed accents, a no-break space, the ohm and
+# micro signs, a full-width comma and letters, half-width katakana, a zero width space, a soft
+# hyphen, a trailing ideographic space, a byte order mark and CR LF.
+U_OTHER=$'\xef\xbb\xbfCre\xcc\x80me\xc2\xa0bru\xcc\x82le\xcc\x81e, \xe2\x84\xa6\xc2\xb5\xce\xb5\xcc\x81\xce\xb3\xce\xb1\xef\xbc\x8c \xe6\x97\xa5\xe6\x9c\xac\xe2\x80\x8b\xe8\xaa\x9e\xe3\x81\xae\xef\xbe\x83\xef\xbd\xbd\xef\xbe\x84, \xf0\x9d\x84\x9e \xef\xbd\x83\xef\xbd\x8c\xc2\xad\xef\xbd\x85\xef\xbd\x86\xe3\x80\x80'
+[ "$U_OTHER" != "$U_NFC" ]
+printf '%s\r\n' "$U_OTHER" | ./sillydes act=dm in=test/format-5.2.0/hello-utf8-phrase.sdes out="$T/ti.out" phrase 2>/dev/null
+cmp "$T/hello.txt" "$T/ti.out"
+echo "ok: a phrase piped or typed in another way gives the same keys"
+
+# A phrase that no other system could reproduce is refused, for encryption and for decryption,
+# and before the key derivation: with 1.5 GB of address space that would end in error 7.
+refused() {  # refused ACT INFILE MESSAGE: the phrase on stdin must end in error 10 with that message
+  local rc=0
+  (ulimit -v 1500000; ./sillydes act="$1" in="$2" out="$T/refused" phrase 2>"$T/refused.err") || rc=$?
+  [ "$rc" -eq 10 ] && [ ! -e "$T/refused" ] && grep -q "$3" "$T/refused.err"
+}
+printf 'cr\xe8me br\xfbl\xe9e \xe0 la carte, please\n' | refused e hello.sdes "not valid UTF-8" || { echo "FAIL: Latin-1 phrase accepted"; exit 1; }
+printf '\xff\xfec\x00o\x00r\x00r\x00e\x00c\x00t\x00 \x00h\x00o\x00r\x00s\x00e\x00 \x00b\x00a\x00t\x00t\x00e\x00r\x00y\x00\n\x00' | refused e hello.sdes "not valid UTF-8" || { echo "FAIL: UTF-16 phrase accepted"; exit 1; }
+printf 'correct horse\tbattery staple\n' | refused e hello.sdes "control character" || { echo "FAIL: phrase with a tab accepted"; exit 1; }
+printf 'correct horse battery staple\x1b[D\n' | refused e hello.sdes "control character" || { echo "FAIL: phrase with an arrow key accepted"; exit 1; }
+printf 'correct horse\tbattery staple\n' | refused dm "$T/p.txt" "control character" || { echo "FAIL: phrase with a tab accepted for decryption"; exit 1; }
+printf '\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\n' | refused e hello.sdes "too short" || { echo "FAIL: phrase of nine characters in 27 bytes accepted"; exit 1; }
+echo "ok: phrases that are not UTF-8, hold a control character or are too short are refused before the key derivation"
+
+# Data is never translated: line endings, a DOS end-of-file mark and a NUL come back as they went in.
+printf 'one\r\ntwo\nthree\r\x1a\x00four\r\n\x1a' > "$T/dos.in"
+./sillydes act=e  in="$T/dos.in"  out="$T/dos.enc" key=sample.key
+./sillydes act=d  in="$T/dos.enc" out="$T/dos.out" key=sample.key
+cmp "$T/dos.in" "$T/dos.out"
+./sillydes act=em in="$T/dos.in"  out="$T/dos.txt" key=sample.key
+./sillydes act=dm in="$T/dos.txt" out="$T/dos.out" key=sample.key
+cmp "$T/dos.in" "$T/dos.out"
+# File names are bytes: these are UTF-8, in composed and in decomposed form.
+N1=$'cr\xc3\xa8me-\xe6\x97\xa5\xe6\x9c\xac'; N2=$'cre\xcc\x80me-\xf0\x9d\x84\x9e'
+cp sample.key "$T/$N1.key"
+./sillydes act=e in="$T/dos.in" out="$T/$N1.enc" key="$T/$N1.key"
+./sillydes act=d in="$T/$N1.enc" out="$T/$N2.out" key="$T/$N1.key"
+cmp "$T/dos.in" "$T/$N2.out"
+echo "ok: data with CR, LF, 0x1A and NUL is not translated; file names outside ASCII work"
+
+# The sources stay ASCII with LF line endings, so that every compiler and every checkout sees the
+# same bytes (the labels in them are hashed into the keys).
+if LC_ALL=C grep -l "[^$(printf '\t') -~]" src/*.cpp src/*.h tools/*.cpp tools/*.sh test/*.cpp test/test.sh Makefile; then
+  echo "FAIL: the files above hold a CR or a character outside ASCII"; exit 1
+fi
+echo "ok: the sources are ASCII with LF line endings"
 
 # Memory residue: once the program has exited, normally or on an error, no copy of the phrase, the
 # key text, the key bytes or the plaintext may be left in its heap, stack or mappings. The preloaded
@@ -161,5 +243,13 @@ PMARKS="$(mask "${LONG:0:16}"),$(mask "${LONG:2500:16}"),$(mask "$PT")"
 cmp "$T/rin.txt" "$T/lp.out"
 [ "$(echo "${LONG:0:4999}" | hits "$PMARKS" ./sillydes act=d in="$T/lp.bin" out="$T/x" phrase)" = 0 ] || residue_fail "phrase left in memory after authentication failure"
 echo "ok: no phrase left in memory, also after an error; a 5000-character phrase round-trips"
+
+# A phrase outside ASCII goes through the normalisation, which holds it as code points too. The
+# marks: the Japanese part of the phrase as UTF-8, and its first four characters as 32-bit values.
+UMARKS="$(maskhex e697a5e69cace8aa9ee381aee38386e382b9e38388),$(maskhex e56500002c6700009e8a00006e300000),$(mask "$PT")"
+[ "$(printf '%s\r\n' "$U_OTHER" | hits "$UMARKS" ./sillydes act=e in="$T/rin.txt" out="$T/up.bin" phrase)" = 0 ] || residue_fail "non-ASCII phrase or plaintext left in memory after encryption"
+[ "$(printf '%s\n' "$U_NFC" | hits "$UMARKS" ./sillydes act=d in="$T/up.bin" out="$T/up.out" phrase)" = 0 ] || residue_fail "non-ASCII phrase or plaintext left in memory after decryption"
+cmp "$T/rin.txt" "$T/up.out"
+echo "ok: no phrase left in memory after its normalisation"
 
 echo "all tests passed"

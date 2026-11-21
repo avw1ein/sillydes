@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// Unit tests for the hash primitives and the block cipher.
+// Unit tests for the hash primitives, the block cipher and the handling of text from outside.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <initializer_list>
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "armor.h"
 #include "blake2b.h"
 #include "common.h"
 #include "container.h"
@@ -19,6 +21,8 @@
 #include "keys.h"
 #include "sillydes_cipher.h"
 #include "sha512.h"
+#include "text.h"
+#include "unicode_tables.h"
 
 static std::string hex(const uint8_t *p, size_t n)
 {
@@ -235,6 +239,53 @@ static std::string write_temp(const std::string &text)
   return name;
 }
 
+// UTF-8 of a list of code points; the tests name every character by its number, so that this
+// file stays ASCII.
+static std::string utf8(std::initializer_list<uint32_t> cps)
+{
+  std::string s;
+  for (uint32_t c : cps) {
+    if (c < 0x80) s += (char)c;
+    else if (c < 0x800) { s += (char)(0xC0 | (c >> 6)); s += (char)(0x80 | (c & 0x3F)); }
+    else if (c < 0x10000) { s += (char)(0xE0 | (c >> 12)); s += (char)(0x80 | ((c >> 6) & 0x3F)); s += (char)(0x80 | (c & 0x3F)); }
+    else { s += (char)(0xF0 | (c >> 18)); s += (char)(0x80 | ((c >> 12) & 0x3F)); s += (char)(0x80 | ((c >> 6) & 0x3F)); s += (char)(0x80 | (c & 0x3F)); }
+  }
+  return s;
+}
+
+// ASCII text as UTF-16 with a byte order mark.
+static std::string utf16(const std::string &ascii, bool little_endian)
+{
+  std::string s = little_endian ? "\xFF\xFE" : "\xFE\xFF";
+  for (char c : ascii) {
+    if (!little_endian) s += '\0';
+    s += c;
+    if (little_endian) s += '\0';
+  }
+  return s;
+}
+
+static std::string replace_all(std::string s, const std::string &from, const std::string &to)
+{
+  for (size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size()) s.replace(pos, from.size(), to);
+  return s;
+}
+
+// canonical_phrase on a copy of `in`: the fault, and in `out` the canonical bytes.
+static PhraseFault canon(const std::string &in, std::string &out)
+{
+  SecretBuf s(in.begin(), in.end());
+  PhraseFault f = canonical_phrase(s);
+  out.assign(s.begin(), s.end());
+  return f;
+}
+
+static void hash32(Sha512 &h, uint32_t v)
+{
+  const uint8_t b[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24) };
+  h.update(b, 4);
+}
+
 int main()
 {
   check("blake2b abc", blake2b("abc", 64),
@@ -369,10 +420,10 @@ int main()
     SillyDesCipher c(k, s);
     c.encrypt_block(x);
     check("encrypt_block known answer", hex(x, 256),
-          "4a1dfbfc3c1f082fcd57415047d3477ba8d61895335d908942dc71955fe648e7af3fec5857cd17a2d511b96d150684b470f93e0d7be09f5c2319dc3da222ff9a"
-          "18e5be22f049eea96a09bb581268a70cab5baf6ca31d4d1b260eda302333c1c738a3da939156db07462f7aa01e09b27c8d5faebf3350bd10274b7c1ec8514089"
-          "022485fde43dba20fc762d149f75766600b54ad39c4e6af9e770c8a28157f8cde7b388ae4c6ae17fcef8153fdbf045d3db5747d0b385c2214bfb0a7fe5b7974b"
-          "f2209573bf7792686981b9d1baa38138415585b44de38f54d8acdd6328728f42b860938a883d97c34c65dae51ddfa05569a605c7b167b0b792545b95a4464349");
+          "ea3faee23ef0e679663baff373b8950f315087293345cd6e00b92b237d6056a032ddbf25970463cd825639fc6dffa13eb04330f4098221eba8fa07f34a25a069"
+          "c2407f1a1ed6baffda3a5f67adf120dde95df51cbbdc657de64915b4df6da730f68ad6981a5971bd46951bdff91e5c0267da511b45411b0727437f963258412a"
+          "99318316745ad9c82e7aa27f913b6d863de3353bf6ff9b91a17e31017b46756b26e6c961a98db4751a7af7186deb0365a88b7b20fcdcde59bcab2e7c36787a9a"
+          "23efba70c1b159663910929ee7c7cfb7a0d5fc37a6e552efeea7e46a61051dd31b16475ffde2c38d45c8e119b2c954a7d164e4f9c1faa103cdcaf45dbd10be6c");
     c.decrypt_block(x);
     bool id = true;
     for (int i = 0; i < 256; i++) id &= x[i] == (uint8_t)(255 - i);
@@ -545,6 +596,211 @@ int main()
     if (exit_code([&] { readkeyfile("/nonexistent/sillydes.key", kk); }) != 1) { puts("FAIL: missing key file is not error 1"); fails++; }
   }
 
+  // Text made on another system. decode_text undoes the encoding that an editor or a shell gave a
+  // key file or an e-mail text: a byte order mark, or UTF-16.
+  {
+    const struct { std::string in, want; } cases[] = {
+      { "abc\n", "abc\n" },
+      { "", "" },
+      { "\xEF\xBB\xBF" "abc", "abc" },
+      { "\xEF\xBB\xBF", "" },
+      { utf16("ab\r\n", true), "ab\r\n" },
+      { utf16("ab\r\n", false), "ab\r\n" },
+      { std::string("\xFF\xFE\xE9\x00" "a\x00\x3D\xD8", 8), "?a?" },  // e acute, a, half of a surrogate pair
+      { std::string("\xFE\xFF\x00" "a\x01\x00", 6), "a?" },
+      { std::string("\xFF\xFE" "a\x00" "b", 5), "a" }                   // an odd last byte is dropped
+    };
+    for (const auto &c : cases) {
+      std::string t = c.in;
+      t.resize(decode_text((uint8_t *)&t[0], t.size()));
+      if (t != c.want) { printf("FAIL: decode_text of %s\n", hex((const uint8_t *)c.in.data(), c.in.size()).c_str()); fails++; }
+    }
+  }
+
+  // One key file, as the editors and shells of other systems write it, must give the same keys.
+  {
+    const std::string lf = "; a comment\n0001020304050607 first key\n\n\t08090A0B0C0D0E0F\n1011121314151617\n1819202122232425\n"
+                           "2627282930313233\n3435363738394041\n4243444546474849\n5051525354555657\n";
+    const std::string crlf = replace_all(lf, "\n", "\r\n"), cr = replace_all(lf, "\n", "\r");
+    const std::string variants[] = { lf, crlf, cr, "\xEF\xBB\xBF" + lf, "\xEF\xBB\xBF" + crlf,
+                                     utf16(lf, true), utf16(crlf, true), utf16(crlf, false), utf16(cr, false) };
+    uint8_t first[NL][8];
+    for (size_t i = 0; i < sizeof variants / sizeof variants[0]; i++) {
+      std::string f = write_temp(variants[i]);
+      uint8_t k[NL][8] = {};
+      int rc = exit_code([&] { readkeyfile(f, k); });
+      unlink(f.c_str());
+      if (i == 0) memcpy(first, k, sizeof first);
+      if (rc != -1 || memcmp(first, k, sizeof k) != 0 || k[7][7] != 0x57) { printf("FAIL: key file variant %zu\n", i); fails++; }
+    }
+  }
+
+  // E-mail text is written with LF only, the same bytes on every system, and is read back with
+  // any line ending, with a byte order mark, as UTF-16 and inside a message.
+  {
+    check("armor known answer", [] { Buf a = high2low(Buf{ 'S', 'i', 'l', 'l', 'y', 'D', 'E', 'S' }); return std::string(a.begin(), a.end()); }().c_str(),
+          "\n*BEGIN " FORMAT_NAME " message, valid char: 12\n\nIqZgP7Z4FJDz\n\n*END " FORMAT_NAME " message, CRC: -2065946841\n\n");
+    Buf msg;
+    for (int i = 0; i < 100; i++) msg.push_back((uint8_t)(i * 37 + 11));
+    const Buf arm = high2low(msg);
+    const std::string lf(arm.begin(), arm.end());
+    check("armor of three lines", lf,
+          "\n*BEGIN " FORMAT_NAME " message, valid char: 135\n\n2n1JSdz4uEsnK7qWlykFBZi0dQfj53ZSUuXBwVQwMMOfoDIODqG9fhDs7I9b\n"
+          "X;7Kym15OcyoqTsXG6qGhxk19YhkZPfT12ZCQtWxsUQgILOPkCI:;pFtbgDc\n3H9LT:76ul0pKjw\n\n*END " FORMAT_NAME " message, CRC: -499477409\n\n");
+    const std::string crlf = replace_all(lf, "\n", "\r\n"), cr = replace_all(lf, "\n", "\r");
+    const std::string variants[] = { lf, crlf, cr, "\xEF\xBB\xBF" + lf.substr(1), "\xEF\xBB\xBF" + crlf,
+                                     utf16(lf, true), utf16(crlf, true), utf16(crlf, false), utf16(cr, false),
+                                     "Subject: a message\r\n\r\nSee below.\r\n" + crlf + "-- \r\nsent from somewhere\r\n" };
+    for (size_t i = 0; i < sizeof variants / sizeof variants[0]; i++) {
+      Buf out;
+      int rc = exit_code([&] { out = low2high(Buf(variants[i].begin(), variants[i].end()), "test"); });
+      if (rc != -1 || out != msg) { printf("FAIL: e-mail text variant %zu (error %d)\n", i, rc); fails++; }
+    }
+    const std::string old = replace_all(lf, FORMAT_NAME, "SillyDES 5.1.0");
+    if (exit_code([&] { low2high(Buf(old.begin(), old.end()), "test"); }) != 8) { puts("FAIL: e-mail text of another format accepted"); fails++; }
+  }
+
+  // Normalisation (NFKC) on cases whose answers come from the Unicode conformance file and from
+  // Python's unicodedata; the complete file is run by `make unicode-check`.
+  {
+    typedef std::initializer_list<uint32_t> L;
+    const struct { const char *name; L in, want; } cases[] = {
+      { "composition", { 0x41, 0x30A }, { 0xC5 } },
+      { "singleton", { 0x212B }, { 0xC5 } },
+      { "canonical ordering", { 0x61, 0x315, 0x300, 0x5AE, 0x62 }, { 0xE0, 0x5AE, 0x315, 0x62 } },
+      { "blocked by an equal class", { 0x61, 0x301, 0x301 }, { 0xE1, 0x301 } },
+      { "not blocked by a lower class", { 0x61, 0x5AE, 0x300 }, { 0xE0, 0x5AE } },
+      { "composition exclusion", { 0x958 }, { 0x915, 0x93C } },
+      { "excluded mark", { 0x344 }, { 0x308, 0x301 } },
+      { "decompose, reorder, compose", { 0x1E9B, 0x323 }, { 0x1E69 } },
+      { "two starters", { 0x9C7, 0x9BE }, { 0x9CB } },
+      { "text starting with a mark", { 0x301, 0x41, 0x30A }, { 0x301, 0xC5 } },
+      { "full-width letter", { 0xFF21 }, { 0x41 } },
+      { "half-width katakana", { 0xFF76, 0xFF9E }, { 0x30AC } },
+      { "ligature", { 0xFB01 }, { 0x66, 0x69 } },
+      { "superscript", { 0xB2 }, { 0x32 } },
+      { "no-break space", { 0xA0 }, { 0x20 } },
+      { "ideographic space", { 0x3000 }, { 0x20 } },
+      { "spacing diaeresis", { 0xA8 }, { 0x20, 0x308 } },
+      { "ohm sign", { 0x2126 }, { 0x3A9 } },
+      { "outside the BMP, folded", { 0x1D400 }, { 0x41 } },
+      { "outside the BMP, kept", { 0x1D11E }, { 0x1D11E } },
+      { "Hangul jamo", { 0x1100, 0x1161, 0x11A8 }, { 0xAC01 } },
+      { "Hangul LV and T", { 0xAC00, 0x11A8 }, { 0xAC01 } },
+      { "Hangul LVT and T", { 0xAC01, 0x11A8 }, { 0xAC01, 0x11A8 } },
+      { "longest decomposition", { 0xFDFA }, { 0x635, 0x644, 0x649, 0x20, 0x627, 0x644, 0x644, 0x647, 0x20, 0x639, 0x644, 0x64A, 0x647, 0x20, 0x648, 0x633, 0x644, 0x645 } },
+      { "joiner kept by NFKC", { 0x65, 0x200D, 0x301 }, { 0x65, 0x200D, 0x301 } }
+    };
+    for (const auto &c : cases) {
+      CodePoints cp(c.in), want(c.want);
+      normalize(cp, false);
+      if (cp != want) { printf("FAIL: normalisation: %s\n", c.name); fails++; }
+      normalize(cp, false);
+      if (cp != want) { printf("FAIL: normalisation not stable: %s\n", c.name); fails++; }
+    }
+    // Without the invisible characters, as a phrase is folded: what they kept apart now composes.
+    const struct { const char *name; L in, want; } folded[] = {
+      { "joiner between letter and mark", { 0x65, 0x200D, 0x301 }, { 0xE9 } },
+      { "grapheme joiner between letter and mark", { 0x65, 0x34F, 0x301 }, { 0xE9 } },
+      { "byte order mark", { 0xFEFF, 0x41 }, { 0x41 } },
+      { "soft hyphen and zero width space", { 0x61, 0xAD, 0x62, 0x200B, 0x63 }, { 0x61, 0x62, 0x63 } },
+      { "variation selector", { 0x2764, 0xFE0F }, { 0x2764 } },
+      { "half-width Hangul filler", { 0x61, 0xFFA0, 0x62 }, { 0x61, 0x62 } },
+      { "only invisible characters", { 0x200B, 0xFEFF }, {} }
+    };
+    for (const auto &c : folded) {
+      CodePoints cp(c.in), want(c.want);
+      normalize(cp, true);
+      if (cp != want) { printf("FAIL: folding: %s\n", c.name); fails++; }
+    }
+  }
+
+  // The canonical form of a phrase: what is refused, and what is the same phrase.
+  {
+    const std::string base = "correct horse battery staple";
+    std::string out;
+    const struct { const char *name; std::string in; PhraseFault want; } faults[] = {
+      { "tab", "correct horse\tbattery staple", PHRASE_CONTROL },
+      { "arrow key", base + "\x1B[D", PHRASE_CONTROL },
+      { "NUL", std::string("correct horse\0battery staple", 28), PHRASE_CONTROL },
+      { "DEL", base + "\x7F", PHRASE_CONTROL },
+      { "two CR", base + "\r\r", PHRASE_CONTROL },
+      { "C1 control", base + utf8({ 0x85 }), PHRASE_CONTROL },
+      { "control in a short phrase", "short\t", PHRASE_CONTROL },
+      { "Latin-1", "cr\xE8me br\xFBl\xE9" "e \xE0 la carte", PHRASE_NOT_UTF8 },
+      { "UTF-16", utf16(base, true), PHRASE_NOT_UTF8 },
+      { "overlong, two bytes", base + "\xC0\x80", PHRASE_NOT_UTF8 },
+      { "overlong, three bytes", base + "\xE0\x80\x80", PHRASE_NOT_UTF8 },
+      { "overlong, four bytes", base + "\xF0\x80\x80\x80", PHRASE_NOT_UTF8 },
+      { "surrogate", base + "\xED\xA0\x80", PHRASE_NOT_UTF8 },
+      { "above U+10FFFF", base + "\xF4\x90\x80\x80", PHRASE_NOT_UTF8 },
+      { "five-byte form", base + "\xF8\x88\x80\x80\x80", PHRASE_NOT_UTF8 },
+      { "cut off", base + "\xC3", PHRASE_NOT_UTF8 },
+      { "lone continuation byte", base + "\x80", PHRASE_NOT_UTF8 },
+      { "19 characters", "nineteen characters", PHRASE_SHORT },
+      { "19 characters and spaces", "nineteen characters      ", PHRASE_SHORT },
+      { "19 characters of three bytes", utf8({ 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E,
+                                               0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5 }), PHRASE_SHORT },
+      { "only invisible characters", utf8({ 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B,
+                                            0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B, 0x200B }), PHRASE_SHORT },
+      { "empty", "", PHRASE_SHORT }
+    };
+    for (const auto &c : faults)
+      if (canon(c.in, out) != c.want) { printf("FAIL: phrase with %s is not refused as expected\n", c.name); fails++; }
+
+    // Each of these is the phrase on the right, typed, piped or pasted in another way.
+    const std::string creme = utf8({ 'c', 'r', 0xE8, 'm', 'e', ' ', 'b', 'r', 0xFB, 'l', 0xE9, 'e', ' ', 0xE0, ' ', 'l', 'a', ' ', 'c', 'a', 'r', 't', 'e' });
+    const std::string twenty = "exactly 20 character";
+    const std::string kanji20 = utf8({ 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E,
+                                       0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C, 0x8A9E, 0x65E5, 0x672C });
+    const struct { const char *name; std::string in, want; } same[] = {
+      { "plain ASCII", base, base },
+      { "CR", base + "\r", base },
+      { "trailing spaces", base + "   ", base },
+      { "trailing spaces and CR", base + "  \r", base },
+      { "leading spaces are kept", "  " + base, "  " + base },
+      { "exactly 20 characters", twenty, twenty },
+      { "20 characters of three bytes", kanji20, kanji20 },
+      { "NFC", creme, creme },
+      { "NFD", utf8({ 'c', 'r', 'e', 0x300, 'm', 'e', ' ', 'b', 'r', 'u', 0x302, 'l', 'e', 0x301, 'e', ' ', 'a', 0x300, ' ', 'l', 'a', ' ', 'c', 'a', 'r', 't', 'e' }), creme },
+      { "byte order mark and CR", "\xEF\xBB\xBF" + creme + "\r", creme },
+      { "no-break spaces", replace_all(creme, " ", utf8({ 0xA0 })), creme },
+      { "trailing ideographic space", creme + utf8({ 0x3000 }), creme },
+      { "invisible characters", replace_all(creme, "br", utf8({ 'b', 0x200B, 0xAD, 'r', 0x200E })), creme },
+      { "full-width letters", utf8({ 0xFF43, 0xFF52, 0xE8, 0xFF4D, 0xFF45, 0x3000, 'b', 'r', 0xFB, 'l', 0xE9, 'e', ' ', 0xE0, ' ', 'l', 'a', ' ', 0xFF43, 0xFF41, 0xFF52, 0xFF54, 0xFF45 }), creme },
+      { "outside the BMP", base + utf8({ ' ', 0x1D11E }), base + utf8({ ' ', 0x1D11E }) },
+      { "mathematical letters", utf8({ 0x1D41C, 0x1D428, 0x1D42B, 0x1D42B, 0x1D41E, 0x1D41C, 0x1D42D }) + base.substr(7), base }
+    };
+    for (const auto &c : same) {
+      std::string again;
+      if (canon(c.in, out) != PHRASE_OK || out != c.want) { printf("FAIL: phrase canonical form: %s\n", c.name); fails++; }
+      if (canon(out, again) != PHRASE_OK || again != out) { printf("FAIL: phrase canonical form not stable: %s\n", c.name); fails++; }
+    }
+    // What stays different: case, and look-alikes that Unicode keeps apart.
+    std::string a, b;
+    canon(base, a);
+    canon("Correct horse battery staple", b);
+    if (a == b) { puts("FAIL: phrase folding ignores case"); fails++; }
+    canon(replace_all(base, "c", utf8({ 0x441 })), b);  // Cyrillic es
+    if (a == b) { puts("FAIL: phrase folding confuses Latin and Cyrillic"); fails++; }
+  }
+
+  // The Unicode tables are part of the file format: other tables give other keys for some phrases.
+  // If this fails, the tables were regenerated; that needs a new format (see version.h).
+  {
+    Sha512 h;
+    h.update((const uint8_t *)UNICODE_VERSION, sizeof UNICODE_VERSION);
+    for (uint32_t v : UNI_DECOMP_POOL) hash32(h, v);
+    for (const UniDecomp &d : UNI_DECOMP) { hash32(h, d.cp); hash32(h, d.pos); hash32(h, d.len); }
+    for (const UniClass &c : UNI_CCC) { hash32(h, c.first); hash32(h, c.last); hash32(h, c.ccc); }
+    for (const UniPair &p : UNI_COMPOSE) { hash32(h, p.first); hash32(h, p.second); hash32(h, p.composed); }
+    for (const UniRange &r : UNI_IGNORABLE) { hash32(h, r.first); hash32(h, r.last); }
+    uint8_t o[64];
+    h.final(o);
+    check("Unicode tables of format " FORMAT_NAME, hex(o, 64),
+          "443ae981d8ff0cced092ab53044bd7b53f5e083055c5f254f0178b32d0e359e535ba846ec793940295b4cecf1b8204709bc166067da0bac77bfb7f73ebe0c6f1");
+  }
+
   // Both secret buffer types keep their contents while they grow, across the page and the
   // 64 KiB mapping thresholds.
   {
@@ -602,6 +858,7 @@ int main()
   puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id, DES and CRC-32 known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "
        "avalanche both ways; identical keys give distinct layers; fresh salt and IV per container; "
-       "errors as exceptions; key file parser; secret buffers");
+       "errors as exceptions; key file parser; secret buffers; "
+       "key files and e-mail text in other line endings and encodings; normalisation; phrase canonical form; Unicode tables");
   return 0;
 }

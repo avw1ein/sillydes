@@ -11,6 +11,7 @@
 
 #include "kdf.h"
 #include "sha512.h"
+#include "text.h"
 
 namespace {
 
@@ -46,17 +47,18 @@ KeyMaterial::~KeyMaterial()
 }
 
 // The file is read through readfile, so no stdio buffer holds a copy of the key text, and the Buf
-// wipes it on every path out of here, errors included.
+// wipes it on every path out of here, errors included. Lines may end in LF, CR LF or CR.
 void readkeyfile(const std::string &name, uint8_t key[NL][8])
 {
-  const Buf f = readfile(name);
+  Buf f = readfile(name);
+  f.resize(decode_text(f.data(), f.size()));
   const size_t size = f.size();
   size_t pos = 0;
   for (int n = 0; n < NL; n++) {
     size_t tok = 0, len = 0;
     while (pos < size) {
       size_t end = pos;
-      while (end < size && f[end] != '\n') end++;
+      while (end < size && f[end] != '\n' && f[end] != '\r') end++;
       size_t s = pos;
       while (s < end && (f[s] == ' ' || f[s] == '\t')) s++;
       size_t t = s;
@@ -117,11 +119,15 @@ bool read_hidden(const char *prompt, SecretBuf &s, bool tty)
   return !(eof && s.empty());
 }
 
-size_t trimmed_size(const SecretBuf &s)
+// What to tell the user about a phrase that cannot be used.
+const char *fault_text(PhraseFault f)
 {
-  size_t n = s.size();
-  while (n > 0 && s[n - 1] == ' ') n--;
-  return n;
+  switch (f) {
+    case PHRASE_NOT_UTF8: return "Phrase is not valid UTF-8 text.\n";
+    case PHRASE_CONTROL:  return "Phrase holds a control character (a tab or an arrow key, for example).\n";
+    case PHRASE_SHORT:    return "Phrase too short.\n";
+    default:              return nullptr;
+  }
 }
 
 }  // namespace
@@ -132,18 +138,17 @@ SecretBuf getphrase(bool confirm)
   bool tty = isatty(STDIN_FILENO);
   for (;;) {
     if (!read_hidden("Enter key phrase (minimum 20 characters): ", s, tty)) { errarg = "phrase"; errorexit(10); }
-    if (trimmed_size(s) < 20) {
-      fputs("Phrase too short.\n", stderr);
+    if (const char *fault = fault_text(canonical_phrase(s))) {
+      fputs(fault, stderr);
       if (!tty) { errarg = "phrase"; errorexit(10); }
       continue;
     }
     if (confirm && tty) {
       if (!read_hidden("Repeat key phrase: ", again, tty)) { errarg = "phrase"; errorexit(10); }
-      if (again != s) { fputs("Phrases differ.\n", stderr); continue; }
+      if (canonical_phrase(again) != PHRASE_OK || again != s) { fputs("Phrases differ.\n", stderr); continue; }
     }
     break;
   }
-  s.resize(trimmed_size(s));
   return s;
 }
 

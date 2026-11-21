@@ -8,11 +8,25 @@
 #include <cstring>
 
 #include "crc32.h"
+#include "text.h"
 
 namespace {
 
 const char *BEGIN_TAG = "*BEGIN " FORMAT_NAME " message, valid char:";
 const char *END_TAG = "*END " FORMAT_NAME " message, CRC:";
+const char *LINE_ENDS = "\r\n";  // either one ends a line, so LF, CR LF and CR text all work
+
+// The position of the line that starts with tag, searching line by line from pos; npos if none.
+size_t find_tag(const std::string &text, size_t pos, const char *tag)
+{
+  while (pos < text.size()) {
+    if (!text.compare(pos, strlen(tag), tag)) return pos;
+    size_t nl = text.find_first_of(LINE_ENDS, pos);
+    if (nl == std::string::npos) break;
+    pos = nl + 1;
+  }
+  return std::string::npos;
+}
 
 }  // namespace
 
@@ -61,20 +75,14 @@ Buf low2high(const Buf &in, const std::string &name)
   for (int i = 0; i < 26; i++) tabel['A' + i] = 12 + i;
   for (int i = 0; i < 26; i++) tabel['a' + i] = 38 + i;
 
-  const std::string text(in.begin(), in.end());
+  std::string text(in.begin(), in.end());
+  text.resize(decode_text((uint8_t *)&text[0], text.size()));
   errarg = name;
 
-  size_t pos = 0;
-  bool found = false;
-  while (pos < text.size()) {
-    if (!text.compare(pos, strlen(BEGIN_TAG), BEGIN_TAG)) { found = true; break; }
-    size_t nl = text.find('\n', pos);
-    if (nl == std::string::npos) break;
-    pos = nl + 1;
-  }
-  if (!found) errorexit(8);
+  size_t pos = find_tag(text, 0, BEGIN_TAG);
+  if (pos == std::string::npos) errorexit(8);
   unsigned long valchr = strtoul(text.c_str() + pos + strlen(BEGIN_TAG), nullptr, 10);
-  size_t nl = text.find('\n', pos);
+  size_t nl = text.find_first_of(LINE_ENDS, pos);
   pos = (nl == std::string::npos) ? text.size() : nl + 1;
 
   Crc32 crc;
@@ -95,14 +103,8 @@ Buf low2high(const Buf &in, const std::string &name)
     }
   }
 
-  found = false;
-  while (pos < text.size()) {
-    if (!text.compare(pos, strlen(END_TAG), END_TAG)) { found = true; break; }
-    size_t e = text.find('\n', pos);
-    if (e == std::string::npos) break;
-    pos = e + 1;
-  }
-  if (!found) errorexit(11);
+  pos = find_tag(text, pos, END_TAG);
+  if (pos == std::string::npos) errorexit(11);
   if ((int32_t)strtol(text.c_str() + pos + strlen(END_TAG), nullptr, 10) != (int32_t)crc.value()) errorexit(12);
   if (!out.empty()) out.pop_back();  // EOF marker added by high2low
   return out;

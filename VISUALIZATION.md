@@ -107,7 +107,7 @@ HMAC message for Δ_i, slice c            (45 bytes)
 
 offset    0                        20               36                             44
          ┌────────────────────────┬─────────────────┬───────────────────────────────┬───┐
-         │ "SillyDES 5.1.0 tweak" │ salt            │ block index i                 │ c │
+         │ "SillyDES 5.2.0 tweak" │ salt            │ block index i                 │ c │
          │ 20 bytes               │ 16 bytes        │ 8 bytes, big-endian           │ 1 │
          └────────────────────────┴─────────────────┴───────────────────────────────┴───┘
                                                                                  c = 0, 1, 2, 3
@@ -198,7 +198,7 @@ HMAC message for W_j, slice c            (38 bytes)
 
 offset    0                        20               36   37
          ┌────────────────────────┬─────────────────┬─────┬───┐
-         │ "SillyDES 5.1.0 white" │ salt            │  j  │ c │
+         │ "SillyDES 5.2.0 white" │ salt            │  j  │ c │
          │ 20 bytes               │ 16 bytes        │  1  │ 1 │
          └────────────────────────┴─────────────────┴─────┴───┘
 

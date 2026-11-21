@@ -19,8 +19,8 @@ If you change this procedure, change both.
 
 | | Program version | File format version |
 |---|---|---|
-| Constant | `PACKAGE_VERSION` | `FORMAT_NAME` (`"SillyDES 5.1.0"`) and `MAGIC` (`'S','D', major, minor*16+patch`) |
-| Meaning | The release you are making | The on-disk container, the e-mail tags and the key/whitening/tweak/MAC labels |
+| Constant | `PACKAGE_VERSION` | `FORMAT_NAME` (`"SillyDES 5.2.0"`) and `MAGIC` (`'S','D', major, minor*16+patch`) |
+| Meaning | The release you are making | The on-disk container, the e-mail tags, the key/whitening/tweak/MAC labels, and the rules that turn a phrase into bytes (with their Unicode tables) |
 | Changes | Every release | Only when files written by one release cannot be read by another |
 | Named after | The release | The release that *introduced* the format; later releases keep that name |
 | Git tag | `vX.Y.Z` | none |
@@ -30,13 +30,24 @@ Facts that follow from this:
 - A **patch release never changes the format** (for minor and major ones it is the user's decision).
   The default for "do not update the file format" is: edit `PACKAGE_VERSION` only, and leave
   `FORMAT_NAME`, `MAGIC`, `hello.sdes`, `test/format-*` and every test expectation alone.
-- Example: program 5.1.1 still reads and writes format **5.1.0**, so e-mail messages still start with
-  `*BEGIN SillyDES 5.1.0 message`. That is correct, not a stale string.
+- Example: program 5.1.1 read and wrote format **5.1.0**, so its e-mail messages started with
+  `*BEGIN SillyDES 5.1.0 message`; a later 5.2.1 still writes `*BEGIN SillyDES 5.2.0 message`.
+  That is correct, not a stale string.
 - If `test.sh` fails on the format fixtures during a release that was not meant to change the format,
   the format *was* changed by accident. Stop and tell the user; do not regenerate fixtures to make
   the test pass.
 - `FORMAT_NAME` is hashed into the keys. Changing it makes every existing file unreadable.
+- The canonical form of a phrase (`canonical_phrase` in `src/text.cpp`) and the Unicode tables in
+  `src/unicode_tables.h` decide which keys a phrase gives, so they belong to the format. Never run
+  `make unicode` (it regenerates the tables) in a release that keeps the format; `test_primitives`
+  fails on changed tables, and that failure means the same as a failing fixture.
 - `MAGIC[3]` is `minor*16+patch`, so minor and patch of a format number must each be 0-15.
+- A format change can be prepared ahead of its release. Compare `FORMAT_NAME` in the tree with the
+  last release (`git show vPREV:src/version.h`): if they differ, the release you are making
+  introduces that format. Its version must then equal the format's number, the work of the appendix
+  is already done (check it: fixtures in `test/format-N/`, no stale `SillyDES OLD`, `make test`), and
+  what is left is section 3, with release notes that start by saying the format is new and which
+  release converts older files. Format 5.2.0 was prepared this way, before release 5.2.0.
 
 ## 1. Find out what you need (ask what is missing)
 
@@ -81,7 +92,7 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
 - Review what changed since the last release: `git log --oneline vPREV..HEAD` and
   `git diff --stat vPREV..HEAD -- src`. For a release that must not change the format, look
   specifically at `container.*`, `keys.*`, `kdf.*`, `sillydes_cipher.*`, `des.*`, `sha512.*`,
-  `blake2b.*`, `armor.*`, `version.h` and the constants in `common.h` (`SALT_LEN`, `IV_LEN`,
+  `blake2b.*`, `armor.*`, `text.*`, `unicode_tables.h`, `version.h` and the constants in `common.h` (`SALT_LEN`, `IV_LEN`,
   `HDR_LEN`, `TAG_LEN`, `DEFAULT_KDF`). A change there that alters bytes on disk is a format change;
   refactors and memory hygiene are not. When in doubt, ask.
 
@@ -92,9 +103,9 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
    `README.md` (`# SillyDES X.Y.Z`), `STRUCTURE.md` (`# SillyDES X.Y.Z: software structure and flow`),
    `ANALYSIS.md` (`# Mathematical analysis of SillyDES X.Y.Z`) and `VISUALIZATION.md`
    (`# SillyDES X.Y.Z in pictures: ...`).
-3. Leave every other `5.1.0` alone: those name the *format* (the labels `SillyDES 5.1.0 white/tweak/mac`
+3. Leave every other `5.2.0` alone: those name the *format* (the labels `SillyDES 5.2.0 white/tweak/mac`
    in `ANALYSIS.md`, `STRUCTURE.md` and `VISUALIZATION.md`, the cipher names in the `ANALYSIS.md`
-   tables, the README paragraph on the file format, `hello.sdes`, `test/format-5.1.0/`, and
+   tables, the README paragraph on the file format, `hello.sdes`, `test/format-5.2.0/`, and
    the strings in `test/test.sh`). Check afterwards:
    ```sh
    grep -rn "SillyDES [0-9]\+\.[0-9]\+\.[0-9]\+" --include='*.md' --include='*.h' --include='*.cpp' --include='*.sh' . | grep -v '^./.git/'
@@ -176,7 +187,8 @@ changed. Clean up the temp directory.
 
 Only on explicit instruction. It breaks every existing file, so treat it like a major event.
 What counts: the cipher, padding, header layout, what the MAC covers, the meaning of the KDF
-parameter bytes, the Argon2/KDF construction, the labels, or the e-mail encoding.
+parameter bytes, the Argon2/KDF construction, the labels, the e-mail encoding, or which bytes a
+phrase becomes (`canonical_phrase`, the Unicode tables).
 
 Let `N` be the new format name's number (normally the release version, e.g. `5.2.0`).
 
@@ -193,20 +205,28 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    mkdir test/format-N
    ./sillydes act=e  in=/tmp/hello.txt out=test/format-N/hello.bin key=sample.key
    echo "$P" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-phrase.sdes phrase
+   eval "$(grep '^U_NFC=' test/test.sh)"        # the non-ASCII phrase of the tests
+   printf '%s\n' "$U_NFC" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-utf8-phrase.sdes phrase
+   chmod 644 test/format-N/*
    git rm -r test/format-OLD
    ```
 4. `test/test.sh`: point the fixture steps at `test/format-N`, update the comment and the `ok:` text
-   ("written by release N"), and change the "another version is rejected" step so that the
-   substituted name differs from `N`.
-5. `test/test_primitives.cpp`: the `encrypt_block known answer` is derived from the labels and changes
+   (they name the format), and change the "another version is rejected" step so that the magic byte
+   and the substituted name are those of the previous format.
+5. Only if the new format is to follow a newer Unicode version: set the version and the SHA-256
+   sums of its data files in `tools/fetch_ucd.sh`, run it, and run `make unicode UCD=<directory>`,
+   which regenerates `src/unicode_tables.h` and checks it against the conformance file. The table
+   hash in `test/test_primitives.cpp` then changes too (next item). Without this the tables stay
+   as they are, which is fine: a format does not have to follow the newest Unicode.
+6. `test/test_primitives.cpp`: the `encrypt_block known answer` is derived from the labels and changes
    with `FORMAT_NAME`. Run the test, take the new value from the failure message, and only accept it
    if the change is explained by the label (or by the intended cipher change); then regenerate and
    review the other stored values the failure list shows.
-6. Docs: every `SillyDES OLD` becomes `SillyDES N` where it names the format: labels and tables in
+7. Docs: every `SillyDES OLD` becomes `SillyDES N` where it names the format: labels and tables in
    `ANALYSIS.md`, `STRUCTURE.md`, `VISUALIZATION.md`; the experiments table in `ANALYSIS.md`; the
    file-format paragraph in `README.md` section 1 (current format, `*BEGIN SillyDES N message`,
    "releases before N cannot read this one"); `STRUCTURE.md` (fixtures, test descriptions, section 10).
    If the cipher itself changed, `ANALYSIS.md` must be re-reviewed, not just renamed.
-7. `grep -rn "SillyDES OLD" .` must find nothing except deliberate history.
-8. Then follow sections 3 (items 2, 4, 6, 7), 4, 5 and 6. State in the release notes that files of earlier
+8. `grep -rn "SillyDES OLD" .` must find nothing except deliberate history.
+9. Then follow sections 3 (items 2, 4, 6, 7), 4, 5 and 6. State in the release notes that files of earlier
    releases cannot be read and which release to use to convert them.

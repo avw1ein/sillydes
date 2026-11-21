@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Andy van Wezel
+#
+# The Unicode tables in src/unicode_tables.h are committed and are part of the file format. This
+# checks, whenever something they depend on changes, that they are exactly what the generator
+# makes of the Unicode data files (downloaded here and checked against stored SHA-256 sums), and
+# that the normalisation passes the complete conformance file of that Unicode version.
+# Nothing is installed; the data files are not part of the build of the program.
+
+name: unicode
+
+on:
+  push:
+    paths:
+      - 'src/text.*'
+      - 'src/unicode_tables.h'
+      - 'src/common.*'
+      - 'tools/gen_unicode.cpp'
+      - 'tools/fetch_ucd.sh'
+      - 'test/unicode_conformance.cpp'
+      - 'LICENSE.Unicode'
+      - 'Makefile'
+      - '.github/workflows/unicode.yml'
+  pull_request:
+    paths:
+      - 'src/text.*'
+      - 'src/unicode_tables.h'
+      - 'src/common.*'
+      - 'tools/gen_unicode.cpp'
+      - 'tools/fetch_ucd.sh'
+      - 'test/unicode_conformance.cpp'
+      - 'LICENSE.Unicode'
+      - 'Makefile'
+      - '.github/workflows/unicode.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unicode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: bash tools/fetch_ucd.sh "$RUNNER_TEMP/ucd"
+      - run: make unicode-check UCD="$RUNNER_TEMP/ucd" CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"

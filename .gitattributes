@@ -1,0 +1,7 @@
+# Text is stored and checked out with LF line endings on every system; the fixtures and e-mail
+# texts are kept byte for byte. Without this, a checkout with core.autocrlf changes them.
+* text=auto eol=lf
+*.key text eol=lf
+*.sdes -text
+*.bin binary
+test/format-*/** -text

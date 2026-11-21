@@ -32,7 +32,7 @@ SillyDES gives you a way to protect your data, whether you keep it at home or se
 
 The program uses the Data Encryption Standard (DES). See section 2 for the reasoning behind this choice.
 
-Every cryptographic algorithm in SillyDES is implemented in this repository from its published standard; the program links no cryptographic library. DES follows FIPS 46-3, SHA-512 FIPS 180-4, HMAC RFC 2104, BLAKE2b RFC 7693, Argon2id RFC 9106, and the CRC-32 is the IEEE 802.3 polynomial used by zlib. Each implementation is checked against the test vectors of its standard by `make test`. Only the composition of these pieces, the block expansion and the eight-layer DES construction described in section 4, is SillyDES's own.
+Every cryptographic algorithm in SillyDES is implemented in this repository from its published standard; the program links no cryptographic library. DES follows FIPS 46-3, SHA-512 FIPS 180-4, HMAC RFC 2104, BLAKE2b RFC 7693, Argon2id RFC 9106, and the CRC-32 is the IEEE 802.3 polynomial used by zlib. Each implementation is checked against the test vectors of its standard by `make test`. The one piece of outside material is data: the Unicode tables behind the canonical form of a phrase (section 7), generated from the Unicode Character Database into a source file; the normalisation itself is implemented here too, from Unicode Standard Annex #15, and passes the complete conformance file of that standard. Only the composition of these pieces, the block expansion and the eight-layer DES construction described in section 4, is SillyDES's own.
 
 Features:
 
@@ -41,6 +41,7 @@ Features:
 - HMAC-SHA-512 authentication (512-bit key and tag), checked before decryption.
 - CRC-32 check on e-mail output.
 - Key phrase (Argon2id, 2 GiB of memory, salted) or key file.
+- One phrase gives the same keys on every system, however it was typed (Unicode NFKC).
 - Constant-time DES: no key- or data-dependent memory access or branch during encryption.
 - Self-contained: DES, SHA-512, HMAC, BLAKE2b, Argon2id and CRC-32 are implemented from their standards, with no external cryptographic library.
 - Easy to use.
@@ -99,9 +100,11 @@ To get help:
 ./sillydes
 ```
 
-The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.1.0, and every later release reads and writes it until the format itself changes (the [changelog](CHANGELOG.md) says for each release whether it did). That is why an e-mail message starts with `*BEGIN SillyDES 5.1.0 message` whichever release made it.
+The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.2.0, and every later release reads and writes it until the format itself changes (the [changelog](CHANGELOG.md) says for each release whether it did). That is why an e-mail message starts with `*BEGIN SillyDES 5.2.0 message` whichever release made it.
 
-Files in older formats cannot be read, and releases before 5.1.0 cannot read this one. This includes files made by the program under its former name, Odette, up to and including Odette 5.1.0.
+Format 5.2.0 differs from 5.1.0 in one thing: the rules that turn a typed phrase into keys (section 7). They make a phrase give the same keys on every system, and they are meant to stay as they are when the program comes to other systems than Linux.
+
+Files in older formats cannot be read, and releases before 5.2.0 cannot read this one. To keep a file of format 5.1.0, decrypt it with release 5.1.1 and encrypt it again; key files stay valid. Files made by the program under its former name, Odette, up to and including Odette 5.1.0, cannot be read either.
 
 ---
 
@@ -188,11 +191,13 @@ The salt and the IV come from the system random generator on every encryption; t
 
 Encrypt whatever you like to transmit, using the `act=em` option. Copy the result into a message, and send the message. The recipient must export the message into a file, and decrypt that file using the `act=dm` option. SillyDES can search for the code in the file, since the code is encapsulated by identification lines.
 
+SillyDES always writes the message with LF line endings. It reads it back however a mail program or an editor on another system saved it: with CR LF or CR line endings, with a byte order mark, as UTF-16 (with its byte order mark), and with other text before and after it.
+
 ---
 
 ## 6. How to use SillyDES normal style
 
-Encrypt using the `act=e` option, and decrypt using the `act=d` option. The output file now contains High-ASCII and should be treated as binary data.
+Encrypt using the `act=e` option, and decrypt using the `act=d` option. The output file now contains High-ASCII and should be treated as binary data. Your own data is never translated either: a text file with CR LF line endings decrypts to exactly that file on every system.
 
 ---
 
@@ -206,13 +211,23 @@ There are two sorts of keys: a key file with eight random keys, or a phrase from
 key=sample.key
 ```
 
-Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Fill it with random values, for example from `/dev/urandom` or a password manager; eight random keys give the cipher its full 512 bits.
+Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Its lines may end in LF, CR LF or CR, and it may start with a byte order mark or be UTF-16 with one, as some editors and shells on other systems write it. Fill it with random values, for example from `/dev/urandom` or a password manager; eight random keys give the cipher its full 512 bits.
 
 **NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only.
 
 ### Phrase
 
-Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit, trailing spaces are ignored, and every character your computer accepts is allowed. At decryption, type the phrase exactly as at encryption. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
+Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
+
+Before the keys are derived, the phrase is brought into one canonical form, so that the same phrase gives the same keys whatever system, keyboard, terminal or pipe it comes from:
+
+- The line ending (LF or CR LF) and trailing spaces are not part of the phrase. Leading spaces are.
+- The phrase must be valid UTF-8 and must not hold a control character, such as a tab or what an arrow key sends. Otherwise it is refused, for encryption and for decryption alike, before anything is derived: on a terminal the program asks again, otherwise it stops with error 10.
+- Characters that can be entered in more than one way become one (Unicode normalisation form NFKC, Unicode 18.0.0): an accented letter typed as one character or as a letter followed by its accent, full-width and half-width forms, no-break and other spaces, ligatures.
+- Invisible characters are removed: zero width spaces and joiners, soft hyphens, direction marks, variation selectors, a byte order mark.
+- The 20 characters are counted after all this, as characters and not as bytes.
+
+What stays different: upper and lower case, and characters that only look alike, such as straight and curly quotes, a hyphen and a dash, or a Latin and a Cyrillic letter. When a phrase is piped in, the pipe must carry UTF-8; a shell that converts the phrase to another character set before SillyDES sees it gives another phrase, and SillyDES cannot tell. A phrase of random printable ASCII characters avoids all of this.
 
 **The phrase is the weak point of the system, because a person chooses it.** The cipher cannot be stronger than the phrase, and a phrase a person can remember follows the patterns of a language, which is exactly what a guessing program tries first: ordinary text carries only 1 to 1.5 bits per character, so a 20-character sentence is worth 20 to 30 bits and even a long one stays far below the cipher. Typing errors, reuse of a phrase from elsewhere, and writing it down where it can be found are the other usual ways a phrase fails, and no cipher fixes them.
 
@@ -257,7 +272,7 @@ The program can generate fourteen error levels. You can use these in a shell scr
 | 7 | Not enough memory; phrase mode needs 2 GiB free. |
 | 8 | Can't find beginning of code. |
 | 9 | Duplicate argument on command line. |
-| 10 | Argument missing on command line. |
+| 10 | Argument missing on command line, or no usable phrase (too short, not valid UTF-8, or with a control character). |
 | 11 | Can't find end of code. |
 | 12 | CRC error, e-mail style only. |
 | 13 | Authentication failed: wrong key, or data damaged or altered. |
@@ -274,3 +289,5 @@ The Data Encryption Standard (DES) was issued by the U.S. National Bureau of Sta
 SillyDES is free of charge, and provided as is. Andy van Wezel makes no claims and offers no warranties of any sort with SillyDES. Andy van Wezel also assumes no responsibility for any sort of damage resulting from apparent or actual use of SillyDES. The user accepts all responsibility for the use and distribution of the program. In some countries there are laws concerning encryption.
 
 SillyDES is released under the MIT License; see the [LICENSE](LICENSE) file for the full terms. You may use, copy, modify, merge, publish, distribute, sublicense and sell copies of it, provided the copyright and permission notice are kept in all copies or substantial portions of the software.
+
+The tables in `src/unicode_tables.h`, which the program uses to bring a phrase into its canonical form, are derived from the Unicode Character Database and come under the Unicode License v3; see [LICENSE.Unicode](LICENSE.Unicode).
