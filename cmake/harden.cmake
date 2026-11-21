@@ -10,8 +10,6 @@ if(SILLYDES_SANITIZE)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
-  elseif(MSVC)
-    add_compile_options(/fsanitize=address /wd5072)  # 5072: asks for debug information, which a Release build has not
   endif()
 endif()
 

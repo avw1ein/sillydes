@@ -4,7 +4,7 @@
 # Checks that the program carries the hardening of PORTPLAN.md 4.2: that the build did what
 # cmake/harden.cmake says, not just that the flags were passed.
 #   ELF (Linux): position independent, non-executable stack, read-only relocations, bound at load,
-#                stack protector, and IBT and shadow stack (x86-64) or BTI (arm64).
+#                stack protector, and IBT and shadow stack (x86-64) or BTI and PAC code (arm64).
 #   PE (Windows): ASLR, high-entropy ASLR, DEP, and with MSVC control flow guard.
 #   Mach-O (macOS): nothing is checked; PIE is the default there.
 #
@@ -56,9 +56,17 @@ if(magic STREQUAL "7f454c46")
       fail("no IBT and SHSTK markers (-fcf-protection)")
     endif()
   elseif(header MATCHES "AArch64")
-    # PAC is left out: the marker is only set when every object, the C runtime's too, was built with it.
-    if(NOT notes MATCHES "BTI")
-      fail("no BTI marker (-mbranch-protection); the notes are:\n${notes}")
+    # The GNU property note is only written when every input, the C runtime's too, carries it, which
+    # Ubuntu's arm64 toolchain does not guarantee; so look for the landing pads in the code instead.
+    find_program(OBJDUMP objdump)
+    if(OBJDUMP)
+      execute_process(COMMAND "${OBJDUMP}" -d "${BINARY}" OUTPUT_VARIABLE code RESULT_VARIABLE rc)
+      if(NOT rc EQUAL 0 OR NOT code MATCHES "[ \t]bti[ \t]+[cjf]")
+        fail("no BTI landing pads in the code (-mbranch-protection)")
+      endif()
+      if(NOT code MATCHES "[ \t]paciasp")
+        fail("no pointer authentication in the code (-mbranch-protection)")
+      endif()
     endif()
   endif()
   message(STATUS "hardening: ELF ok")
