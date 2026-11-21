@@ -871,7 +871,12 @@ int main()
   // the pattern is there, since under a sanitizer or another optimiser the frames may not line up.
   {
     leave_pattern();
+#ifdef SANITIZED
+    // The sanitizers move locals into red zones and fake stacks of their own: no layout to compare.
+    if (true) {
+#else
     if (find_pattern() < 1000) {
+#endif
       puts("skipped: stack scrub test (the stack frames do not line up in this build)");
     } else {
       // scrub_stack cannot wipe its own frame, which is live while it works; its alignment padding

@@ -39,7 +39,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_link_options(-static)
   endif()
 elseif(MSVC)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  if(SILLYDES_SANITIZE)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")  # the static runtime has no AddressSanitizer library
+  else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  endif()
   set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Ob2")  # no /DNDEBUG, as on Linux
   add_compile_options(/W4 /utf-8)
   if(SILLYDES_WERROR)

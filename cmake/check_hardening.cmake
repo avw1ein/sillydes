@@ -58,7 +58,7 @@ if(magic STREQUAL "7f454c46")
   elseif(header MATCHES "AArch64")
     # PAC is left out: the marker is only set when every object, the C runtime's too, was built with it.
     if(NOT notes MATCHES "BTI")
-      fail("no BTI marker (-mbranch-protection)")
+      fail("no BTI marker (-mbranch-protection); the notes are:\n${notes}")
     endif()
   endif()
   message(STATUS "hardening: ELF ok")
