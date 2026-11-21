@@ -56,17 +56,20 @@ struct Welch {
 
 struct Sample { int cls; double ns; };
 
-// One round: `samples` timings of `run(cls)`, classes in random order, the slowest 5 % dropped
-// (interrupts and cache misses of the machine, not of the code).
-double round_t(const std::function<void(int)> &run, int samples, std::mt19937 &rng)
+// One round: `samples` timings of `run()` after `prepare(cls)`, classes in random order, the slowest 5 % dropped
+// (interrupts and cache misses of the machine, not of the code). Both classes must read the same
+// buffer: an input in another place is a timing difference of its own (alignment, caches), and one
+// the test would report as a leak.
+double round_t(const std::function<void(int)> &prepare, const std::function<void()> &run, int samples, std::mt19937 &rng)
 {
   std::vector<Sample> all;
   all.reserve((size_t)samples);
-  for (int i = 0; i < 50; i++) run(i & 1);  // warm up
+  for (int i = 0; i < 50; i++) { prepare(i & 1); run(); }  // warm up
   for (int i = 0; i < samples; i++) {
     int cls = (int)(rng() & 1);
+    prepare(cls);  // not timed: puts the class's input into the one buffer that run() reads
     Clock::time_point a = Clock::now();
-    run(cls);
+    run();
     Clock::time_point b = Clock::now();
     all.push_back({ cls, (double)std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count() });
   }
@@ -82,13 +85,13 @@ double round_t(const std::function<void(int)> &run, int samples, std::mt19937 &r
 
 int failures;
 
-void check(const char *name, const std::function<void(int)> &run, int samples)
+void check(const char *name, const std::function<void(int)> &prepare, const std::function<void()> &run, int samples)
 {
   std::mt19937 rng(12345);
   double t[3] = { 0, 0, 0 };
   bool ok = false;
   for (int r = 0; r < 3 && !ok; r++) {
-    t[r] = round_t(run, samples, rng);
+    t[r] = round_t(prepare, run, samples, rng);
     ok = std::fabs(t[r]) < 10;
   }
   printf("%-46s t = %7.2f%s\n", name, t[0], ok ? "" : "   (not below 10 in every round)");
@@ -96,10 +99,10 @@ void check(const char *name, const std::function<void(int)> &run, int samples)
 }
 
 // The control: the test must see a leak where there is one. Detected if |t| is above 10 in the first round.
-void check_detects(const char *name, const std::function<void(int)> &run, int samples)
+void check_detects(const char *name, const std::function<void(int)> &prepare, const std::function<void()> &run, int samples)
 {
   std::mt19937 rng(54321);
-  double t = round_t(run, samples, rng);
+  double t = round_t(prepare, run, samples, rng);
   bool seen = std::fabs(t) > 10;
   printf("%-46s t = %7.2f%s\n", name, t, seen ? "   (detected, as it must be)" : "   (NOT detected: the test is blind)");
   if (!seen) failures++;
@@ -117,68 +120,56 @@ int main(int argc, char **argv)
   auto random_bytes = [&](uint8_t *p, size_t n) { for (size_t i = 0; i < n; i++) p[i] = (uint8_t)rng(); };
 
   // The MAC compare: one array differs from the other at the first byte, or at the last.
-  {
-    uint8_t a[64], b0[64], b1[64];
-    random_bytes(a, 64);
-    memcpy(b0, a, 64); b0[0] ^= 0x55;
-    memcpy(b1, a, 64); b1[63] ^= 0x55;
-    uint8_t b[64];  // both classes compare against the same buffer: a different address is a timing difference of its own
-    check("ct_equal, difference first or last byte", [&](int cls) {
-      uint64_t acc = 0;
-      memcpy(b, cls ? b1 : b0, 64);
-      for (int i = 0; i < 2000; i++) acc += ct_equal(a, b, 64);
-      sink = acc;
-    }, 3000 * scale);
-  }
+  uint8_t cmp_a[64], cmp_b[64], cmp_first[64], cmp_last[64];
+  random_bytes(cmp_a, 64);
+  memcpy(cmp_first, cmp_a, 64); cmp_first[0] ^= 0x55;
+  memcpy(cmp_last, cmp_a, 64); cmp_last[63] ^= 0x55;
+  auto prepare_cmp = [&](int cls) { memcpy(cmp_b, cls ? cmp_last : cmp_first, 64); };
+  check("ct_equal, difference first or last byte", prepare_cmp, [&] {
+    uint64_t acc = 0;
+    for (int i = 0; i < 2000; i++) acc += ct_equal(cmp_a, cmp_b, 64);
+    sink = acc;
+  }, 3000 * scale);
 
   // The control: a comparison that stops at the first difference. It must be detected.
-  {
-    uint8_t a[64], b0[64], b1[64];
-    random_bytes(a, 64);
-    memcpy(b0, a, 64); b0[0] ^= 0x55;
-    memcpy(b1, a, 64); b1[63] ^= 0x55;
-    check_detects("control: early-exit compare", [&](int cls) {
-      uint64_t acc = 0;
-      const uint8_t *b = cls ? b1 : b0;
-      for (int i = 0; i < 2000; i++) {
-        bool eq = true;
-        for (int k = 0; k < 64; k++) {
-          if (a[k] != b[k]) { eq = false; break; }
-        }
-        acc += eq;
+  check_detects("control: early-exit compare", prepare_cmp, [&] {
+    uint64_t acc = 0;
+    for (int i = 0; i < 2000; i++) {
+      bool eq = true;
+      for (int k = 0; k < 64; k++) {
+        if (cmp_a[k] != cmp_b[k]) { eq = false; break; }
       }
-      sink = acc;
-    }, 3000 * scale);
-  }
+      acc += eq;
+    }
+    sink = acc;
+  }, 3000 * scale);
 
   // Hex decoding: 256 digits or 256 bytes that are none.
   {
-    uint8_t digits[256], others[256];
+    uint8_t digits[256], others[256], work[256];
     for (int i = 0; i < 256; i++) { digits[i] = (uint8_t)"0123456789abcdefABCDEF"[i % 22]; others[i] = (uint8_t)"ghijklmnopqrstuvwxyz!?"[i % 22]; }
-    check("hex_digit, digits or other bytes", [&](int cls) {
+    check("hex_digit, digits or other bytes", [&](int cls) { memcpy(work, cls ? others : digits, 256); }, [&] {
       uint32_t acc = 0;
-      const uint8_t *p = cls ? others : digits;
       for (int rep = 0; rep < 8; rep++)
-        for (int i = 0; i < 256; i++) acc += hex_digit(p[i]);
+        for (int i = 0; i < 256; i++) acc += hex_digit(work[i]);
       sink = acc;
     }, 3000 * scale);
   }
 
   // DES: the key schedule of a zero key or a random key, the layer on zero data or random data.
   {
-    uint8_t zero[8] = {}, rnd[8];
+    uint8_t zero[8] = {}, rnd[8], key[8];
     random_bytes(rnd, 8);
     Des d;
-    check("Des::setkey, zero key or random key", [&](int cls) {
-      for (int i = 0; i < 20; i++) d.setkey(cls ? rnd : zero);
+    check("Des::setkey, zero key or random key", [&](int cls) { memcpy(key, cls ? rnd : zero, 8); }, [&] {
+      for (int i = 0; i < 20; i++) d.setkey(key);
     }, 2000 * scale);
     d.setkey(rnd);
-    std::vector<uint8_t> zdata(256, 0), rdata(256);
+    std::vector<uint8_t> zdata(256, 0), rdata(256), input(256), work(256);
     random_bytes(rdata.data(), 256);
-    std::vector<uint8_t> work(256);
-    check("Des::layer, zero data or random data", [&](int cls) {
+    check("Des::layer, zero data or random data", [&](int cls) { input = cls ? rdata : zdata; }, [&] {
       for (int i = 0; i < 10; i++) {
-        memcpy(work.data(), cls ? rdata.data() : zdata.data(), 256);
+        memcpy(work.data(), input.data(), 256);
         d.layer(work.data(), true);
       }
       sink = work[0];
@@ -187,16 +178,18 @@ int main(int argc, char **argv)
 
   // HMAC-SHA-512: zero or random message, zero or random key.
   {
-    uint8_t zkey[64] = {}, rkey[64], out[64];
+    uint8_t zkey[64] = {}, rkey[64], key[64], out[64];
     random_bytes(rkey, 64);
-    std::vector<uint8_t> zmsg(512, 0), rmsg(512);
+    std::vector<uint8_t> zmsg(512, 0), rmsg(512), msg(512);
     random_bytes(rmsg.data(), 512);
-    check("Hmac512, zero or random message", [&](int cls) {
-      for (int i = 0; i < 20; i++) Hmac512(rkey, 64).mac(cls ? rmsg.data() : zmsg.data(), 512, out);
+    memcpy(key, rkey, 64);
+    check("Hmac512, zero or random message", [&](int cls) { msg = cls ? rmsg : zmsg; }, [&] {
+      for (int i = 0; i < 20; i++) Hmac512(key, 64).mac(msg.data(), 512, out);
       sink = out[0];
     }, 2000 * scale);
-    check("Hmac512, zero key or random key", [&](int cls) {
-      for (int i = 0; i < 20; i++) Hmac512(cls ? rkey : zkey, 64).mac(rmsg.data(), 512, out);
+    msg = rmsg;
+    check("Hmac512, zero key or random key", [&](int cls) { memcpy(key, cls ? rkey : zkey, 64); }, [&] {
+      for (int i = 0; i < 20; i++) Hmac512(key, 64).mac(msg.data(), 512, out);
       sink = out[0];
     }, 2000 * scale);
   }
@@ -210,16 +203,17 @@ int main(int argc, char **argv)
     Buf sealed(300);
     random_bytes(sealed.data(), sealed.size());
     seal(sealed, in, DEFAULT_KDF);
-    Buf first = sealed, last = sealed;
-    first[first.size() - TAG_LEN] ^= 0x55;
-    last[last.size() - 1] ^= 0x55;
+    Buf d;
+    d.reserve(sealed.size());
     intptr_t saved = silence_stderr();  // errorexit reports to stderr
     check("unseal, tag wrong in first or last byte", [&](int cls) {
-      for (int i = 0; i < 5; i++) {
-        Buf d = cls ? last : first;
+      d = sealed;  // the same buffer for both classes; the capacity is already there
+      d[cls ? d.size() - 1 : d.size() - TAG_LEN] ^= 0x55;
+    }, [&] {
+      for (int i = 0; i < 1; i++) {
         try { unseal(d, in); } catch (const ExitError &) {}
       }
-    }, 1500 * scale);
+    }, 4000 * scale);
     restore_stderr(saved);
   }
 
