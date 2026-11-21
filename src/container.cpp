@@ -31,7 +31,7 @@ void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
   SillyDesCipher cipher(km.key, salt);
 
   // One allocation for the whole container, so the plaintext is never copied.
-  data.reserve(HDR_LEN + data.size() + 256 + TAG_LEN);
+  data.reserve(checked_add(checked_add(checked_add(HDR_LEN, data.size()), 256), TAG_LEN));
   pad256(data, km.lenmask);
   cipher.cbc_encrypt(data.data(), data.size(), iv);
 

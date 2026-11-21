@@ -198,9 +198,22 @@ cp sample.key "$T/$N1.key"
 cmp "$T/dos.in" "$T/$N2.out"
 echo "ok: data with CR, LF, 0x1A and NUL is not translated; file names outside ASCII work"
 
+# The same file under another spelling, through a hard link or through a symbolic link is still
+# the same file: the output would destroy the input, so every one of them is error 6.
+cp hello.sdes "$T/same.in"
+ln "$T/same.in" "$T/same.hard"
+ln -s same.in "$T/same.sym"
+mkdir "$T/sub"
+for out in "$T/./same.in" "$T/sub/../same.in" "$T/same.hard" "$T/same.sym"; do
+  rc=0; ./sillydes act=dm in="$T/same.in" out="$out" key=sample.key 2>/dev/null || rc=$?
+  [ "$rc" -eq 6 ] || { echo "FAIL: input and output are one file ($out) but the exit code is $rc"; exit 1; }
+done
+cmp hello.sdes "$T/same.in"
+echo "ok: input and output that are one file are refused, also through links and other spellings"
+
 # The sources stay ASCII with LF line endings, so that every compiler and every checkout sees the
 # same bytes (the labels in them are hashed into the keys).
-if LC_ALL=C grep -l "[^$(printf '\t') -~]" src/*.cpp src/*.h tools/*.cpp tools/*.sh test/*.cpp test/test.sh Makefile; then
+if LC_ALL=C grep -l "[^$(printf '\t') -~]" src/*.cpp src/*.h tools/*.cpp tools/*.sh test/*.cpp test/test.sh Makefile CMakeLists.txt CMakePresets.json cmake/*; then
   echo "FAIL: the files above hold a CR or a character outside ASCII"; exit 1
 fi
 echo "ok: the sources are ASCII with LF line endings"

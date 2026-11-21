@@ -3,7 +3,7 @@
 #
 # Builds and tests on a bare runner without installing anything first,
 # which is the proof that the program has no dependencies beyond a C++
-# compiler, make and the Linux system headers.
+# compiler, make or CMake and the Linux system headers.
 
 name: build
 
@@ -27,3 +27,19 @@ jobs:
         with:
           name: sillydes-sbom
           path: sillydes.cdx.json
+
+  # The same build and tests through CMake (PORTPLAN.md todo 1); the Makefile goes when this covers everything.
+  cmake:
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    runs-on: ubuntu-latest
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cmake --preset ci
+      - run: cmake --build --preset ci
+      - run: ctest --preset ci
+      - run: cmake --build --preset ci --target sbom

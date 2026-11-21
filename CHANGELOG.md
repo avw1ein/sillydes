@@ -12,9 +12,25 @@ the section of the tag's version as the text of the GitHub Release.
 
 ### Added
 
+- A CMake build next to the Makefile (`cmake --preset default`, see the README), tested with gcc
+  and clang by the `build` workflow. The program is unchanged by it.
 - Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
   the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.
+
+### Changed
+
+- Internal: everything that needs an operating system moved into one platform layer
+  (`src/platform.h`), a first step towards other systems. Messages, files and the phrase prompt
+  behave as before; the usage text and every error message are unchanged.
+
+### Fixed
+
+- A damaged e-mail text no longer slips through on some systems: the CRC on the END line must be
+  exactly the 32-bit number that was written (before, a number 2^32 larger was accepted on Linux),
+  and the character count is read as a 64-bit number everywhere. Texts the program wrote are
+  read as before.
+- Sizes computed from the size of a file are checked for overflow.
 
 ## [5.2.0] - 2026-11-21
 

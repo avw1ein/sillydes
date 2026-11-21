@@ -64,9 +64,25 @@ std::vector<int> anf(int s, int k)
   return a;
 }
 
+// The number of set bits of m.
+int popcount(unsigned m)
+{
+  int n = 0;
+  for (; m; m >>= 1) n += m & 1;
+  return n;
+}
+
+// The index of the lowest set bit of a mask of six variables.
+int lowest_bit(unsigned m)
+{
+  for (int i = 0; i < 6; i++)
+    if (m >> i & 1) return i;
+  return 0;
+}
+
 const char *name(int m, char *buf)
 {
-  if (__builtin_popcount(m) == 1) snprintf(buf, 8, "b%d", 6 - __builtin_ctz(m));
+  if (popcount(m) == 1) snprintf(buf, 8, "b%d", 6 - lowest_bit(m));
   else snprintf(buf, 8, "t%02x", m);
   return buf;
 }
@@ -86,7 +102,7 @@ void emit(int s)
   for (bool grew = true; grew;) {
     grew = false;
     for (int m : std::set<int>(need))
-      if (__builtin_popcount(m) >= 2 && need.insert(m & (m - 1)).second) grew = true;
+      if (popcount(m) >= 2 && need.insert(m & (m - 1)).second) grew = true;
   }
   int ands = 0, xors = 0, nots = 0;
   char n1[8], n2[8], n3[8];
@@ -94,7 +110,7 @@ void emit(int s)
          "                              uint32_t &o1, uint32_t &o2, uint32_t &o3, uint32_t &o4)\n{\n", s + 1);
   for (int deg = 2; deg <= 6; deg++)
     for (int m : need)
-      if (__builtin_popcount(m) == deg) {
+      if (popcount(m) == deg) {
         int low = m & -m;
         printf("  uint32_t %s = %s & %s;\n", name(m, n1), name(m & (m - 1), n2), name(low, n3));
         ands++;

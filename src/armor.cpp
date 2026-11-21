@@ -3,6 +3,7 @@
 
 #include "armor.h"
 
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,8 +45,9 @@ Buf high2low(const Buf &in)
   Crc32 crc;
   std::string o;
   char hdr[128];
-  unsigned long fl = ((data.size()) * 4 + 2) / 3;
-  snprintf(hdr, sizeof hdr, "\n%s %lu\n\n", BEGIN_TAG, fl);
+  // The count of characters is a 64-bit number on every OS (unsigned long is 32 bits on Windows).
+  const uint64_t fl = checked_add(checked_mul(data.size(), 4), 2) / 3;
+  snprintf(hdr, sizeof hdr, "\n%s %" PRIu64 "\n\n", BEGIN_TAG, fl);
   o += hdr;
 
   int wvdd = 0, posi = 0;
@@ -81,13 +83,14 @@ Buf low2high(const Buf &in, const std::string &name)
 
   size_t pos = find_tag(text, 0, BEGIN_TAG);
   if (pos == std::string::npos) errorexit(8);
-  unsigned long valchr = strtoul(text.c_str() + pos + strlen(BEGIN_TAG), nullptr, 10);
+  // A count that does not fit (strtoull gives the largest value) is read to the end of the text and then ends in error 11.
+  const uint64_t valchr = strtoull(text.c_str() + pos + strlen(BEGIN_TAG), nullptr, 10);
   size_t nl = text.find_first_of(LINE_ENDS, pos);
   pos = (nl == std::string::npos) ? text.size() : nl + 1;
 
   Crc32 crc;
   Buf out;
-  unsigned long fl = 0;
+  uint64_t fl = 0;
   int wvdd = 0;
   uint8_t chb = 0, chc = 0;
   while (fl < valchr) {
@@ -105,7 +108,8 @@ Buf low2high(const Buf &in, const std::string &name)
 
   pos = find_tag(text, pos, END_TAG);
   if (pos == std::string::npos) errorexit(11);
-  if ((int32_t)strtol(text.c_str() + pos + strlen(END_TAG), nullptr, 10) != (int32_t)crc.value()) errorexit(12);
+  // The number is the signed value that high2low wrote, so anything out of range is damage (long is 32 bits on Windows).
+  if (strtoll(text.c_str() + pos + strlen(END_TAG), nullptr, 10) != (long long)(int32_t)crc.value()) errorexit(12);
   if (!out.empty()) out.pop_back();  // EOF marker added by high2low
   return out;
 }

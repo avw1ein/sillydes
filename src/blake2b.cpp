@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include "common.h"
+
 namespace {
 
 const uint64_t IV[8] = {
@@ -76,8 +78,8 @@ void Blake2b::block(const uint8_t *p, bool last)
     G(v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
   }
   for (int i = 0; i < 8; i++) h[i] ^= v[i] ^ v[i + 8];
-  explicit_bzero(m, sizeof m);
-  explicit_bzero(v, sizeof v);
+  wipe(m, sizeof m);
+  wipe(v, sizeof v);
 }
 
 // A full buffer is only compressed when more data follows, because the last block is flagged.
@@ -104,14 +106,14 @@ void Blake2b::final(uint8_t *out)
   for (int i = 0; i < 8; i++)
     for (int j = 0; j < 8; j++) full[8 * i + j] = (uint8_t)(h[i] >> (8 * j));
   memcpy(out, full, outlen);
-  explicit_bzero(full, sizeof full);
+  wipe(full, sizeof full);
 }
 
 // Hash states carry key-derivation intermediates.
 Blake2b::~Blake2b()
 {
-  explicit_bzero(h, sizeof h);
-  explicit_bzero(buf, sizeof buf);
+  wipe(h, sizeof h);
+  wipe(buf, sizeof buf);
 }
 
 void blake2b_long(uint8_t *out, size_t outlen, const uint8_t *in, size_t inlen)
@@ -144,5 +146,5 @@ void blake2b_long(uint8_t *out, size_t outlen, const uint8_t *in, size_t inlen)
   Blake2b b(outlen - 32 * r);
   b.update(v, 64);
   b.final(out + 32 * r);
-  explicit_bzero(v, sizeof v);
+  wipe(v, sizeof v);
 }

@@ -3,13 +3,11 @@
 
 #include "kdf.h"
 
-#include <cstdio>
 #include <cstring>
 #include <new>
-#include <sys/resource.h>
-#include <unistd.h>
 
 #include "blake2b.h"
+#include "platform.h"
 
 namespace {
 
@@ -76,23 +74,7 @@ void block_to_bytes(uint8_t *p, const Block &b)
 // Refuses rather than letting the kernel overcommit and kill the process later.
 void require_memory(uint64_t need)
 {
-  uint64_t avail = UINT64_MAX;
-  if (FILE *f = fopen("/proc/meminfo", "r")) {
-    char line[128];
-    while (fgets(line, sizeof line, f)) {
-      unsigned long long kb;
-      if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1) { avail = kb * 1024ull; break; }
-    }
-    fclose(f);
-  }
-  if (avail == UINT64_MAX) {
-    long pages = sysconf(_SC_AVPHYS_PAGES), psize = sysconf(_SC_PAGESIZE);
-    if (pages > 0 && psize > 0) avail = (uint64_t)pages * (uint64_t)psize;
-  }
-  struct rlimit rl;
-  for (auto res : { RLIMIT_AS, RLIMIT_DATA })
-    if (getrlimit(res, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < avail) avail = rl.rlim_cur;
-  if (need + (64ull << 20) > avail) errorexit(7);  // 64 MiB headroom for the rest of the process
+  if (need + (64ull << 20) > available_memory()) errorexit(7);  // 64 MiB headroom for the rest of the process
 }
 
 struct Argon2 {

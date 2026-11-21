@@ -69,31 +69,62 @@ What is left for the ports: only the calls at the edge (section 3.4, "Data files
 
 Lessons that carry into the port: "strip a trailing CR" looked like a bug fix and was a format change, so settle anything that touches the bytes of a phrase before the first release on a new OS; take expected test values from an independent source; pin every downloaded input by hash and keep unversioned inputs (the licence text) in the repository; `writefile` makes fixtures with mode 0600, so set 0644 before committing them.
 
+## 0c. Steps 1 to 3, done: CMake baseline, platform layer, portable fixes
+Done on Linux (todos 1, 2 and 3), before any Windows or macOS code. The behaviour of the program did not change: the format is the same 5.2.0, and the usage text and every error message are byte for byte what they were (compared with a binary of the previous commit). What changed:
+
+| Area | Change |
+|---|---|
+| CMake (todo 1) | `CMakeLists.txt`, `CMakePresets.json` (`default`, `ci` with `-Werror`, `debug`), `cmake/generate.cmake`, `cmake/run_test_sh.cmake`. C++11 with extensions off, 64-bit only, `-O2` and no `-DNDEBUG` as in the Makefile. Targets: `sillydes_core` (library of every unit but `main.cpp`), `sillydes`, `test_primitives`, `residue_scan` (Linux), `sbom`; options `SILLYDES_WERROR`, `SILLYDES_BUILD_TESTS`, `SILLYDES_REGENERATE_SBOX` (target `regenerate_sbox`) and `SILLYDES_REGENERATE_UNICODE=<directory>` (targets `regenerate_unicode`, `check_unicode`, test `unicode_check`); `install` of the binary and the licences. CTest runs `primitives` and `e2e_shell` (`test.sh` against links in `build/.../test_root`, so that the source tree stays clean). The Makefile stays until todo 13; `build.yml` has a `cmake` job (g++ and clang++), `unicode.yml` runs the CMake check as well. |
+| Platform layer (todo 2) | `src/platform.h` and `src/platform_posix.cpp`: `secure_zero`, `os_random`, the file calls (`open_input`, `read_input`, `open_output`, `write_output`, `close_file`, `same_file`), `available_memory`, `harden_process` (was `lockdown`), `lock_memory`, `lock_stack`, `scrub_stack`, `secure_alloc` and `locked_alloc` with their `free`, `write_message`, `stdin_is_terminal`, `read_secret_line`. `common.cpp` keeps what is portable (`errarg`, the messages, `errorexit`, `readfile`, `writefile`, `randbytes`, `wipe`); `keys.cpp`, `kdf.cpp` and `main.cpp` no longer include OS headers. All messages go through `write_message`; no stdio is left in the program. `main.cpp` takes its arguments as a `std::vector<std::string>` of UTF-8 (`run`), so a `wmain` only has to convert and call it. |
+| Portable fixes (todo 3) | `explicit_bzero` in `sha512.cpp` and `blake2b.cpp` replaced by `wipe`; `checked_add` and `checked_mul` (`std::bad_alloc`, error 7) in `readfile`, `seal` and `pad256`, and in the armor header; armor counts are `uint64_t` with `PRIu64` and `strtoull` (item 5 of section 1.2, at the user's request; the output is byte for byte the same on Linux); the CRC of the END line is read with `strtoll` and must equal the 32-bit value exactly, where `strtol` accepted 2^32 + n on Linux and clamped on Windows; `__builtin_popcount` and `__builtin_ctz` replaced in the tool and the test; `static_assert(sizeof(void *) == 8)`. |
+| Tests | Unit tests for counts and a CRC above 2^32 and for the size helpers; `test.sh` checks that an output that is the same file (another spelling, a hard link, a symbolic link) is error 6, and that the new files are ASCII; the scrub test allows 16 bytes (see below). |
+
+Not done here, on purpose: the Windows and macOS files (todos 4 to 6), and the OS headers that the tests themselves use (`test_primitives.cpp` still includes `fcntl.h`, `unistd.h` and `sys/resource.h` for the temporary files, the stderr redirection and the `VmLck` checks; they move with todo 10).
+
+Differences from the plan of section 2:
+- The entry point stays in `main.cpp` (`main` for POSIX; Windows adds a `wmain` beside it), because `test_primitives` links the same units without `main.cpp`.
+- The file calls work on an opaque `FileHandle` with `open`, `read`, `write` and `close`, not on a `Buf`, so that `platform.h` does not need the containers and `readfile` keeps its growth strategy for every OS.
+- The allocator back ends are still declared in `common.h`, because the allocator templates need them; they are implemented in the platform file.
+
+Verified:
+- `ctest --preset ci` (gcc) and the same with clang++ 21: all tests, including the residue scan; `make test` passes with `-std=c++11 -Werror`.
+- A typed phrase through a pty: the prompt, no echo, a short phrase asked again, the confirmation, the terminal restored, and the file opens with the phrase piped.
+- Usage text and 13 error cases (1 to 6, 8 to 11, 13, a short phrase, a control character, error 7 under `ulimit -v`): identical output and exit code to the previous binary.
+- ASan and UBSan: build with `-fsanitize=address,undefined` of every source and round trips with a key file, e-mail text and a phrase.
+- `regenerate_sbox` gives `src/des_sbox_ct.h` byte for byte; `check_unicode` passes the 20171 conformance cases; `sbom` names the compiler of the build; `install` puts the binary and three documents in place.
+
+Lessons that carry into the port:
+- `test_primitives` had one test that depended on the layout of the code: after a refactoring `scrub_stack` left 8 bytes, the alignment padding of its own frame, which it cannot wipe because the frame is live. The test now allows 16 bytes. A port needs its own check of the equivalent, and any change to `scrub_stack` or to the frames above it should be followed by a run of that test.
+- A cross-platform difference hid in `strtol`: it is 64-bit on Linux and 32-bit on Windows, so a damaged CRC could be accepted on one and refused on the other. Look for `long` and `unsigned long` wherever text is parsed.
+- With CMake, a custom command that carries a list needs `VERBATIM`, or the shell cuts it at the semicolons.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
 
 ### 1.1 Linux-only code
-| Where | Linux-ism |
-|---|---|
-| src/common.cpp | open/read/write/fstat, O_NOFOLLOW, O_CLOEXEC, mode 0600, getrandom, prctl, setrlimit, explicit_bzero, no O_BINARY |
-| src/kdf.cpp `require_memory` | /proc/meminfo, sysconf(_SC_AVPHYS_PAGES), RLIMIT_AS/DATA |
-| src/keys.cpp | termios, isatty, STDIN_FILENO, fopen(name,"r") |
-| src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes |
-| src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() |
-| test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz |
-| test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom |
-| Makefile, .github/workflows/build.yml | GNU make; ubuntu only |
+Steps 1 to 3 (section 0c) moved the OS calls of `common.cpp`, `kdf.cpp`, `keys.cpp` and `main.cpp` into `src/platform_posix.cpp` and removed the other items marked done. What the table lists is the state before; "now" says what is left.
+
+| Where | Linux-ism | Now |
+|---|---|---|
+| src/common.cpp | open/read/write/fstat, O_NOFOLLOW, O_CLOEXEC, mode 0600, getrandom, prctl, setrlimit, explicit_bzero, no O_BINARY | in `platform_posix.cpp`; the Windows and macOS versions are open |
+| src/kdf.cpp `require_memory` | /proc/meminfo, sysconf(_SC_AVPHYS_PAGES), RLIMIT_AS/DATA | `available_memory()`; the other OSes are open |
+| src/keys.cpp | termios, isatty, STDIN_FILENO, fopen(name,"r") | `read_secret_line`, `stdin_is_terminal`; the key file already goes through `readfile` |
+| src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes | `same_file()`; argv is a vector of UTF-8 strings, `wmain` is open |
+| src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() | done |
+| test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test still uses fcntl, unistd and rlimit for temporary files, the stderr redirection and the locking checks (todo 10) |
+| test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | open (todo 10) |
+| Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake and a `cmake` job exist; the Makefile goes with todo 13; other OSes are open |
 
 ### 1.2 Latent bugs a port would trigger
 Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; section 3.4 solves them. Step 0b fixed 2, 3, 7 and 11 to 16 (section 0b). Open for the Windows port: 4, 9, and of 10 the conversion at the console, since the phrase rules themselves are done. "Measured" means reproduced on Linux with the 5.1.1 binary, before step 0b. Those bugs are not Windows-only: a key file or a phrase file made on Windows fails on Linux today.
 
-1. Same-file check: on Windows st_ino is 0, so every run fails with error 6.
+1. Same-file check: on Windows st_ino is 0, so every run fails with error 6. **Done (step 3):** `same_file()` in the platform layer; the Windows version uses `GetFileInformationByHandle` and is open.
 2. CRLF key files: `\r` is not treated as whitespace, giving error 5 (measured).
 3. CRLF phrase: a piped phrase keeps a trailing `\r` and derives different keys, so decryption ends in error 13 (measured, also for a `\r` at the end of input and for spaces followed by CRLF, where the trimming of trailing spaces stops at the `\r`).
 4. Binary mode: Windows text mode translates CRLF and treats 0x1A as EOF; use `CreateFileW`, so that no text mode exists. On Linux, data with 0D 0A 1A 00 round-trips byte-exact (measured).
-5. `unsigned long`/`%lu`/`strtoul` in armor.cpp is 32-bit on Windows x64; breaks above about 4 Gi characters.
-6. Unchecked size arithmetic in container.cpp and readfile; add overflow checks.
+5. `unsigned long`/`%lu`/`strtoul` in armor.cpp is 32-bit on Windows x64; breaks above about 4 Gi characters. **Done (step 3, at the user's request):** `uint64_t`, `PRIu64`, `strtoull`; the END line's CRC is read with `strtoll`.
+6. Unchecked size arithmetic in container.cpp and readfile; add overflow checks. **Done (step 3):** `checked_add` and `checked_mul` in `readfile`, `seal`, `pad256` and the armor header.
 7. No `.gitattributes`: a checkout with `core.autocrlf=true` gives `sample.key`, `hello.sdes` and `test/format-5.1.0/hello-phrase.sdes` CRLF line endings (measured). The two armored files still decrypt, `sample.key` is then error 5 (item 2). `test/format-5.1.0/hello.bin` is detected as binary and stays intact, but only by git's guess; nothing guarantees it for the next fixture.
 8. Error-7 test relies on `ulimit -v`, unavailable on macOS/Windows.
 9. Windows argv is in the ANSI code page; non-ASCII file names fail.
@@ -107,7 +138,7 @@ Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; 
 17. Observation, not solved here: an armor tag line that is quoted (`> `) or indented gives error 8 (measured). Not a character-set problem.
 
 ## 2. Architecture: thin platform layer
-`src/platform.h` with `platform_posix.cpp` (Linux + macOS, `#ifdef __APPLE__`) and `platform_win32.cpp`. No other file includes OS headers. Keep `Buf`, `wipe`, `randbytes`, `readfile`, `writefile`, `errorexit` as the stable API.
+`src/platform.h` with `platform_posix.cpp` (Linux + macOS, `#ifdef __APPLE__`) and `platform_win32.cpp`. No other file includes OS headers (the unit test is the exception until todo 10). Keep `Buf`, `wipe`, `randbytes`, `readfile`, `writefile`, `errorexit` as the stable API. **Done on Linux (step 2, section 0c):** `platform.h`, `platform_posix.cpp`, and a `main.cpp` that works on a vector of UTF-8 arguments; the table below is the plan for the other two columns.
 
 | Function | Linux | macOS | Windows |
 |---|---|---|---|
@@ -124,10 +155,10 @@ Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; 
 
 ## 3. Portability work
 ### 3.1 Portable code
-- Route every explicit_bzero in sha512.cpp and blake2b.cpp through wipe().
-- armor.cpp: uint64_t, PRIu64, strtoull; reject counts that overflow size_t.
-- Checked-size helpers used by readfile, seal, unseal, high2low.
-- Replace __builtin_* in tests/tools with portable loops.
+- **Done (step 3).** Route every explicit_bzero in sha512.cpp and blake2b.cpp through wipe().
+- **Done (step 3).** armor.cpp: uint64_t, PRIu64, strtoull; a count that does not fit is read to the end of the text and ends in error 11 (`size_t` is 64-bit on every target).
+- **Done (step 3).** Checked-size helpers (`checked_add`, `checked_mul`) used by readfile, seal, pad256 and the armor header; `unseal` only subtracts after a length check.
+- **Done (step 3).** Replace __builtin_* in tests/tools with portable loops.
 - **Done (step 0b).** Text interchange (section 3.4, todo 14): format 5.2.0 in `src/version.h`; new unit `src/text.cpp` (`decode_text` for the key file and armor, the canonical form of the phrase); `tools/gen_unicode.cpp` and the generated `src/unicode_tables.h`; CR ends a line in `readkeyfile` and in the tag search of `low2high`.
 - Never call `setlocale`, so that `tolower`, `strtoul` and `snprintf` behave the same on every OS.
 - MSVC `/utf-8` so FORMAT_NAME and labels (hashed into keys) are identical bytes everywhere. The sources are ASCII, so this is a safeguard.
@@ -285,7 +316,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - Windows and macOS tests exist only as runner results: write each test so that it also fails loudly when its precondition is missing (no console, `mlock` limit) instead of passing silently, and print the reason for every skip.
 
 ## 7. Build, CI, release
-- CMakeLists.txt: C++11, extensions off; targets sillydes, test_primitives, test_e2e, gen_des_sbox, gen_unicode; options SILLYDES_REGENERATE_SBOX and SILLYDES_REGENERATE_UNICODE (the latter takes a directory with the Unicode data files); per-compiler flags from 4.2; install rule; presets. Delete Makefile; update README section 1, STRUCTURE.md, and the "Linux command line port" comment in main.cpp.
+- **Done (step 1, section 0c), except for the per-compiler hardening flags (todo 9), `test_e2e` (todo 10) and deleting the Makefile (todo 13).** CMakeLists.txt: C++11, extensions off; targets sillydes, test_primitives, test_e2e, gen_des_sbox, gen_unicode; options SILLYDES_REGENERATE_SBOX and SILLYDES_REGENERATE_UNICODE (the latter takes a directory with the Unicode data files); per-compiler flags from 4.2; install rule; presets. Delete Makefile; update README section 1, STRUCTURE.md, and the "Linux command line port" comment in main.cpp.
 - CI matrix: ubuntu (gcc, clang), Linux arm64, macOS arm64 and Intel, windows-latest (MSVC x64), Windows arm64, MSYS2 mingw64. Extras: sanitizers, valgrind ct test, interop, optionally s390x under QEMU for big-endian. Pick runner labels at implementation time.
 - Keep the "no dependencies" claim: CI installs only compilers and CMake. The Unicode tables are generated data in the source tree, like the S-box header.
 - **Done (step 0b)** as the workflow `unicode.yml` with the Makefile targets `unicode` and `unicode-check`: download the Unicode data files of the pinned version (checked against stored SHA-256 sums), confirm that the generator reproduces the committed `src/unicode_tables.h`, and run the complete `NormalizationTest.txt`. Port the two targets to CMake.
@@ -323,9 +354,9 @@ How the work proceeds, because there is no local test bench for the ports:
 
 ## 9. Todos (dependencies)
 0. memory-hygiene-linux: **done** (section 0)
-1. cmake-baseline
-2. platform-layer (after 1); move `secure_alloc`, `locked_alloc`, `lock_stack`, `lock_memory` and the secret-line input into it
-3. portable-fixes (after 2)
+1. cmake-baseline: **done** (section 0c)
+2. platform-layer (after 1): **done on Linux** (section 0c); move `secure_alloc`, `locked_alloc`, `lock_stack`, `lock_memory` and the secret-line input into it
+3. portable-fixes (after 2): **done** (section 0c)
 4. memory-hygiene (after 2, 15): now only the non-Linux parts (M9, Windows/macOS locking, WER exclusion, ReadConsoleW)
 5. windows-port (after 3, 4, 14, 15); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW); written here, built and tested only on the Windows runners (section 7.1)
 6. macos-port (after 3, 4, 14, 15); written here, built and tested only on the macOS runners (section 7.1)
@@ -337,7 +368,7 @@ How the work proceeds, because there is no local test bench for the ports:
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)
 14. text-interchange: **done** (section 0b), released as 5.2.0
-15. ci-runners-early (after 1): a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them
+15. ci-runners-early (after 1, 2): a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them. It needs a first `platform_win32.cpp` (and the macOS branches of `platform_posix.cpp`) that compile and do the minimum, and the OS headers of `test_primitives.cpp` guarded or moved (todo 10 in part); start with those and let the runner log lead from there
 
 ## 10. Risks
 - errorexit -> exception: done in step 0, with the error table exercised by `test.sh`; keep nothing but `main` and the tests catching `ExitError`, and never call `exit` on an error path (it skips the wiping destructors).

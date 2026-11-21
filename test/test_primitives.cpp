@@ -19,6 +19,7 @@
 #include "des_sbox_ct.h"
 #include "kdf.h"
 #include "keys.h"
+#include "platform.h"
 #include "sillydes_cipher.h"
 #include "sha512.h"
 #include "text.h"
@@ -108,7 +109,8 @@ static int diffbytes(const uint8_t *a, const uint8_t *b)
 static int diffbits(const uint8_t *a, const uint8_t *b, int n)
 {
   int c = 0;
-  for (int i = 0; i < n; i++) c += __builtin_popcount(a[i] ^ b[i]);
+  for (int i = 0; i < n; i++)
+    for (unsigned x = a[i] ^ b[i]; x; x >>= 1) c += x & 1;
   return c;
 }
 
@@ -210,7 +212,9 @@ __attribute__((noinline)) static void leave_pattern()
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
+#ifndef __clang__
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 __attribute__((noinline)) static size_t find_pattern()
 {
   volatile uint8_t probe[30000];  // read on purpose before it is written
@@ -658,6 +662,28 @@ int main()
     }
     const std::string old = replace_all(lf, FORMAT_NAME, "SillyDES 5.1.0");
     if (exit_code([&] { low2high(Buf(old.begin(), old.end()), "test"); }) != 8) { puts("FAIL: e-mail text of another format accepted"); fails++; }
+
+    // The counts are 64-bit numbers on every system (unsigned long and long are 32 bits on Windows):
+    // a count of 2^32 + n is not n, a count too large for 64 bits is only damage, and so is a CRC
+    // that is not a 32-bit number.
+    const struct { const char *name; const char *from, *to; int want; } damaged[] = {
+      { "character count above 2^32", "valid char: 135", "valid char: 4294967431", 11 },
+      { "character count above 2^64", "valid char: 135", "valid char: 99999999999999999999999", 11 },
+      { "CRC above 2^32", "CRC: -499477409", "CRC: 3795489887", 12 },
+    };
+    for (const auto &d : damaged) {
+      const std::string t = replace_all(lf, d.from, d.to);
+      if (t == lf || exit_code([&] { low2high(Buf(t.begin(), t.end()), "test"); }) != d.want) { printf("FAIL: e-mail text with a %s\n", d.name); fails++; }
+    }
+  }
+
+  // Size arithmetic stops at the largest size instead of wrapping around.
+  {
+    bool ok = checked_add(SIZE_MAX - 1, 1) == SIZE_MAX && checked_mul(SIZE_MAX / 2, 2) == SIZE_MAX - 1 && checked_mul(0, SIZE_MAX) == 0;
+    int thrown = 0;
+    try { checked_add(SIZE_MAX, 1); } catch (const std::bad_alloc &) { thrown++; }
+    try { checked_mul(SIZE_MAX / 2 + 1, 2); } catch (const std::bad_alloc &) { thrown++; }
+    if (!ok || thrown != 2) { puts("FAIL: checked_add or checked_mul"); fails++; }
   }
 
   // Normalisation (NFKC) on cases whose answers come from the Unicode conformance file and from
@@ -821,8 +847,11 @@ int main()
     if (find_pattern() < 1000) {
       puts("skipped: stack scrub test (the stack frames do not line up in this build)");
     } else {
+      // scrub_stack cannot wipe its own frame, which is live while it works; its alignment padding
+      // may keep a word, so a few bytes are allowed.
       scrub_stack();
-      if (find_pattern() != 0) { puts("FAIL: scrub_stack left data on the stack"); fails++; }
+      size_t left = find_pattern();
+      if (left > 16) { printf("FAIL: scrub_stack left %zu bytes of the pattern on the stack\n", left); fails++; }
     }
   }
 

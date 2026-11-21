@@ -11,9 +11,12 @@
 
 #include "version.h"
 
-// Backing store of the allocators below. Both wipe the whole block before it is released, so a
-// vector that grows, shrinks or is destroyed never leaves a copy of its contents behind.
-// Blocks of 64 KiB and more get their own mapping and are excluded from core dumps.
+static_assert(sizeof(void *) == 8, "SillyDES is for 64-bit targets only");
+
+// Backing store of the allocators below, implemented by the platform layer (platform.h). Both
+// wipe the whole block before it is released, so a vector that grows, shrinks or is destroyed
+// never leaves a copy of its contents behind. Blocks of 64 KiB and more get their own mapping
+// and are excluded from core dumps.
 void *secure_alloc(size_t n);
 void secure_free(void *p, size_t n) noexcept;
 // For small secrets: a private mapping of whole pages, locked in RAM (best effort, limited by
@@ -80,14 +83,16 @@ void writefile(const std::string &name, const Buf &data);
 void randbytes(uint8_t *p, size_t n);
 // Zeroises memory in a way the compiler will not remove.
 void wipe(void *p, size_t n);
-// Disables core dumps and ptrace by other processes of the same user.
-void lockdown();
-// Faults in and locks a window of stack below the caller, so that keys, key schedules and hash
-// intermediates held in local variables cannot be swapped out. Call once, early in main; best effort.
-void lock_stack();
-// Wipes the stack window below the caller. Call it from main once everything has returned: the
-// compiler may leave plaintext or key bytes in spilled registers and temporaries of functions that
-// have returned, and which ones differs from compiler to compiler.
-void scrub_stack();
-// Locks the pages of [p, p + n) in RAM; false (and nothing locked) if the limit does not allow it.
-bool lock_memory(void *p, size_t n);
+
+// Size arithmetic that cannot wrap around: the result, or std::bad_alloc (reported as error 7) if it
+// does not fit in a size_t. Used wherever a size is computed from the size of a file.
+inline size_t checked_add(size_t a, size_t b)
+{
+  if (b > SIZE_MAX - a) throw std::bad_alloc();
+  return a + b;
+}
+inline size_t checked_mul(size_t a, size_t b)
+{
+  if (b != 0 && a > SIZE_MAX / b) throw std::bad_alloc();
+  return a * b;
+}

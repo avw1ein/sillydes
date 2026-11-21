@@ -4,20 +4,20 @@
 // SillyDES - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
-// Build: make
+// Build: make, or cmake --preset default && cmake --build --preset default
 //
 // The file format differs from the MS DOS original and is not compatible with it.
 
 #include <cctype>
-#include <cstdio>
 #include <new>
 #include <string>
-#include <sys/stat.h>
+#include <vector>
 
 #include "armor.h"
 #include "common.h"
 #include "container.h"
 #include "keys.h"
+#include "platform.h"
 
 namespace {
 
@@ -30,33 +30,35 @@ struct Args {
 
 void usage()
 {
-  puts("SillyDES " PACKAGE_VERSION " Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n");
-  puts("Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile");
-  puts(" e            Encryption.");
-  puts(" d            Decryption.");
-  puts(" em           Encryption to e-mail message.");
-  puts(" dm           Decryption from e-mail message.");
-  puts(" infile       Data to be en/decrypted.");
-  puts(" outfile      Result of en/decryption.");
-  puts(" keyfile      Contains the eight keys.");
-  puts(" phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n");
-  puts("*SillyDES performs a DES8 encryption with 2048-bit whitening on textfiles or");
-  puts(" executables. The block size grows to 2048 bits. Eight 64-bit keys feed");
-  puts(" every layer. Output is authenticated (HMAC-SHA-512).");
-  puts("*SillyDES is free software released under the MIT License (see the LICENSE file),");
-  puts(" and provided as is. Andy van Wezel makes no claims and offers no warranties");
-  puts(" of any sort with SillyDES.");
+  write_message(MSG_OUT,
+    "SillyDES " PACKAGE_VERSION " Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n\n"
+    "Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile\n"
+    " e            Encryption.\n"
+    " d            Decryption.\n"
+    " em           Encryption to e-mail message.\n"
+    " dm           Decryption from e-mail message.\n"
+    " infile       Data to be en/decrypted.\n"
+    " outfile      Result of en/decryption.\n"
+    " keyfile      Contains the eight keys.\n"
+    " phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n\n"
+    "*SillyDES performs a DES8 encryption with 2048-bit whitening on textfiles or\n"
+    " executables. The block size grows to 2048 bits. Eight 64-bit keys feed\n"
+    " every layer. Output is authenticated (HMAC-SHA-512).\n"
+    "*SillyDES is free software released under the MIT License (see the LICENSE file),\n"
+    " and provided as is. Andy van Wezel makes no claims and offers no warranties\n"
+    " of any sort with SillyDES.\n");
 }
 
-Args parse_args(int argc, char *argv[])
+// argv[0] is the program name; the arguments are UTF-8 (the platform's entry point converts them).
+Args parse_args(const std::vector<std::string> &argv)
 {
   Args a;
   int bewerking = -1;  // 1 = encrypt, 2 = decrypt, 0 = invalid
 
-  if (argc != 5) errorexit(3);
+  if (argv.size() != 5) errorexit(3);
 
-  for (int i = 1; i <= 4; i++) {
-    std::string arg = argv[i];
+  for (size_t i = 1; i <= 4; i++) {
+    const std::string &arg = argv[i];
     size_t eq = arg.find('=');
     std::string name = arg.substr(0, eq == std::string::npos ? arg.size() : eq + 1);
     std::string val = eq == std::string::npos ? "" : arg.substr(eq + 1);
@@ -97,19 +99,16 @@ Args parse_args(int argc, char *argv[])
   return a;
 }
 
-int run(int argc, char *argv[])
+int run(const std::vector<std::string> &argv)
 {
-  if (argc == 1) { usage(); return 3; }
-  Args args = parse_args(argc, argv);
+  if (argv.size() == 1) { usage(); return 3; }
+  Args args = parse_args(argv);
 
   KeyInput keys;
   keys.usephrase = args.usephrase;
   if (args.usephrase) keys.phrase = getphrase(args.encrypt);
 
-  struct stat s1, s2;
-  if (args.in == args.out || (stat(args.in.c_str(), &s1) == 0 && stat(args.out.c_str(), &s2) == 0 &&
-                              s1.st_dev == s2.st_dev && s1.st_ino == s2.st_ino))
-    errorexit(6);
+  if (args.in == args.out || same_file(args.in, args.out)) errorexit(6);
 
   if (!args.keyfile.empty()) readkeyfile(args.keyfile, keys.key);
 
@@ -128,14 +127,15 @@ int run(int argc, char *argv[])
 }  // namespace
 
 // Every failure is an exception that ends up here, so the destructors of the keys, the cipher and
-// the data buffer have run and wiped before the process exits.
+// the data buffer have run and wiped before the process exits. A platform whose arguments are not
+// UTF-8 (Windows: wmain) converts them and calls run() the same way.
 int main(int argc, char *argv[])
 {
-  lockdown();
+  harden_process();
   lock_stack();
   int rc;
   try {
-    rc = run(argc, argv);
+    rc = run(std::vector<std::string>(argv, argv + argc));
   } catch (const ExitError &e) {
     rc = e.code;
   } catch (const std::bad_alloc &) {
