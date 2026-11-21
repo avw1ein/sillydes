@@ -122,9 +122,11 @@ int main(int argc, char **argv)
     random_bytes(a, 64);
     memcpy(b0, a, 64); b0[0] ^= 0x55;
     memcpy(b1, a, 64); b1[63] ^= 0x55;
+    uint8_t b[64];  // both classes compare against the same buffer: a different address is a timing difference of its own
     check("ct_equal, difference first or last byte", [&](int cls) {
       uint64_t acc = 0;
-      for (int i = 0; i < 2000; i++) acc += ct_equal(a, cls ? b1 : b0, 64);
+      memcpy(b, cls ? b1 : b0, 64);
+      for (int i = 0; i < 2000; i++) acc += ct_equal(a, b, 64);
       sink = acc;
     }, 3000 * scale);
   }
