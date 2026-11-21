@@ -18,6 +18,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#endif
+
 std::string temp_file_name()
 {
   char name[] = "/tmp/sillydes_test_XXXXXX";
@@ -48,6 +53,25 @@ void restore_stderr(intptr_t saved)
 
 long locked_kb()
 {
+#ifdef __APPLE__
+  // The entries of the address space that mlock has wired.
+  mach_vm_address_t at = 0;
+  natural_t depth = 0;
+  mach_vm_size_t wired = 0;
+  for (;;) {
+    vm_region_submap_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
+    mach_vm_size_t size = 0;
+    if (mach_vm_region_recurse(mach_task_self(), &at, &size, &depth, (vm_region_recurse_info_t)&info, &count) != KERN_SUCCESS) break;
+    if (info.is_submap) {
+      depth++;
+      continue;
+    }
+    if (info.user_wired_count > 0) wired += size;
+    at += size;
+  }
+  return (long)(wired / 1024);
+#else
   FILE *f = fopen("/proc/self/status", "r");
   long kb = -1;
   char line[128];
@@ -55,6 +79,7 @@ long locked_kb()
     if (sscanf(line, "VmLck: %ld kB", &kb) == 1) break;
   if (f) fclose(f);
   return kb;
+#endif
 }
 
 long memlock_limit_kb()

@@ -915,6 +915,18 @@ int main()
     }
   }
 
+  // What the OS says is free decides error 7. It must be a real figure on every OS (UINT64_MAX is
+  // "unknown", which the other systems must not need), and below what any machine has.
+  {
+    uint64_t avail = available_memory();
+    printf("info: available_memory() reports %llu MiB\n", (unsigned long long)(avail >> 20));
+    if (avail == 0) { puts("FAIL: available_memory reports nothing"); fails++; }
+#if defined(_WIN32) || defined(__APPLE__)
+    if (avail == UINT64_MAX) { puts("FAIL: available_memory does not know"); fails++; }
+#endif
+    if (avail != UINT64_MAX && avail > ((uint64_t)1 << 50)) { puts("FAIL: available_memory is beyond any machine"); fails++; }
+  }
+
   if (fails) return 1;
   puts("ok: BLAKE2b, SHA-512, HMAC, Argon2id, DES and CRC-32 known answers; KDF bounds; S-box circuits exhaustive; bitsliced lanes independent; core block known answer; "
        "cipher round trips; whitening, salt, tweak and key-bit dependence; "

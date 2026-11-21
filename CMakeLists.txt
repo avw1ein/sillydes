@@ -149,6 +149,9 @@ if(SILLYDES_BUILD_TESTS)
 
   add_executable(test_primitives test/test_primitives.cpp ${SILLYDES_TEST_OS_SOURCE})
   target_link_libraries(test_primitives PRIVATE sillydes_core)
+  if(WIN32)
+    target_link_libraries(test_primitives PRIVATE psapi)  # QueryWorkingSetEx: which pages are locked
+  endif()
   if(MSVC)
     # The test blocks reuse the names msg, a, b on purpose; each block stands alone.
     target_compile_options(test_primitives PRIVATE /wd4456)
@@ -167,16 +170,30 @@ if(SILLYDES_BUILD_TESTS)
   endif()
   set(SILLYDES_E2E_ARGS $<TARGET_FILE:sillydes> ${CMAKE_CURRENT_SOURCE_DIR})
   if(SILLYDES_SANITIZE)
-    # The sanitizers reserve address space (a limit would stop them) and bring their own allocator
-    # (the scanner's LD_PRELOAD does not go with it).
+    # The sanitizers reserve address space (a limit would stop them).
     list(APPEND SILLYDES_E2E_ARGS --no-address-limit)
   endif()
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    # LD_PRELOAD helper of test_e2e: searches the process for leftover secrets as it exits.
-    add_library(residue_scan SHARED test/residue_scan.cpp)
-    set_target_properties(residue_scan PROPERTIES PREFIX "" SUFFIX ".so" POSITION_INDEPENDENT_CODE ON)
-    if(NOT SILLYDES_SANITIZE)
-      list(APPEND SILLYDES_E2E_ARGS $<TARGET_FILE:residue_scan>)
+  if(NOT SILLYDES_SANITIZE)
+    # The residue scan (does a secret survive in the memory of the exited process?). The scan binary is
+    # the program built so that exit_process searches the memory first (SILLYDES_RESIDUE_SCAN); it works
+    # on every OS. The preload library does the same to the real binary and is Linux only. Both share
+    # test/residue_core.cpp. A sanitizer brings its own allocator and shadow memory: no scan there.
+    add_library(sillydes_core_scan STATIC ${SILLYDES_CORE_SOURCES})
+    target_include_directories(sillydes_core_scan PUBLIC src)
+    target_compile_definitions(sillydes_core_scan PUBLIC SILLYDES_RESIDUE_SCAN)
+    add_executable(sillydes_scan src/main.cpp test/residue_core.cpp)
+    target_link_libraries(sillydes_scan PRIVATE sillydes_core_scan)
+    if(WIN32)
+      target_link_libraries(sillydes_core_scan PUBLIC bcrypt)
+      if(MINGW)
+        target_link_options(sillydes_scan PRIVATE -municode)
+      endif()
+    endif()
+    list(APPEND SILLYDES_E2E_ARGS --scan-exe $<TARGET_FILE:sillydes_scan>)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_library(residue_scan SHARED test/residue_scan.cpp test/residue_core.cpp)
+      set_target_properties(residue_scan PROPERTIES PREFIX "" SUFFIX ".so" POSITION_INDEPENDENT_CODE ON)
+      list(APPEND SILLYDES_E2E_ARGS --scan-lib $<TARGET_FILE:residue_scan>)
     endif()
   endif()
   add_test(NAME e2e COMMAND test_e2e ${SILLYDES_E2E_ARGS})

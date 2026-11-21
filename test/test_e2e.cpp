@@ -4,12 +4,15 @@
 // End-to-end tests: runs the real binary, on every OS the same way (PORTPLAN.md todo 10). It replaces
 // test.sh, which only ran on Linux. The operating system comes in through test_os.h only.
 //
-//   test_e2e <sillydes binary> <source root> [<residue_scan.so>] [--no-address-limit]
+//   test_e2e <sillydes binary> <source root> [--scan-lib <residue_scan.so>] [--scan-exe <sillydes_scan>]
+//            [--no-address-limit]
 //   test_e2e --nfc-phrase       prints the non-ASCII phrase of the fixtures (for the release skill)
 //
-// The residue scan (does a secret survive in the memory of the exited process?) preloads a library
-// and is Linux only for now (PORTPLAN.md todo 4 brings the other systems); where a part cannot run
-// it says so and why, so that a skip is never silent.
+// The residue scan (does a secret survive in the memory of the exited process?) searches the process
+// as it ends, in one of two ways: a library that is preloaded into the real binary (Linux), or the
+// scan binary, which is the program built so that it scans itself at the end (every OS). Both use
+// the same search code (residue_core.cpp). Where a part cannot run, the test says so and why, so that
+// a skip is never silent.
 
 #include <cstdio>
 #include <cstdlib>
@@ -25,7 +28,14 @@
 
 namespace {
 
-std::string exe, root, tmp, scan, scan_log;
+std::string exe, root, tmp, scan_log;
+
+// One way to scan: a library for LD_PRELOAD, or another binary in place of the program.
+struct Scanner {
+  std::string name, lib, program;
+};
+std::vector<Scanner> scanners;
+Scanner current;
 bool use_limit = true;  // limit the address space of a child where the OS can (not under a sanitizer, which reserves a lot)
 
 bool limit_possible() { return use_limit && can_limit_address_space(); }
@@ -527,11 +537,14 @@ std::string maskhex(const std::string &hex)
 }
 
 // The number of marks still in the memory of the program when it exits; -1 if the scanner said nothing.
-int hits(const std::string &marks, const std::string &program, const std::vector<std::string> &args, const std::string &stdin_data = std::string())
+// The program is run as the current scanner says: the binary under test is replaced by the scan binary.
+int scan_run(const std::string &program, const std::vector<std::string> &args, std::vector<std::string> env, const std::string &stdin_data)
 {
   RunOptions o = with_stdin(stdin_data);
-  o.env = { "LD_PRELOAD=" + scan, "SCAN_VERBOSE=1", "SCAN_MARKS=" + marks };
-  RunResult r = run_program(program, args, o);
+  env.push_back("SCAN_VERBOSE=1");
+  if (!current.lib.empty()) env.push_back("LD_PRELOAD=" + current.lib);
+  o.env = env;
+  RunResult r = run_program(program == exe && !current.program.empty() ? current.program : program, args, o);
   size_t at = r.err.rfind("RESIDUE-SCAN: ");
   int n = at == std::string::npos ? -1 : atoi(r.err.c_str() + at + 14);
   scan_log.clear();
@@ -542,17 +555,27 @@ int hits(const std::string &marks, const std::string &program, const std::vector
   return n;
 }
 
-void residue(const std::string &nfc, const std::string &other)
+int hits(const std::string &marks, const std::string &program, const std::vector<std::string> &args, const std::string &stdin_data = std::string())
 {
-  if (scan.empty()) {
-    skipped("memory residue scan (no scanner library for this OS yet; PORTPLAN.md todo 4)");
-    return;
-  }
+  return scan_run(program, args, { "SCAN_MARKS=" + marks }, stdin_data);
+}
+
+// A process that holds the mark must be found: the scan binary keeps a copy on the heap when it is told
+// to, a preloaded library is shown a shell with the mark in a variable.
+int control_hits(const std::string &marks)
+{
+  if (current.program.empty()) return hits(marks, "/bin/sh", { "-c", "v=SecretMarker42; :" });
+  return scan_run(exe, {}, { "SCAN_MARKS=" + marks, "SCAN_CONTROL=1" }, std::string());
+}
+
+void residue_with(const Scanner &sc, const std::string &nfc, const std::string &other)
+{
+  current = sc;
   const std::string PT = "PLAINTEXT-MARKER-XYZZY-0123456789";
   std::string rin;
   for (int i = 0; i < 10; i++) rin += PT + "\n";
   put(T("rin.txt"), rin);
-  need(hits(mask("SecretMarker42"), "/bin/sh", { "-c", "v=SecretMarker42; :" }) > 0, "residue scanner finds nothing in a process that holds the mark");
+  need(control_hits(mask("SecretMarker42")) > 0, "residue scanner finds nothing in a process that holds the mark (" + sc.name + ")");
 
   std::string key1;
   for (const std::string &l : lines_of(get(R("sample.key"))))
@@ -586,7 +609,16 @@ void residue(const std::string &nfc, const std::string &other)
   need(hits(umarks, exe, act("e", T("rin.txt"), T("up.bin"), "phrase"), other + "\r\n") == 0, "non-ASCII phrase or plaintext left in memory after encryption");
   need(hits(umarks, exe, act("d", T("up.bin"), T("up.out"), "phrase"), nfc + "\n") == 0, "non-ASCII phrase or plaintext left in memory after decryption");
   need(get(T("up.out")) == rin, "residue test non-ASCII round trip");
-  passed("no phrase left in memory after its normalisation");
+  passed(("no phrase left in memory after its normalisation (" + sc.name + ")").c_str());
+}
+
+void residue(const std::string &nfc, const std::string &other)
+{
+  if (scanners.empty()) {
+    skipped("memory residue scan (no scanner given: a sanitizer build, or a system without one)");
+    return;
+  }
+  for (const Scanner &sc : scanners) residue_with(sc, nfc, other);
 }
 
 }  // namespace
@@ -598,14 +630,19 @@ int main(int argc, char **argv)
     return 0;
   }
   if (argc < 3) {
-    fprintf(stderr, "usage: test_e2e <sillydes binary> <source root> [<residue_scan.so>]\n");
+    fprintf(stderr, "usage: test_e2e <sillydes binary> <source root> [--scan-lib <residue_scan.so>] [--scan-exe <sillydes_scan>] [--no-address-limit]\n");
     return 2;
   }
   exe = argv[1];
   root = argv[2];
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "--no-address-limit") == 0) use_limit = false;
-    else scan = argv[i];
+    else if (strcmp(argv[i], "--scan-lib") == 0 && i + 1 < argc) scanners.push_back({ "preloaded library", argv[++i], std::string() });
+    else if (strcmp(argv[i], "--scan-exe") == 0 && i + 1 < argc) scanners.push_back({ "scan binary", std::string(), argv[++i] });
+    else {
+      fprintf(stderr, "unknown argument %s\n", argv[i]);
+      return 2;
+    }
   }
   tmp = make_temp_dir();
   need(!tmp.empty(), "cannot make a temporary directory");

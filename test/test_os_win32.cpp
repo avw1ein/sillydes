@@ -13,6 +13,8 @@
 #endif
 #include <windows.h>
 
+#include <psapi.h>
+
 #include <thread>
 
 namespace {
@@ -62,9 +64,37 @@ void restore_stderr(intptr_t saved)
   if (nul != (HANDLE)saved && nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
 }
 
-// Windows keeps no count of locked pages and the limit is the working set: the locking tests skip.
-long locked_kb() { return -1; }
-long memlock_limit_kb() { return 0; }
+// The locked pages are counted through the working set: QueryWorkingSetEx says per page whether it is locked.
+long locked_kb()
+{
+  SYSTEM_INFO si;
+  GetSystemInfo(&si);
+  const size_t page = si.dwPageSize ? si.dwPageSize : 4096;
+  const HANDLE self = GetCurrentProcess();
+  std::vector<PSAPI_WORKING_SET_EX_INFORMATION> batch(1024);
+  size_t locked = 0;
+  uintptr_t at = 0;
+  MEMORY_BASIC_INFORMATION mbi;
+  while (VirtualQuery((const void *)at, &mbi, sizeof mbi) == sizeof mbi) {
+    const uintptr_t base = (uintptr_t)mbi.BaseAddress, end = base + mbi.RegionSize;
+    at = end;
+    if (end <= base) break;
+    const DWORD writable = PAGE_READWRITE | PAGE_EXECUTE_READWRITE;
+    if (mbi.State != MEM_COMMIT || mbi.Type != MEM_PRIVATE || !(mbi.Protect & writable) || (mbi.Protect & PAGE_GUARD)) continue;
+    for (uintptr_t a = base; a < end;) {
+      size_t n = (end - a) / page < batch.size() ? (end - a) / page : batch.size();
+      for (size_t i = 0; i < n; i++) batch[i].VirtualAddress = (PVOID)(a + i * page);
+      if (!QueryWorkingSetEx(self, batch.data(), (DWORD)(n * sizeof batch[0]))) return -1;
+      for (size_t i = 0; i < n; i++)
+        if (batch[i].VirtualAttributes.Valid && batch[i].VirtualAttributes.Locked) locked++;
+      a += n * page;
+    }
+  }
+  return (long)(locked * page / 1024);
+}
+
+// There is no fixed limit: the working set grows as far as the machine has memory free.
+long memlock_limit_kb() { return 1L << 30; }  // 1 TiB, as far as a long of 32 bits goes
 
 namespace {
 
@@ -166,7 +196,7 @@ bool make_symlink(const std::string &target, const std::string &link)
   return CreateSymbolicLinkW(widen(link).c_str(), widen(target).c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE) != 0;
 }
 
-bool can_limit_address_space() { return false; }
+bool can_limit_address_space() { return true; }  // through a job object
 
 RunResult run_program(const std::string &exe, const std::vector<std::string> &args, const RunOptions &opt)
 {
@@ -207,7 +237,8 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
   PROCESS_INFORMATION pi = {};
   std::vector<wchar_t> cmdline(cmd.begin(), cmd.end());
   cmdline.push_back(L'\0');
-  BOOL ok = CreateProcessW(wexe.c_str(), cmdline.data(), nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT,
+  const bool limited = opt.address_space_limit_kb > 0;
+  BOOL ok = CreateProcessW(wexe.c_str(), cmdline.data(), nullptr, nullptr, TRUE, CREATE_UNICODE_ENVIRONMENT | (limited ? CREATE_SUSPENDED : 0),
                            env_block.empty() ? nullptr : (void *)env_block.data(), nullptr, &si, &pi);
   CloseHandle(in_r);
   CloseHandle(out_w);
@@ -217,6 +248,26 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
     CloseHandle(out_r);
     CloseHandle(err_r);
     return r;
+  }
+  HANDLE job = nullptr;
+  if (limited) {
+    // The limit is on the memory the process may commit (RLIMIT_AS of the POSIX side), set before it runs.
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION li = {};
+    li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    li.ProcessMemoryLimit = (SIZE_T)opt.address_space_limit_kb * 1024;
+    job = CreateJobObjectW(nullptr, nullptr);
+    if (!job || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof li) ||
+        !AssignProcessToJobObject(job, pi.hProcess)) {
+      TerminateProcess(pi.hProcess, 1);
+      if (job) CloseHandle(job);
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+      CloseHandle(in_w);
+      CloseHandle(out_r);
+      CloseHandle(err_r);
+      return r;
+    }
+    ResumeThread(pi.hThread);
   }
   r.started = true;
   std::thread t_out(read_all, out_r, &r.out), t_err(read_all, err_r, &r.err);
@@ -234,6 +285,7 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
   r.code = (int)code;
   CloseHandle(pi.hProcess);
   CloseHandle(pi.hThread);
+  if (job) CloseHandle(job);
   CloseHandle(out_r);
   CloseHandle(err_r);
   return r;

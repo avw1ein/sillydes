@@ -52,6 +52,11 @@ void harden_process();
 // after the scrub may save them on the stack, for example the dynamic linker when it resolves a
 // symbol of a library that is bound lazily. Nothing here is flushed: the program writes no stdio.
 [[noreturn]] void exit_process(int code);
+#ifdef SILLYDES_RESIDUE_SCAN
+// Test builds only (the CMake target sillydes_scan): exit_process calls this first, so that
+// test/residue_core.cpp can search the memory the program leaves behind.
+void residue_scan_at_exit();
+#endif
 // Locks the pages of [p, p + n) in RAM; false (and nothing locked) if the limit does not allow it.
 bool lock_memory(void *p, size_t n);
 // Faults in and locks a window of stack below the caller, so that keys, key schedules and hash

@@ -34,8 +34,8 @@ test/test_primitives: test/test_primitives.cpp test/test_os_posix.cpp $(OBJS)
 test/test_e2e: test/test_e2e.cpp test/test_os_posix.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) $(HARDEN) $(LDHARDEN) -Isrc -o $@ $^
 
-test/residue_scan.so: test/residue_scan.cpp
-	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $<
+test/residue_scan.so: test/residue_scan.cpp test/residue_core.cpp
+	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $^
 
 obj/%.o: src/%.cpp
 	@mkdir -p obj
@@ -45,7 +45,7 @@ obj/%.o: src/%.cpp
 
 test: sillydes test/test_primitives test/test_e2e test/residue_scan.so
 	./test/test_primitives
-	./test/test_e2e ./sillydes . ./test/residue_scan.so
+	./test/test_e2e ./sillydes . --scan-lib ./test/residue_scan.so
 	@if command -v cmake >/dev/null 2>&1; then cmake -DBINARY=./sillydes -DCOMPILER_ID=$(if $(findstring clang,$(CXX)),Clang,GNU) -P cmake/check_hardening.cmake; else echo "skipped: hardening check (needs cmake)"; fi
 
 # Regenerates the S-box circuits; the output is committed, so this is not part of a normal build.

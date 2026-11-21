@@ -53,5 +53,6 @@ struct RunResult {
   std::string out, err;  // what it wrote to standard output and standard error
 };
 RunResult run_program(const std::string &exe, const std::vector<std::string> &args, const RunOptions &opt = RunOptions());
-// True where run_program can limit the address space of the program (Linux).
+// True where run_program can limit the memory of the program: the address space on Linux, the commit
+// charge of a job object on Windows. macOS has no such limit that a program can set.
 bool can_limit_address_space();

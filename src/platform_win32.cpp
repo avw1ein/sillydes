@@ -6,8 +6,10 @@
 // mode, so a file is read and written as the bytes it is. Names, arguments and the phrase are UTF-8
 // inside the program (PORTPLAN.md, 3.4).
 //
-// Not done yet, and best effort in the meantime (PORTPLAN.md, todo 4): locking the stack, raising the
-// working set so that VirtualLock succeeds, keeping the secret pages out of crash dumps.
+// Memory hygiene is best effort and silent (PORTPLAN.md 4.1 and 4.3): the pages that hold secrets are
+// locked with VirtualLock, after the working set has been raised far enough for that (the limit of
+// VirtualLock is the minimum working set), and they are registered with WerRegisterExcludedMemoryBlock,
+// so that a Windows Error Reporting dump of a crash leaves them out.
 
 #include "platform.h"
 
@@ -21,6 +23,8 @@
 
 #include <bcrypt.h>
 #include <malloc.h>
+
+#include <cstring>
 
 namespace {
 
@@ -53,11 +57,90 @@ size_t page_size()
 
 size_t round_up(size_t n, size_t unit) { return (n + unit - 1) / unit * unit; }
 
+// Room in the working set for what is about to be locked, and 256 KiB over: VirtualLock may lock the
+// size of the minimum working set less a small overhead. Raising the minimum needs no privilege
+// (a user may do it, within the memory the machine has free); it commits nothing.
+bool grow_working_set(size_t n)
+{
+  HANDLE self = GetCurrentProcess();
+  SIZE_T lo = 0, hi = 0;
+  if (!GetProcessWorkingSetSize(self, &lo, &hi)) return false;
+  const SIZE_T add = n + 256 * 1024;
+  return SetProcessWorkingSetSize(self, lo + add, hi + add) != 0;
+}
+
+// VirtualLock; false (and nothing locked) if the working set cannot be made large enough.
+bool lock_pages(void *p, size_t n)
+{
+  if (VirtualLock(p, n)) return true;
+  if (GetLastError() == ERROR_WORKING_SET_QUOTA && grow_working_set(n) && VirtualLock(p, n)) return true;
+  VirtualUnlock(p, n);
+  return false;
+}
+
+// Keeps a block out of the crash dump of Windows Error Reporting (Windows 10 1703 and later; the
+// function is looked up, so that an older system just goes without). At most 512 blocks can be
+// registered, and a failure is of no concern.
+void dump_exclusion(const void *p, size_t n, bool on)
+{
+  typedef HRESULT(WINAPI * Register)(const void *, DWORD);
+  typedef HRESULT(WINAPI * Unregister)(const void *);
+  static Register reg;
+  static Unregister unreg;
+  static bool looked_up;
+  if (!looked_up) {
+    looked_up = true;
+    if (HMODULE k = GetModuleHandleW(L"kernel32.dll")) {
+      // memcpy: neither compiler likes a cast between a function pointer and another type.
+      FARPROC a = GetProcAddress(k, "WerRegisterExcludedMemoryBlock"), b = GetProcAddress(k, "WerUnregisterExcludedMemoryBlock");
+      memcpy(&reg, &a, sizeof reg);
+      memcpy(&unreg, &b, sizeof unreg);
+    }
+  }
+  if (on && reg && n <= 0xffffffffu) reg(p, (DWORD)n);
+  if (!on && unreg) unreg(p);
+}
+
 void *map_pages(size_t n)
 {
   void *p = VirtualAlloc(nullptr, n, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
   if (!p) throw std::bad_alloc();
+  dump_exclusion(p, n, true);
   return p;
+}
+
+void unmap_pages(void *p)
+{
+  dump_exclusion(p, 0, false);
+  VirtualFree(p, 0, MEM_RELEASE);
+}
+
+// The stack window that lock_stack locks and scrub_stack wipes: 256 KiB, less if the stack is small.
+size_t stack_window()
+{
+  // The stack is one reserved region; its base is the lowest address the stack can grow to.
+  volatile char here = 0;
+  uintptr_t top = (uintptr_t)&here, low = 0;
+  MEMORY_BASIC_INFORMATION mbi;
+  if (VirtualQuery((const void *)top, &mbi, sizeof mbi) != 0) low = (uintptr_t)mbi.AllocationBase;
+  size_t room = top > low ? (size_t)(top - low) : 0;
+  size_t window = room / 4 < 256 * 1024 ? room / 4 : 256 * 1024;
+  return window / 4096 * 4096;
+}
+
+// Faults in `window` bytes of stack below this frame, then locks them together with the page that
+// holds this frame; the caller's frame, which holds the long-lived secrets, is above it.
+SILLYDES_NOINLINE bool lock_stack_window(size_t window, size_t page)
+{
+  volatile uint8_t *low = (volatile uint8_t *)_alloca(window);
+  for (size_t off = window; off >= page; off -= page) low[off - 1] = 0;  // top down: the stack grows downwards
+  low[0] = 0;
+  volatile char here = 0;
+  uintptr_t lo = ((uintptr_t)low + page - 1) & ~(uintptr_t)(page - 1);
+  uintptr_t hi = ((uintptr_t)&here | (page - 1)) + 1;
+  if (!lock_pages((void *)lo, hi - lo)) return false;
+  dump_exclusion((void *)lo, hi - lo, true);
+  return true;
 }
 
 SILLYDES_NOINLINE void wipe_below(size_t window)
@@ -164,7 +247,13 @@ uint64_t available_memory()
   ms.dwLength = sizeof ms;
   if (!GlobalMemoryStatusEx(&ms)) return UINT64_MAX;
   // Physical memory that is free or can be freed at once, and what the commit limit still allows.
-  return ms.ullAvailPhys < ms.ullAvailPageFile ? ms.ullAvailPhys : ms.ullAvailPageFile;
+  uint64_t avail = ms.ullAvailPhys < ms.ullAvailPageFile ? ms.ullAvailPhys : ms.ullAvailPageFile;
+  // The limit of a job object this process is in (what RLIMIT_AS is on POSIX).
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION job;
+  if (QueryInformationJobObject(nullptr, JobObjectExtendedLimitInformation, &job, sizeof job, nullptr) &&
+      (job.BasicLimitInformation.LimitFlags & JOB_OBJECT_LIMIT_PROCESS_MEMORY) && job.ProcessMemoryLimit < avail)
+    avail = job.ProcessMemoryLimit;
+  return avail;
 }
 
 void harden_process()
@@ -175,6 +264,9 @@ void harden_process()
 
 void exit_process(int code)
 {
+#ifdef SILLYDES_RESIDUE_SCAN
+  residue_scan_at_exit();
+#endif
   TerminateProcess(GetCurrentProcess(), (UINT)code);  // no DLL detach code, no CRT exit handlers
   ExitProcess((UINT)code);
 }
@@ -194,7 +286,7 @@ void secure_free(void *p, size_t n) noexcept
   if (n == 0) n = 1;
   if (n >= MAPPED_MIN) {
     wipe(p, round_up(n, page_size()));
-    VirtualFree(p, 0, MEM_RELEASE);
+    unmap_pages(p);
   } else {
     wipe(p, n);
     free(p);
@@ -205,7 +297,7 @@ void *locked_alloc(size_t n)
 {
   size_t len = round_up(n ? n : 1, page_size());
   void *p = map_pages(len);
-  VirtualLock(p, len);  // best effort: past the working set the block stays unlocked, but is still wiped
+  lock_pages(p, len);  // best effort: if the machine has no room, the block stays unlocked, but is still wiped
   return p;
 }
 
@@ -215,7 +307,7 @@ void locked_free(void *p, size_t n) noexcept
   size_t len = round_up(n ? n : 1, page_size());
   wipe(p, len);
   VirtualUnlock(p, len);
-  VirtualFree(p, 0, MEM_RELEASE);
+  unmap_pages(p);
 }
 
 bool lock_memory(void *p, size_t n)
@@ -223,25 +315,19 @@ bool lock_memory(void *p, size_t n)
   size_t page = page_size();
   uintptr_t lo = (uintptr_t)p & ~(uintptr_t)(page - 1);
   uintptr_t hi = round_up((uintptr_t)p + n, page);
-  if (VirtualLock((void *)lo, hi - lo)) return true;
-  VirtualUnlock((void *)lo, hi - lo);
-  return false;
+  return lock_pages((void *)lo, hi - lo);
 }
 
 void lock_stack()
 {
+  size_t page = page_size();
+  for (size_t w = stack_window(); w >= 4 * page; w = w / 2 / page * page)
+    if (lock_stack_window(w, page)) return;
 }
 
 void scrub_stack()
 {
-  // The stack is one reserved region; its base is the lowest address the stack can grow to.
-  volatile char here = 0;
-  uintptr_t top = (uintptr_t)&here, low = 0;
-  MEMORY_BASIC_INFORMATION mbi;
-  if (VirtualQuery((const void *)top, &mbi, sizeof mbi) != 0) low = (uintptr_t)mbi.AllocationBase;
-  size_t room = top > low ? (size_t)(top - low) : 0;
-  size_t window = room / 4 < 256 * 1024 ? room / 4 : 256 * 1024;
-  window = window / 4096 * 4096;
+  size_t window = stack_window();
   if (window >= 4 * 4096) wipe_below(window);
 }
 

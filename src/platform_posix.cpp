@@ -24,6 +24,7 @@
 
 #ifdef __APPLE__
 #include <mach/mach.h>
+#include <sys/ptrace.h>
 #include <sys/sysctl.h>
 #else
 #include <sys/auxv.h>
@@ -173,13 +174,20 @@ void harden_process()
   enable_dit();
   const rlimit nocore = { 0, 0 };
   setrlimit(RLIMIT_CORE, &nocore);
-#ifndef __APPLE__
+#ifdef __APPLE__
+  // No debugger can attach afterwards, and a process that is being debugged already exits (ENOTSUP).
+  // Not a boundary: root can still read the process.
+  ptrace(PT_DENY_ATTACH, 0, nullptr, 0);
+#else
   prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
 #endif
 }
 
 void exit_process(int code)
 {
+#ifdef SILLYDES_RESIDUE_SCAN
+  residue_scan_at_exit();
+#endif
   _exit(code);
 }
 
