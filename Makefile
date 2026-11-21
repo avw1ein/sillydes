@@ -10,7 +10,8 @@ OBJS     := $(SRCS:src/%.cpp=obj/%.o)
 sillydes: obj/main.o $(OBJS)
 	$(CXX) $(CXXFLAGS) -Wl,-z,relro,-z,now -o $@ $^
 
-# -z now binds every symbol at load time, see the comment in CMakeLists.txt for why.
+# -z now binds every symbol at load time and -z relro makes the relocations read-only (PORTPLAN.md 4.2);
+# Ubuntu's gcc does this by default, clang does not.
 
 test/test_primitives: test/test_primitives.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^

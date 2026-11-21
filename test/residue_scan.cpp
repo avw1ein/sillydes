@@ -12,7 +12,8 @@
 // The marks are comma separated hexadecimal strings with every byte XORed with 0x5a. The environment
 // is part of the scanned memory, so a plain mark in it would find itself.
 //
-// This runs after main has returned, on the stack the program has just left. Two things keep it from
+// This runs after main has returned (the program ends with _exit, which this file replaces, or with
+// exit, whose atexit handlers it also uses), on the stack the program has just left. Two things keep it from
 // disturbing what it measures: scan() first moves its own frames 96 KiB down, below the part of the
 // dead stack that matters (the program wipes 256 KiB), and the bytes around a hit are copied into
 // a buffer before anything is printed, because printing overwrites the stack too. The scanner's own
@@ -26,6 +27,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 namespace {
 
@@ -37,6 +40,7 @@ size_t marklen[16];
 int nmarks;
 bool verbose;
 bool hexdump;
+bool scanned;
 
 // A plain search, so that what the scanner does with a mark (and where it keeps it) is visible here and
 // not hidden in a library function. Hits in this scanner's own frames were what failed CI before; whether
@@ -51,6 +55,8 @@ const unsigned char *find(const unsigned char *p, const unsigned char *end, cons
 
 void scan()
 {
+  if (scanned) return;
+  scanned = true;
   // The dead frames of the program sit just below main's. Put this function's own frames far below
   // them (still inside the window the program wipes), or they would overwrite what is looked for.
   volatile char *gap = (volatile char *)alloca(96 * 1024);
@@ -135,3 +141,12 @@ __attribute__((constructor)) void init()
 }
 
 }  // namespace
+
+// The program ends with _exit (platform.h, exit_process), which does not run the atexit handlers,
+// so the scan runs from here as well. Nothing but the scan happens before the process is gone.
+extern "C" void _exit(int status)
+{
+  if (nmarks > 0) scan();
+  syscall(SYS_exit_group, status);
+  for (;;) {}
+}

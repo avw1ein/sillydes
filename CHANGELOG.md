@@ -23,13 +23,17 @@ the section of the tag's version as the text of the GitHub Release.
 - Internal: everything that needs an operating system moved into one platform layer
   (`src/platform.h`), a first step towards other systems. Messages, files and the phrase prompt
   behave as before; the usage text and every error message are unchanged.
-- The binary is linked with `-z relro -z now` (every symbol is bound at load time). With lazy
-  binding the dynamic linker saves the vector registers on the stack at the first library call,
-  and on AVX-512 machines they can still hold plaintext from a `memmove`; the clang build of the
-  CI found a decrypted buffer on the stack this way. Builds with gcc on Ubuntu already did this.
+- The binary is linked with `-z relro -z now` on every compiler (every symbol is bound at load
+  time, the relocations are read-only); Ubuntu's gcc already did this, clang did not.
 
 ### Fixed
 
+- Plaintext could be left on the stack after the program had wiped it. glibc copies data through
+  the vector registers (on AVX-512 machines it does this with 512 bytes of the decrypted buffer),
+  and code that runs after the wipe, here the dynamic linker resolving a symbol of a library at
+  exit, saves those registers on the stack. The program now ends with `_exit` straight after
+  wiping its stack, so no such code runs. The residue test of the CI found it, with clang, on
+  runners that have AVX-512.
 - A damaged e-mail text no longer slips through on some systems: the CRC on the END line must be
   exactly the 32-bit number that was written (before, a number 2^32 larger was accepted on Linux),
   and the character count is read as a 64-bit number everywhere. Texts the program wrote are

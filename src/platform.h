@@ -45,6 +45,12 @@ uint64_t available_memory();
 // Disables core dumps and the attaching of debuggers by other processes of the same user, as far
 // as the OS lets a program do that. Best effort, never fatal.
 void harden_process();
+// Ends the process with this exit code without running the exit handlers, the destructors of
+// static objects or any other code of the C library. Call it last, after scrub_stack: the vector
+// registers can still hold plaintext (glibc's memmove copies through them), and code that runs
+// after the scrub may save them on the stack, for example the dynamic linker when it resolves a
+// symbol of a library that is bound lazily. Nothing here is flushed: the program writes no stdio.
+[[noreturn]] void exit_process(int code);
 // Locks the pages of [p, p + n) in RAM; false (and nothing locked) if the limit does not allow it.
 bool lock_memory(void *p, size_t n);
 // Faults in and locks a window of stack below the caller, so that keys, key schedules and hash

@@ -118,6 +118,11 @@ void harden_process()
   prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
 }
 
+void exit_process(int code)
+{
+  _exit(code);
+}
+
 namespace {
 
 const size_t MAPPED_MIN = 64 * 1024;  // from here on a block gets a mapping of its own

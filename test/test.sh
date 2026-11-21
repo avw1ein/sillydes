@@ -218,10 +218,8 @@ if LC_ALL=C grep -l "[^$(printf '\t') -~]" src/*.cpp src/*.h tools/*.cpp tools/*
 fi
 echo "ok: the sources are ASCII with LF line endings"
 
-# Linked with -z now: every symbol is bound at load. With lazy binding the dynamic linker's trampoline
-# saves all vector registers on the stack at the first call of a library function, and those registers
-# can still hold plaintext from a glibc memmove (seen on AVX-512 machines with clang). The scan below
-# is what finds such a copy; this check names the cause when the build loses the flag.
+# Linked with -z now so that the binary is the same whichever compiler built it (Ubuntu's gcc does this
+# by default, clang does not): every symbol is bound at load, the relocations are read-only.
 if command -v readelf >/dev/null 2>&1; then
   readelf -d ./sillydes | grep -q 'BIND_NOW\|FLAGS.*NOW' || { echo "FAIL: sillydes is not linked with -z now"; exit 1; }
   echo "ok: the binary binds its symbols at load"

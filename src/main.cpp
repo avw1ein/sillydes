@@ -150,5 +150,5 @@ int main(int argc, char *argv[])
     rc = 7;
   }
   scrub_stack();
-  return rc;
+  exit_process(rc);
 }
