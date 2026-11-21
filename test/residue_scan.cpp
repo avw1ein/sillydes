@@ -7,11 +7,21 @@
 //   RESIDUE-SCAN: <n> hit(s)
 //
 // With SCAN_VERBOSE set it also prints, for every hit, the number of the mark, the mapping it is in
-// and the bytes around it.
+// and the bytes around it; SCAN_VERBOSE=2 adds a hex dump of 320 bytes on either side.
 //
 // The marks are comma separated hexadecimal strings with every byte XORed with 0x5a. The environment
 // is part of the scanned memory, so a plain mark in it would find itself.
+//
+// This runs after main has returned, on the stack the program has just left. Two things keep it from
+// disturbing what it measures: scan() first moves its own frames 96 KiB down, below the part of the
+// dead stack that matters (the program wipes 256 KiB), and the bytes around a hit are copied into
+// a buffer before anything is printed, because printing overwrites the stack too. Without the first,
+// the result depended on the layout of this very file: the same program showed hits on a CI runner
+// that it did not show on another machine, and none once the scanner's frames were out of the way.
+// The preloaded program stays the one thing that is measured: a leak injected into main's frames
+// (a 400-byte and a 30 KB stack array left unwiped) is still found, and scrub_stack removes it.
 
+#include <alloca.h>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -20,12 +30,20 @@
 namespace {
 
 unsigned char marks[16][128];
+unsigned char snap[768];  // the bytes around a hit, copied before anything is printed (printing overwrites the stack)
+size_t snaplen;
+const unsigned char *snapfrom;
 size_t marklen[16];
 int nmarks;
 bool verbose;
+bool hexdump;
 
 void scan()
 {
+  // The dead frames of the program sit just below main's. Put this function's own frames far below
+  // them (still inside the window the program wipes), or they would overwrite what is looked for.
+  volatile char *gap = (volatile char *)alloca(96 * 1024);
+  gap[0] = 0;
   FILE *maps = fopen("/proc/self/maps", "r");
   if (!maps) return;
   char line[512];
@@ -40,8 +58,14 @@ void scan()
       while (p < end) {
         const unsigned char *q = (const unsigned char *)memmem(p, (size_t)(end - p), marks[k], marklen[k]);
         if (!q) break;
-        if (q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) {  // our own copy does not count
+        if ((q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) && (q < snap || q >= snap + sizeof snap)) {  // our own copies do not count
           hits++;
+          if (hexdump) {
+            snapfrom = q - 320 < (const unsigned char *)lo ? (const unsigned char *)lo : q - 320;
+            const unsigned char *to = q + marklen[k] + 320 > end ? end : q + marklen[k] + 320;
+            snaplen = (size_t)(to - snapfrom) < sizeof snap ? (size_t)(to - snapfrom) : sizeof snap;
+            memcpy(snap, snapfrom, snaplen);
+          }
           if (verbose) {
             line[strcspn(line, "\n")] = 0;
             fprintf(stderr, "\nRESIDUE mark#%d at %p in %s  context: ", k, (const void *)q, line);
@@ -49,6 +73,17 @@ void scan()
                  c < q + marklen[k] + 32 && c < end; c++)
               fputc(*c >= 32 && *c < 127 ? *c : '.', stderr);
             fputc('\n', stderr);
+            if (hexdump) {
+              fprintf(stderr, "SNAPSHOT of %p..%p (taken before printing); hit at offset %ld\n", (const void *)snapfrom,
+                      (const void *)(snapfrom + snaplen), (long)(q - snapfrom));
+              for (size_t r = 0; r < snaplen; r += 16) {
+                fprintf(stderr, "HEX %p ", (const void *)(snapfrom + r));
+                for (size_t i = 0; i < 16 && r + i < snaplen; i++) fprintf(stderr, "%02x ", snap[r + i]);
+                fputc(' ', stderr);
+                for (size_t i = 0; i < 16 && r + i < snaplen; i++) fputc(snap[r + i] >= 32 && snap[r + i] < 127 ? snap[r + i] : '.', stderr);
+                fputc('\n', stderr);
+              }
+            }
           }
         }
         p = q + marklen[k];
@@ -61,7 +96,9 @@ void scan()
 
 __attribute__((constructor)) void init()
 {
-  verbose = getenv("SCAN_VERBOSE") != nullptr;
+  const char *v = getenv("SCAN_VERBOSE");
+  verbose = v != nullptr;
+  hexdump = v && *v == '2';
   const char *env = getenv("SCAN_MARKS");
   if (!env) return;
   const char *p = env;
