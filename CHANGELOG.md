@@ -34,6 +34,9 @@ the section of the tag's version as the text of the GitHub Release.
   markers (IBT and shadow stack on x86-64, BTI and pointer authentication on arm64), fortified C
   library calls, PIE and a non-executable stack on Linux; ASLR, DEP and control flow guard on
   Windows. A test checks the finished binary for them.
+- Constant-time checks: a Valgrind test (secrets marked uninitialised), a branch report of the
+  disassembly and a statistical timing test, run by the new `constant-time` workflow on x86-64 and
+  arm64 Linux, macOS and Windows.
 - Security: the MAC comparison and the hexadecimal decoding of a key file no longer branch on secret
   bytes, and on arm64 CPUs with the feature the data-independent timing mode (DIT) is switched on.
 

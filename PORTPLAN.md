@@ -136,6 +136,19 @@ Findings:
 - **MSVC AddressSanitizer: tried, dropped.** With `/MT` and with `/MD` the link fails on the missing `clang_rt.asan_*_runtime_thunk-x86_64.lib` on the `windows-latest` image; MSVC ASan stays open (needs an image with that component or an explicit library path).
 - An arm64 build can be run on this machine: `g++-aarch64-linux-gnu` and `qemu-user` (binfmt is registered), with `QEMU_LD_PREFIX=/usr/aarch64-linux-gnu`; the whole suite except the residue scan passes that way, which is a quick arm64 bench for todo 8.
 
+## 0f. Todo 8, done: constant-time verification
+
+- `test/ct_valgrind.cpp` (ctgrind style; CTest `ct_valgrind`, label `constant-time`; needs `valgrind` and `valgrind/memcheck.h`, Linux): secrets (keys, plaintext, key file bytes) marked undefined; DES, SHA-512, HMAC, BLAKE2b, `ct_equal`, `hex_digit` for every byte value, `derive_keys`, the cipher in CBC mode, `pad256` and a whole `seal` in key file mode run under `valgrind --error-exitcode=99`. `ct_valgrind_detects_a_leak` runs a deliberate branch and table index on a secret and must fail (`WILL_FAIL`), so that a silent harness cannot pass. Out of scope: Argon2id, the phrase normalisation, `unseal` as a whole (its tag branch and `unpad256` depend on public outcomes), so its pieces are run instead. `hex_digit` became a public function of `keys.h` for this.
+- `tools/ct_branches.sh` (CTest `ct_branches`, Linux x86-64 and arm64): conditional branches per function of the binary as a report; only `hex_digit` is enforced to have none, since the disassembly cannot tell a loop over a public length from a branch on a secret. The report is the thing to read when a compiler changes.
+- `test/ct_timing.cpp` (CMake `-DSILLYDES_TIMING_TESTS=ON`, `-DSILLYDES_TIMING_SCALE=n`): dudect-style Welch t-test, classes timed in random order, the slowest 5 % dropped, a test passes if |t| < 10 in any of 3 rounds. Covers `ct_equal`, `hex_digit`, `Des::setkey`, `Des::layer`, HMAC with a zero or random key and message, and `unseal` with the wrong tag in the first or last byte (item 4 of 5.3). A control (an early-exit compare) must be detected, with |t| in the thousands.
+- `.github/workflows/constant-time.yml`: on changes to the code involved, nightly and by hand. `valgrind`: ubuntu-latest and ubuntu-24.04-arm, g++ and clang++, `-DSILLYDES_OPT_LEVEL` 0, 2 and 3 (12 jobs, all clean). `timing`: ubuntu, ubuntu arm64, macos-latest (arm64) and windows-latest (MSVC), scale 10, all |t| below 4 except as below.
+- Results are in ANALYSIS.md section 8.
+
+Findings:
+- A first timing run on Windows found |t| = -16 for `ct_equal` in every round. The two classes compared against two different arrays; the address (alignment, aliasing) was the difference. With both classes compared against one buffer the value is about 1. A timing test must keep the memory layout the same for both classes.
+- Valgrind marks the return value of the program as undefined if it is derived from a secret (the control); results have to be declassified before they are used.
+- Still open from 5.3: a macOS Valgrind equivalent does not exist (Valgrind does not run on current macOS), and Windows has only the timing test; BlaMka's multiply on each target (`mul` 32x32 to 64) is covered only by the timing test, which does not exercise Argon2id.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -399,7 +412,7 @@ How the work proceeds, because there is no local test bench for the ports:
 5. windows-port (after 3, 4, 14, 15); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW); written here, built and tested only on the Windows runners (section 7.1)
 6. macos-port (after 3, 4, 14, 15); written here, built and tested only on the macOS runners (section 7.1)
 7. ct-hardening (after 2): **done** (section 0e); the verification is todo 8
-8. ct-verification (after 7)
+8. ct-verification (after 7): **done** (section 0f)
 9. build-hardening (after 1): **done** (section 0e)
 10. tests-portable (after 3, 14)
 11. ci-matrix (after 5, 6, 9, 10): completes the matrix (interop, arm64, extras); the early runner jobs of todo 15 already exist by then
