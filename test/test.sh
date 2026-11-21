@@ -218,6 +218,15 @@ if LC_ALL=C grep -l "[^$(printf '\t') -~]" src/*.cpp src/*.h tools/*.cpp tools/*
 fi
 echo "ok: the sources are ASCII with LF line endings"
 
+# Linked with -z now: every symbol is bound at load. With lazy binding the dynamic linker's trampoline
+# saves all vector registers on the stack at the first call of a library function, and those registers
+# can still hold plaintext from a glibc memmove (seen on AVX-512 machines with clang). The scan below
+# is what finds such a copy; this check names the cause when the build loses the flag.
+if command -v readelf >/dev/null 2>&1; then
+  readelf -d ./sillydes | grep -q 'BIND_NOW\|FLAGS.*NOW' || { echo "FAIL: sillydes is not linked with -z now"; exit 1; }
+  echo "ok: the binary binds its symbols at load"
+fi
+
 # Memory residue: once the program has exited, normally or on an error, no copy of the phrase, the
 # key text, the key bytes or the plaintext may be left in its heap, stack or mappings. The preloaded
 # scanner (test/residue_scan.cpp) searches the process for them as it exits; marks are masked with

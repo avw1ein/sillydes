@@ -32,6 +32,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   if(SILLYDES_WERROR)
     add_compile_options(-Werror)
   endif()
+  # Bind every symbol at load time. With lazy binding the first call of a library function runs
+  # the dynamic linker's trampoline, which saves all vector registers on the stack, and those can
+  # still hold plaintext from a glibc memmove (AVX-512 machines): the residue test found a decrypted
+  # buffer on the stack, with clang, which unlike Ubuntu's gcc does not bind at load by default.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_link_options(-Wl,-z,relro -Wl,-z,now)
+  endif()
 elseif(MSVC)
   add_compile_options(/W4 /utf-8)
   if(SILLYDES_WERROR)

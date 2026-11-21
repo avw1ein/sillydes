@@ -8,7 +8,9 @@ SRCS     := $(filter-out src/main.cpp,$(wildcard src/*.cpp))
 OBJS     := $(SRCS:src/%.cpp=obj/%.o)
 
 sillydes: obj/main.o $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -Wl,-z,relro,-z,now -o $@ $^
+
+# -z now binds every symbol at load time, see the comment in CMakeLists.txt for why.
 
 test/test_primitives: test/test_primitives.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^

@@ -97,6 +97,8 @@ Lessons that carry into the port:
 - `test_primitives` had one test that depended on the layout of the code: after a refactoring `scrub_stack` left 8 bytes, the alignment padding of its own frame, which it cannot wipe because the frame is live. The test now allows 16 bytes. A port needs its own check of the equivalent, and any change to `scrub_stack` or to the frames above it should be followed by a run of that test.
 - A cross-platform difference hid in `strtol`: it is 64-bit on Linux and 32-bit on Windows, so a damaged CRC could be accepted on one and refused on the other. Look for `long` and `unsigned long` wherever text is parsed.
 - With CMake, a custom command that carries a list needs `VERBATIM`, or the shell cuts it at the semicolons.
+- **Lazy binding leaks vector registers.** CI found plaintext (a whole decrypted 512-byte buffer) on the stack after a key file decryption, only with clang and only on runners whose CPU has AVX-512 (about two of three clang runs; the same binary never leaked on AVX2-only runners, and `GLIBC_TUNABLES=glibc.cpu.hwcaps=-AVX512F,...` made the leak go away). Cause: glibc's EVEX `memmove` leaves the 512 bytes in `zmm16` and up; `vzeroupper` does not clear those; the first call of a library function through a lazily bound PLT entry runs `_dl_runtime_resolve_xsavec`, which saves all vector state on the stack, after `scrub_stack` had run or below what it covers. Ubuntu's gcc links with `-z now` by default and clang does not, which is why only clang failed. Fix: link with `-Wl,-z,relro,-z,now` (CMake `add_link_options`, Makefile), and `test.sh` checks the flag with `readelf`. The residue scan is what found it, and it can only find it on such a CPU: the Windows and macOS ports need their own answer (macOS: `-Wl,-bind_at_load`; Windows has no lazy PLT, but the same registers hold the data, so check what a runner shows), and a signal handler would spill the registers too.
+- Runner CPUs differ between runs of one job (AMD EPYC 7763, 9V74 and 9V45, Intel Xeon 8370C, 8573C and 6975P-C all appeared), so a test that passes once proves little for code that depends on the CPU; read the model from `/proc/cpuinfo` in the log, rerun a job several times (`gh run rerun`; read each attempt with `gh api .../attempts/N`), and compare variants inside one job.
 
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
@@ -254,7 +256,7 @@ The platform layer delivers one raw line of bytes (`read_secret_line`, section 2
 All best-effort, never fatal. README section 8 must state exactly what each OS does.
 
 ### 4.2 Build hardening (keep -Wall -Wextra -Werror in CI)
-- GCC/Clang Linux: -fstack-protector-strong, -D_FORTIFY_SOURCE=3 (2 on old toolchains), -fstack-clash-protection, -fcf-protection (x86), -mbranch-protection=standard (arm64), PIE, -z relro -z now -z noexecstack.
+- GCC/Clang Linux: -fstack-protector-strong, -D_FORTIFY_SOURCE=3 (2 on old toolchains), -fstack-clash-protection, -fcf-protection (x86), -mbranch-protection=standard (arm64), PIE, -z relro -z now -z noexecstack. **`-z relro -z now` is already in place (section 0c): it is needed for the secrets, not only as hardening.**
 - macOS: PIE, stack protector, hardened runtime at signing.
 - MSVC: /GS /sdl /guard:cf /Qspectre, /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /CETCOMPAT. MinGW: -fstack-protector-strong -Wl,--dynamicbase,--nxcompat,--high-entropy-va.
 - CI jobs with ASan+UBSan (Linux, macOS) and MSVC /fsanitize=address.

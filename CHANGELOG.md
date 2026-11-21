@@ -23,6 +23,10 @@ the section of the tag's version as the text of the GitHub Release.
 - Internal: everything that needs an operating system moved into one platform layer
   (`src/platform.h`), a first step towards other systems. Messages, files and the phrase prompt
   behave as before; the usage text and every error message are unchanged.
+- The binary is linked with `-z relro -z now` (every symbol is bound at load time). With lazy
+  binding the dynamic linker saves the vector registers on the stack at the first library call,
+  and on AVX-512 machines they can still hold plaintext from a `memmove`; the clang build of the
+  CI found a decrypted buffer on the stack this way. Builds with gcc on Ubuntu already did this.
 
 ### Fixed
 
