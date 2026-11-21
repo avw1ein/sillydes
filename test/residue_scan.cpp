@@ -43,6 +43,7 @@ void scan()
         if (q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) {  // our own copy does not count
           hits++;
           if (verbose) {
+            line[strcspn(line, "\n")] = 0;
             fprintf(stderr, "\nRESIDUE mark#%d at %p in %s  context: ", k, (const void *)q, line);
             for (const unsigned char *c = q < (const unsigned char *)lo + 32 ? (const unsigned char *)lo : q - 32;
                  c < q + marklen[k] + 32 && c < end; c++)
