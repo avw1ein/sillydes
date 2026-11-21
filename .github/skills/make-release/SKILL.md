@@ -162,9 +162,14 @@ after the release, attests the SBOM to the binary (`actions/attest` with `sbom-p
 ```sh
 gh release view vX.Y.Z --json url,assets --jq '.url, (.assets[].name)'   # 3 assets
 d=$(mktemp -d) && gh release download vX.Y.Z --dir "$d" && (cd "$d" && sha256sum -c SHA256SUMS)
-gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes
+gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom
 chmod +x "$d/sillydes-X.Y.Z-linux-x86_64" && "$d/sillydes-X.Y.Z-linux-x86_64" | head -1   # banner shows X.Y.Z
 ```
+
+The attestation is an SBOM attestation, so the predicate type must be named: without it `gh` looks
+for a build provenance attestation and ends in `HTTP 404`, which says nothing about the release.
+`gh attestation` needs gh 2.49 or newer; Ubuntu's own package is older (the packages of
+cli.github.com are current).
 
 Report to the user: the release URL, the commit SHA, the binary's SHA-256, and whether the format
 changed. Clean up the temp directory.

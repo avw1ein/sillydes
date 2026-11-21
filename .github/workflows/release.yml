@@ -3,8 +3,9 @@
 #
 # Publishes a release when a version tag such as v5.1.0 is pushed: builds and tests the binary,
 # generates its CycloneDX SBOM, attests the SBOM to the binary (verify with
-# `gh attestation verify <binary> --repo avw1ein/sillydes`) and attaches binary, SBOM and
-# SHA256SUMS to a GitHub Release. The text of the release is the section of CHANGELOG.md for the
+# `gh attestation verify <binary> --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom`;
+# without the type, gh looks for a build provenance attestation, which is not made) and attaches
+# binary, SBOM and SHA256SUMS to a GitHub Release. The text of the release is the section of CHANGELOG.md for the
 # version.
 
 name: release

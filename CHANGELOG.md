@@ -59,8 +59,8 @@ format cannot be read by earlier releases. To keep a file of format 5.1.0, decry
 
 - A CycloneDX SBOM (`make sbom`), published with every release.
 - Releases are built by CI when a version tag is pushed. Each release has the Linux binary
-  `sillydes-X.Y.Z-linux-x86_64`, its SBOM, `SHA256SUMS` and a build attestation
-  (`gh attestation verify <binary> --repo avw1ein/sillydes`).
+  `sillydes-X.Y.Z-linux-x86_64`, its SBOM, `SHA256SUMS` and an attestation of the SBOM to the binary
+  (`gh attestation verify <binary> --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom`).
 - The program version and the file format version are now separate (`src/version.h`), and
   `test/format-5.1.0/` holds fixtures that every release must still be able to decrypt.
 
