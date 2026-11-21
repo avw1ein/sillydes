@@ -1,4 +1,4 @@
-# SillyDES 5.1.1: software structure and flow
+# SillyDES 5.2.0: software structure and flow
 
 This document describes how the program is built and how data moves through it. For the cryptographic reasoning see [ANALYSIS.md](ANALYSIS.md); for usage see [README.md](README.md); for diagrams of one block passing through the cipher see [VISUALIZATION.md](VISUALIZATION.md).
 

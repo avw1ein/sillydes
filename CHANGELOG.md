@@ -10,6 +10,8 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-11-21
+
 **File format: new (5.2.0).** Files from earlier releases cannot be read, and files in the new
 format cannot be read by earlier releases. To keep a file of format 5.1.0, decrypt it with release
 5.1.1 and encrypt it again. Key files stay valid.
@@ -85,7 +87,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.1.1...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/avw1ein/sillydes/compare/v5.1.1...v5.2.0
 [5.1.1]: https://github.com/avw1ein/sillydes/compare/v5.1.0...v5.1.1
 [5.1.0]: https://github.com/avw1ein/sillydes/compare/v5.03...v5.1.0
 [5.03]: https://github.com/avw1ein/sillydes/releases/tag/v5.03

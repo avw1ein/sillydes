@@ -5,7 +5,7 @@
 |---|---|
 | Build system | CMake only; Makefile removed once CMake builds, tests and regenerates the S-box header |
 | Targets | Linux x64 + arm64 (gcc, clang); macOS arm64 + x86-64; Windows x64 (MSVC), x64 (MinGW/MSYS2), arm64. 64-bit only |
-| File format | Format 5.2.0, in the tree since step 0b (section 0b); release 5.2.0 is a separate step and must precede the first Windows or macOS release. It replaced 5.1.0 because the phrase rules changed (section 3.4), and the ports must not change it: 5.2.0 is byte-identical on every platform, and `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere. Files of 5.1.0 are not read; release 5.1.1 converts them |
+| File format | Format 5.2.0, made in step 0b (section 0b) and introduced by release 5.2.0, before any Windows or macOS release. It replaced 5.1.0 because the phrase rules changed (section 3.4), and the ports must not change it: 5.2.0 is byte-identical on every platform, and `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere. Files of 5.1.0 are not read; release 5.1.1 converts them |
 | Text | UTF-8 inside the program (phrase, file names, messages). Windows uses only W functions, never the ANSI or OEM code page |
 | Phrase | One canonical form, part of format 5.2.0 and the same for encryption and decryption: well-formed UTF-8, no control characters, NFKC without invisible characters. The Unicode tables are frozen per format |
 | KDF side channel | Argon2id data-dependent addressing is documented only (ANALYSIS.md section 8); no Argon2i mode |
@@ -35,7 +35,7 @@ Known limits that remain: the data buffer is never locked (it can be as large as
 Lessons that carry into the port: the residue scanner runs on the very stack it inspects, so it must keep its own frames out of the way (it moves them 96 KiB down and ignores hits in its own frame zone, shown separately) and snapshot a hit before printing, or it reports its own data as residue; check any scanner against an injected leak before trusting a green or a red result; read re-run results per attempt (`gh api .../runs/ID/attempts/N`), since `gh run view` lags after a rerun; and when failures alternate on one commit, suspect the harness before the program (here the test read two numbers from the scanner's output). A stack window is needed on every OS (Windows: `_alloca` + `SecureZeroMemory`); sanitizers replace `mlock` by a no-op, so the locking tests must skip under them; the residue test relies on `LD_PRELOAD` and `/proc/self/maps` (Linux only).
 
 ## 0b. Step 0b, done: file format 5.2.0 and text interchange on Linux
-Done on Linux before the port, like step 0 (todo 14; no platform layer and no CMake needed). It gives the Linux version a file format that the Windows and macOS ports do not have to change: the rules that turn a phrase into keys are fixed, and they are the same code on every OS. The release of 5.2.0 is a separate step: `PACKAGE_VERSION` and the document titles still say 5.1.1 and the changelog entry stands under Unreleased. What changed:
+Done on Linux before the port, like step 0 (todo 14; no platform layer and no CMake needed). It gives the Linux version a file format that the Windows and macOS ports do not have to change: the rules that turn a phrase into keys are fixed, and they are the same code on every OS. Release 5.2.0 introduced the format. What changed:
 
 | Area | Change |
 |---|---|
@@ -44,7 +44,7 @@ Done on Linux before the port, like step 0 (todo 14; no platform layer and no CM
 | Unicode | `tools/gen_unicode.cpp` writes `src/unicode_tables.h` from Unicode 18.0.0: 5982 decompositions, 422 ranges of combining classes, 961 composition pairs, 17 ignorable ranges; 220 KB of source. `LICENSE.Unicode` holds the notice and the SBOM lists the data. |
 | Key file, armor | `decode_text` (UTF-8 BOM; UTF-16 LE and BE with BOM), in place on pointer and length. CR ends a line in `readkeyfile` and in the tag search of `low2high`. The armor writer is unchanged. |
 | Repository | `.gitattributes`; `tools/fetch_ucd.sh` (data files with pinned SHA-256 sums); Makefile targets `unicode` and `unicode-check`; workflow `unicode.yml`. |
-| Documents | README 1, 5, 6, 7, 9, 10; STRUCTURE (units, 6.2, 6.3, 7.1, 9, 10); ANALYSIS 8 and its table of checks; CHANGELOG (Unreleased); the release skill. |
+| Documents | README 1, 5, 6, 7, 9, 10; STRUCTURE (units, 6.2, 6.3, 7.1, 9, 10); ANALYSIS 8 and its table of checks; CHANGELOG; the release skill. |
 
 Differences from the plan of section 3.4:
 - The conformance file is run by a program of its own, `test/unicode_conformance.cpp` (`make unicode-check`), not by the generator, so that the code under test is the `normalize` of the program and not a second copy.
@@ -154,12 +154,12 @@ Solves items 2, 3, 4, 7, 9, 10 and 11 to 16 of section 1.2. Everything here exce
 - Text the program reads (key file, armor, phrase) is accepted with every line ending and in the common encodings.
 - The phrase rules are part of the file format, so the format name says which rules a file follows.
 
-#### File format 5.2.0 (done, not yet released)
+#### File format 5.2.0 (done, released as 5.2.0)
 - `FORMAT_NAME "SillyDES 5.2.0"` and `MAGIC` `S D 5 0x20` changed together. The labels of the whitening, the tweak and the key-file MAC key change with the name, so the two formats are also separated cryptographically.
 - The container layout, the armor layout and the key file layout stay as they are, and existing key files keep working. Only the phrase rules below are new.
 - Files of 5.1.0 are refused like those of any other version: error 13 for a container, error 8 for armored text. Release 5.1.1 decrypts them, and the changelog says so.
 - Procedure followed: the format-change appendix of `.github/skills/make-release/SKILL.md` (fixtures regenerated into `test/format-5.2.0/`, `test/format-5.1.0/` removed, `hello.sdes` regenerated, the stored known answer of the core block replaced after confirming that only the label changed).
-- Order: release 5.2.0 goes out before the first Windows or macOS release, so that no binary on those systems ever writes 5.1.0.
+- Order: release 5.2.0 came before the first Windows or macOS release, so no binary on those systems will ever write 5.1.0.
 
 #### Phrase: canonical form of format 5.2.0 (done)
 The platform layer delivers one raw line of bytes (`read_secret_line`, section 2). `keys.cpp` then applies these steps, the same ones for encryption and for decryption and on every OS:
@@ -294,7 +294,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - README (the format, key file, armor and phrase parts are done in step 0b; the OS-specific parts remain): sections 1 (CMake, supported OS, format 5.2.0 and that 5.1.1 converts older files), 5 (line endings and encodings accepted in armored text), 7 (Windows quoting; key file line endings and encodings; the phrase rules: what is folded, what is refused, the PowerShell 5.1 advice and the other limits of 3.4; "every character your computer accepts is allowed" no longer holds), 8 (exact per-OS hardening), 9 (error 7 per OS).
 - ANALYSIS.md section 8: per-OS wording and verification results; the phrase canonical form (folding and entropy, not constant-time).
 - STRUCTURE.md: platform layer, units table (`text.cpp`, the generator, the generated header), build, 5.1 (phrase rules), 6.2 (armor reader), 7 (phrase input diagram).
-- CHANGELOG.md and the release notes: "File format: new (5.2.0)", the reason, and that 5.1.1 decrypts older files (done, under Unreleased). The renaming of the labels in the other documents follows the format-change appendix of the release skill, whose own examples name 5.1.0 too.
+- CHANGELOG.md and the release notes: "File format: new (5.2.0)", the reason, and that 5.1.1 decrypts older files (done, release 5.2.0). The renaming of the labels in the other documents follows the format-change appendix of the release skill, whose own examples name 5.1.0 too.
 
 ## 9. Todos (dependencies)
 0. memory-hygiene-linux: **done** (section 0)
@@ -311,7 +311,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 11. ci-matrix (after 5, 6, 9, 10)
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)
-14. text-interchange: **done** (section 0b), except the release of 5.2.0, which is a step of its own and must precede the release of 5 and 6
+14. text-interchange: **done** (section 0b), released as 5.2.0
 
 ## 10. Risks
 - errorexit -> exception: done in step 0, with the error table exercised by `test.sh`; keep nothing but `main` and the tests catching `ExitError`, and never call `exit` on an error path (it skips the wiping destructors).
