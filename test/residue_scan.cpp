@@ -15,9 +15,8 @@
 // This runs after main has returned, on the stack the program has just left. Two things keep it from
 // disturbing what it measures: scan() first moves its own frames 96 KiB down, below the part of the
 // dead stack that matters (the program wipes 256 KiB), and the bytes around a hit are copied into
-// a buffer before anything is printed, because printing overwrites the stack too. Without the first,
-// the result depended on the layout of this very file: the same program showed hits on a CI runner
-// that it did not show on another machine, and none once the scanner's frames were out of the way.
+// a buffer before anything is printed, because printing overwrites the stack too. The scanner's own
+// frames sit in the memory it scans, so anything it leaves there can look like residue of the program.
 // The preloaded program stays the one thing that is measured: a leak injected into main's frames
 // (a 400-byte and a 30 KB stack array left unwiped) is still found, and scrub_stack removes it.
 
@@ -38,6 +37,17 @@ int nmarks;
 bool verbose;
 bool hexdump;
 
+// A plain search. memmem is not used: for a needle longer than 32 bytes glibc's version left working
+// data on the stack that this scan then found in its own frames, which looked like residue of the
+// program (the hits moved with the scanner's frames, and only the 33-byte mark ever hit).
+const unsigned char *find(const unsigned char *p, const unsigned char *end, const unsigned char *needle, size_t n)
+{
+  if (n == 0 || (size_t)(end - p) < n) return nullptr;
+  for (const unsigned char *last = end - n; p <= last; p++)
+    if (*p == needle[0] && memcmp(p, needle, n) == 0) return p;
+  return nullptr;
+}
+
 void scan()
 {
   // The dead frames of the program sit just below main's. Put this function's own frames far below
@@ -56,7 +66,7 @@ void scan()
     for (int k = 0; k < nmarks; k++) {
       const unsigned char *p = (const unsigned char *)lo, *end = (const unsigned char *)hi;
       while (p < end) {
-        const unsigned char *q = (const unsigned char *)memmem(p, (size_t)(end - p), marks[k], marklen[k]);
+        const unsigned char *q = find(p, end, marks[k], marklen[k]);
         if (!q) break;
         if ((q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) && (q < snap || q >= snap + sizeof snap)) {  // our own copies do not count
           hits++;
