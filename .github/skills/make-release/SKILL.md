@@ -154,7 +154,7 @@ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -
 
 The tag must point at the commit that passed CI. The workflow then: checks tag against
 `PACKAGE_VERSION`, builds with the CI flags, runs the tests, generates the SBOM, names the files
-after the release, attests the SBOM to the binary (`actions/attest-sbom`), and runs
+after the release, attests the SBOM to the binary (`actions/attest` with `sbom-path`), and runs
 `gh release create --verify-tag --notes-file` with the changelog section.
 
 ## 6. Verify the release
