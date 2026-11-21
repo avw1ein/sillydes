@@ -149,8 +149,8 @@ void Des::layer(uint8_t *b, bool encrypt) const
   for (int w = 0; w < 32; w++) {
     uint8_t *p = b + 8 * w;
     uint32_t hi = out[w], lo = out[32 + w];
-    p[0] = hi >> 24; p[1] = hi >> 16; p[2] = hi >> 8; p[3] = hi;
-    p[4] = lo >> 24; p[5] = lo >> 16; p[6] = lo >> 8; p[7] = lo;
+    p[0] = (uint8_t)(hi >> 24); p[1] = (uint8_t)(hi >> 16); p[2] = (uint8_t)(hi >> 8); p[3] = (uint8_t)hi;
+    p[4] = (uint8_t)(lo >> 24); p[5] = (uint8_t)(lo >> 16); p[6] = (uint8_t)(lo >> 8); p[7] = (uint8_t)lo;
   }
   // Intermediate state: whitened plaintext on the way in, round states on the way through.
   wipe(t, sizeof t);

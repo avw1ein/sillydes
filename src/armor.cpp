@@ -34,9 +34,9 @@ size_t find_tag(const std::string &text, size_t pos, const char *tag)
 Buf high2low(const Buf &in)
 {
   char tabel[64];
-  for (int i = 0; i < 12; i++) tabel[i] = '0' + i;
-  for (int i = 0; i < 26; i++) tabel[12 + i] = 'A' + i;
-  for (int i = 0; i < 26; i++) tabel[38 + i] = 'a' + i;
+  for (int i = 0; i < 12; i++) tabel[i] = (char)('0' + i);
+  for (int i = 0; i < 26; i++) tabel[12 + i] = (char)('A' + i);
+  for (int i = 0; i < 26; i++) tabel[38 + i] = (char)('a' + i);
 
   // The EOF marker (0xFF) is encoded as a final byte; low2high strips it.
   Buf data(in);
@@ -73,9 +73,9 @@ Buf low2high(const Buf &in, const std::string &name)
 {
   uint8_t tabel[256];
   memset(tabel, 255, sizeof tabel);
-  for (int i = 0; i < 12; i++) tabel['0' + i] = i;
-  for (int i = 0; i < 26; i++) tabel['A' + i] = 12 + i;
-  for (int i = 0; i < 26; i++) tabel['a' + i] = 38 + i;
+  for (int i = 0; i < 12; i++) tabel['0' + i] = (uint8_t)i;
+  for (int i = 0; i < 26; i++) tabel['A' + i] = (uint8_t)(12 + i);
+  for (int i = 0; i < 26; i++) tabel['a' + i] = (uint8_t)(38 + i);
 
   std::string text(in.begin(), in.end());
   text.resize(decode_text((uint8_t *)&text[0], text.size()));

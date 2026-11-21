@@ -11,9 +11,6 @@
 
 #include "platform.h"
 
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0A00  // Windows 10: GetCurrentThreadStackLimits and the like
-#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -237,10 +234,11 @@ void lock_stack()
 
 void scrub_stack()
 {
-  ULONG_PTR low = 0, high = 0;
-  GetCurrentThreadStackLimits(&low, &high);
+  // The stack is one reserved region; its base is the lowest address the stack can grow to.
   volatile char here = 0;
-  uintptr_t top = (uintptr_t)&here;
+  uintptr_t top = (uintptr_t)&here, low = 0;
+  MEMORY_BASIC_INFORMATION mbi;
+  if (VirtualQuery((const void *)top, &mbi, sizeof mbi) != 0) low = (uintptr_t)mbi.AllocationBase;
   size_t room = top > low ? (size_t)(top - low) : 0;
   size_t window = room / 4 < 256 * 1024 ? room / 4 : 256 * 1024;
   window = window / 4096 * 4096;

@@ -33,7 +33,14 @@ static std::string hex(const uint8_t *p, size_t n)
 
 static void unhex(const char *s, uint8_t *out, size_t n)
 {
-  for (size_t i = 0; i < n; i++) sscanf(s + 2 * i, "%2hhx", &out[i]);
+  for (size_t i = 0; i < n; i++) {
+    unsigned v = 0;
+    for (int k = 0; k < 2; k++) {
+      char c = s[2 * i + k];
+      v = v * 16 + (unsigned)(c >= 'a' ? c - 'a' + 10 : c >= 'A' ? c - 'A' + 10 : c - '0');
+    }
+    out[i] = (uint8_t)v;
+  }
 }
 
 static int fails;
@@ -189,6 +196,12 @@ static int exit_code(F fn)
 #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
 #define SANITIZED 1
 #endif
+#endif
+
+#ifdef _WIN32
+const size_t STACK_LEFT_MAX = 80;
+#else
+const size_t STACK_LEFT_MAX = 16;
 #endif
 
 // Leaves a pattern in a large stack frame, and counts how much of it a frame of the same size
@@ -833,10 +846,11 @@ int main()
       puts("skipped: stack scrub test (the stack frames do not line up in this build)");
     } else {
       // scrub_stack cannot wipe its own frame, which is live while it works; its alignment padding
-      // may keep a word, so a few bytes are allowed.
+      // may keep a word, so a few bytes are allowed (Windows x64 also keeps 32 bytes of home space
+      // for the callees below that frame).
       scrub_stack();
       size_t left = find_pattern();
-      if (left > 16) { printf("FAIL: scrub_stack left %zu bytes of the pattern on the stack\n", left); fails++; }
+      if (left > STACK_LEFT_MAX) { printf("FAIL: scrub_stack left %zu bytes of the pattern on the stack\n", left); fails++; }
     }
   }
 

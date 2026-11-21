@@ -146,6 +146,10 @@ if(SILLYDES_BUILD_TESTS)
 
   add_executable(test_primitives test/test_primitives.cpp ${SILLYDES_TEST_OS_SOURCE})
   target_link_libraries(test_primitives PRIVATE sillydes_core)
+  if(MSVC)
+    # The test blocks reuse the names msg, a, b on purpose; each block stands alone.
+    target_compile_options(test_primitives PRIVATE /wd4456)
+  endif()
   add_test(NAME primitives COMMAND test_primitives)
   # Round trips through the binary itself, on every OS (until test_e2e.cpp, PORTPLAN.md todo 10).
   add_test(NAME smoke
