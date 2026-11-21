@@ -606,6 +606,7 @@ void powershell_tests(const std::string &nfc)
   // cmd.exe: echo writes in the code page of the console, which chcp 65001 turns into UTF-8. Reported,
   // not required: this is what the README can say about it.
   const std::string cmd = find_program("cmd.exe");
+  if (!cmd.empty()) printf("info: the code page of cmd.exe here: %s", run_program(cmd, { "/c", "chcp" }, RunOptions()).out.c_str());
   for (int i = 0; i < 2 && !cmd.empty(); i++) {
     const std::string out = T(i ? "cmd65001.bin" : "cmd.bin");
     // cmd takes a / for the start of an option: the paths need backslashes.
