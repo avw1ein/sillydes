@@ -483,9 +483,25 @@ std::string describe_access()
 
 }  // namespace
 
+// An administrator's token usually has SeDebugPrivilege enabled, and with it a process opens any other
+// whatever its access control list says: the case the program cannot and does not claim to stop. To see
+// what the list does, this process (which is the opener here) switches the privilege off first.
+void disable_debug_privilege()
+{
+  HANDLE token = nullptr;
+  TOKEN_PRIVILEGES tp = {};
+  tp.PrivilegeCount = 1;
+  tp.Privileges[0].Attributes = 0;  // not SE_PRIVILEGE_ENABLED: disabled
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &token)) {
+    if (LookupPrivilegeValueW(nullptr, L"SeDebugPrivilege", &tp.Privileges[0].Luid)) AdjustTokenPrivileges(token, FALSE, &tp, 0, nullptr, nullptr);
+    CloseHandle(token);
+  }
+}
+
 int check_hardening(std::string &detail)
 {
   detail.clear();
+  disable_debug_privilege();
   // The access control list: no other process of this user may read the memory, but it may still ask.
   HANDLE h = OpenProcess(PROCESS_VM_READ, FALSE, GetCurrentProcessId());
   if (h) {
