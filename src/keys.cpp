@@ -18,17 +18,6 @@ uint32_t below(uint32_t a, uint32_t b)
   return 0u - (((~a & b) | (~(a ^ b) & (a - b))) >> 31);
 }
 
-// The value of a hexadecimal digit, with bit 8 set if c is none. Key digits are secret, so there is
-// no branch and no table index on c (PORTPLAN.md 5.1).
-uint32_t hex_digit(uint8_t c)
-{
-  uint32_t x = c;
-  uint32_t is_digit = below(x - '0', 10);           // '0'-'9' (below '0' the difference wraps and is large)
-  uint32_t is_letter = below((x | 0x20) - 'a', 6);  // 'a'-'f' and 'A'-'F'
-  uint32_t v = ((x - '0') & is_digit) | ((((x | 0x20) - 'a') + 10) & is_letter);
-  return value_barrier(v | (~(is_digit | is_letter) & 0x100));
-}
-
 uint8_t length_mask(const uint8_t key[NL][8])
 {
   uint8_t m = 0;
@@ -40,6 +29,17 @@ uint8_t length_mask(const uint8_t key[NL][8])
 }
 
 }  // namespace
+
+// The value of a hexadecimal digit, with bit 8 set if c is none. Key digits are secret, so there is
+// no branch and no table index on c (PORTPLAN.md 5.1).
+uint32_t hex_digit(uint8_t c)
+{
+  uint32_t x = c;
+  uint32_t is_digit = below(x - '0', 10);           // '0'-'9' (below '0' the difference wraps and is large)
+  uint32_t is_letter = below((x | 0x20) - 'a', 6);  // 'a'-'f' and 'A'-'F'
+  uint32_t v = ((x - '0') & is_digit) | ((((x | 0x20) - 'a') + 10) & is_letter);
+  return value_barrier(v | (~(is_digit | is_letter) & 0x100));
+}
 
 KeyInput::~KeyInput()
 {

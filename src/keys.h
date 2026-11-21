@@ -34,3 +34,7 @@ SecretBuf getphrase(bool confirm);
 bool kdf_ok(const KdfParams &k);
 
 KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams &kdf);
+
+// The value of a hexadecimal digit, with bit 8 set if c is none, computed without a branch or a table
+// index on c (key digits are secret). Public for test/ct_valgrind.cpp.
+uint32_t hex_digit(uint8_t c);

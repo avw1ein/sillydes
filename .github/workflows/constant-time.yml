@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Andy van Wezel
+#
+# Constant-time verification (PORTPLAN.md 5.3), when the code involved changes and every night:
+#   valgrind: secrets marked as uninitialised for Memcheck; any branch or address that depends on
+#             them fails (x86-64 and arm64, gcc and clang, -O0, -O2 and -O3), and a control that
+#             leaks on purpose must be caught. The disassembly gate runs with it.
+#   timing:   a statistical test (Welch's t) on Linux x86-64 and arm64, macOS arm64 and Windows.
+# What this proves and what not is in ANALYSIS.md, section 8.
+
+name: constant-time
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/des*'
+      - 'src/sha512.*'
+      - 'src/blake2b.*'
+      - 'src/common.*'
+      - 'src/keys.*'
+      - 'src/container.*'
+      - 'src/sillydes_cipher.*'
+      - 'test/ct_*'
+      - 'tools/ct_branches.sh'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - '.github/workflows/constant-time.yml'
+  pull_request:
+    paths:
+      - 'src/des*'
+      - 'src/sha512.*'
+      - 'src/blake2b.*'
+      - 'src/common.*'
+      - 'src/keys.*'
+      - 'src/container.*'
+      - 'src/sillydes_cipher.*'
+      - 'test/ct_*'
+      - 'tools/ct_branches.sh'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - '.github/workflows/constant-time.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  valgrind:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        cxx: [g++, clang++]
+        opt: ['0', '2', '3']
+    runs-on: ${{ matrix.os }}
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get install -y --no-install-recommends valgrind
+      - run: cmake -S . -B build -DSILLYDES_WERROR=ON -DSILLYDES_OPT_LEVEL=${{ matrix.opt }}
+      - run: cmake --build build
+      - run: ctest --test-dir build -L constant-time --output-on-failure -V
+
+  timing:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cmake -S . -B build -DSILLYDES_WERROR=ON -DSILLYDES_TIMING_TESTS=ON -DSILLYDES_TIMING_SCALE=10
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release -R ct_timing --output-on-failure -V
