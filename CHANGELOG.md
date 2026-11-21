@@ -23,7 +23,12 @@ the section of the tag's version as the text of the GitHub Release.
   locked in RAM (on Windows the working set is raised first, which `VirtualLock` needs), the
   stack window is locked, secret blocks are kept out of Windows Error Reporting dumps, and on macOS
   a debugger cannot attach (`PT_DENY_ATTACH`). Error 7 (not enough memory) also honours the memory
-  limit of a Windows job object. The end-to-end tests search the memory of the finished process for
+  limit of a Windows job object.
+- Windows process hardening: the access control list of the process leaves the owner no right to
+  read or write its memory (a debugger or dump tool of the same user is refused; an administrator
+  with SeDebugPrivilege is not stopped), and the process allows no code generated at run time, no
+  extension points, no images from network shares and no child process. The unit tests read all of
+  it back from the OS. The end-to-end tests search the memory of the finished process for
   keys, phrases and plaintext on Windows and macOS too, and found none.
 - Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
@@ -31,6 +36,10 @@ the section of the tag's version as the text of the GitHub Release.
 
 ### Changed
 
+- Internal: the end-to-end tests type the phrase into a terminal (a pseudo-terminal on Linux and
+  macOS, a pseudo-console on Windows), including a character outside the BMP, and on Windows run
+  the program from Windows PowerShell 5.1, PowerShell 7 and cmd.exe to see what their pipes and
+  `>` hand to it.
 - Internal: the residue scanner of the end-to-end tests is one source for every system
   (`test/residue_core.cpp`), run through a test build of the program (`sillydes_scan`) and, on
   Linux, also preloaded into the real binary.

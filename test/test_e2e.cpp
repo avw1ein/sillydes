@@ -514,6 +514,20 @@ void sources_are_ascii()
   passed("the sources are ASCII with LF line endings");
 }
 
+// ---- messages
+
+// A message with a file name outside ASCII, redirected, holds the name as UTF-8 on every OS (on a
+// Windows console it is written as UTF-16, which cannot be tested here without a console).
+void messages_are_utf8()
+{
+  const std::string name = T("missing-") + utf8({ 0xE9, 0x65E5, 0x672C, 0x1D11E });
+  RunResult r = sd(act("e", name, T("never"), R("sample.key")), RunOptions());
+  need(r.code == 1, "a missing input file is not error 1");
+  need(r.err.find(name) != std::string::npos, "the message about a missing file does not hold the name as UTF-8: " + r.err);
+  need(!file_exists(T("never")), "an output file for a missing input file");
+  passed("a message with a file name outside ASCII is UTF-8 when redirected");
+}
+
 // ---- a phrase typed into a terminal
 
 void terminal_tests(const std::string &nfc)
@@ -794,6 +808,7 @@ int main(int argc, char **argv)
   data_is_bytes();
   same_file();
   sources_are_ascii();
+  messages_are_utf8();
   terminal_tests(nfc);
 #ifdef _WIN32
   powershell_tests(nfc);
