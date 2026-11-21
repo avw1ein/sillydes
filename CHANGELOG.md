@@ -16,15 +16,24 @@ the section of the tag's version as the text of the GitHub Release.
   and clang by the `build` workflow. The program is unchanged by it.
 - First source for Windows (`src/platform_win32.cpp`, `wmain`) and macOS, built and tested by the
   `build` workflow on the Windows (MSVC, MinGW-w64) and macOS (arm64, Intel) runners. These
-  builds are not released yet: the memory locking, the end-to-end tests and the hardening of the
-  Windows and macOS versions are still to come (PORTPLAN.md). The workflow also runs on a native
-  arm64 Linux runner and with AddressSanitizer and UndefinedBehaviorSanitizer.
+  builds are not released yet: the hardening and the console input of the Windows version, and
+  the macOS version's packaging, are still to come (PORTPLAN.md). The workflow also runs on a
+  native arm64 Linux runner and with AddressSanitizer and UndefinedBehaviorSanitizer.
+- Memory hygiene on Windows and macOS, as on Linux: pages that hold keys, phrase and plaintext are
+  locked in RAM (on Windows the working set is raised first, which `VirtualLock` needs), the
+  stack window is locked, secret blocks are kept out of Windows Error Reporting dumps, and on macOS
+  a debugger cannot attach (`PT_DENY_ATTACH`). Error 7 (not enough memory) also honours the memory
+  limit of a Windows job object. The end-to-end tests search the memory of the finished process for
+  keys, phrases and plaintext on Windows and macOS too, and found none.
 - Releases after 5.2.0 also carry a build provenance attestation: which workflow, commit and
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
   the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.
 
 ### Changed
 
+- Internal: the residue scanner of the end-to-end tests is one source for every system
+  (`test/residue_core.cpp`), run through a test build of the program (`sillydes_scan`) and, on
+  Linux, also preloaded into the real binary.
 - Internal: everything that needs an operating system moved into one platform layer
   (`src/platform.h`), a first step towards other systems. Messages, files and the phrase prompt
   behave as before; the usage text and every error message are unchanged.

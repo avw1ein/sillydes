@@ -560,12 +560,15 @@ int hits(const std::string &marks, const std::string &program, const std::vector
   return scan_run(program, args, { "SCAN_MARKS=" + marks }, stdin_data);
 }
 
-// A process that holds the mark must be found: the scan binary keeps a copy on the heap when it is told
-// to, a preloaded library is shown a shell with the mark in a variable.
+// A process that holds the mark must be found: the scan binary keeps a copy on the heap, and one on the
+// stack, when it is told to; a preloaded library is shown a shell with the mark in a variable. The
+// smaller of the counts is returned.
 int control_hits(const std::string &marks)
 {
   if (current.program.empty()) return hits(marks, "/bin/sh", { "-c", "v=SecretMarker42; :" });
-  return scan_run(exe, {}, { "SCAN_MARKS=" + marks, "SCAN_CONTROL=1" }, std::string());
+  int heap = scan_run(exe, {}, { "SCAN_MARKS=" + marks, "SCAN_CONTROL=heap" }, std::string());
+  int stack = scan_run(exe, {}, { "SCAN_MARKS=" + marks, "SCAN_CONTROL=stack" }, std::string());
+  return heap < stack ? heap : stack;
 }
 
 void residue_with(const Scanner &sc, const std::string &nfc, const std::string &other)

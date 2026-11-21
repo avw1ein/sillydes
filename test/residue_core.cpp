@@ -11,9 +11,10 @@
 // and the bytes around it; SCAN_VERBOSE=2 adds a hex dump of 320 bytes on either side.
 //
 // The marks are comma separated hexadecimal strings with every byte XORed with 0x5a. The environment
-// is part of the scanned memory, so a plain mark in it would find itself. With SCAN_CONTROL set the
-// scanner keeps a plain copy of the first mark on the heap, which it must then find (a control that the
-// search itself works).
+// is part of the scanned memory, so a plain mark in it would find itself. SCAN_CONTROL=heap or
+// SCAN_CONTROL=stack makes the scanner keep a plain copy of the first mark on the heap, or in the
+// frame of the scan function (above the 96 KiB gap, so in the stack the program has left), which it
+// must then find: a control that the search itself works on every OS.
 //
 // Two ways to run it. Linux: residue_scan.cpp makes a library for LD_PRELOAD that calls
 // residue_scan_at_exit when the real binary ends. Every OS: the scan binary (CMake target
@@ -73,7 +74,8 @@ bool verbose;
 bool hexdump;
 bool scanned;
 bool parsed;
-unsigned char *volatile control_copy;  // the plain first mark, for SCAN_CONTROL (volatile: the compiler must not drop a store nobody reads)
+unsigned char *volatile control_copy;  // the plain first mark, for SCAN_CONTROL=heap (volatile: the compiler must not drop a store nobody reads)
+bool control_stack;
 
 // The writable memory of this process, one region after another.
 class Regions {
@@ -198,10 +200,12 @@ void parse_marks()
     marklen[nmarks++] = n;
     if (*p == ',') p++;
   }
-  if (nmarks > 0 && getenv("SCAN_CONTROL")) {
+  const char *control = getenv("SCAN_CONTROL");
+  if (nmarks > 0 && control && strcmp(control, "heap") == 0) {
     control_copy = (unsigned char *)malloc(marklen[0]);
     if (control_copy) memcpy(control_copy, marks[0], marklen[0]);
   }
+  control_stack = nmarks > 0 && control && strcmp(control, "stack") == 0;
 }
 
 // Reads the marks when the program starts, so that the scan at its end has nothing left to prepare.
@@ -221,6 +225,9 @@ void residue_scan_at_exit()
 {
   if (scanned || !residue_scan_enabled()) return;
   scanned = true;
+  volatile unsigned char stack_copy[128];
+  if (control_stack)
+    for (size_t i = 0; i < marklen[0] && i < sizeof stack_copy; i++) stack_copy[i] = marks[0][i];
   // The dead frames of the program sit just below main's. Put this function's own frames far below
   // them (still inside the window the program wipes), or they would overwrite what is looked for.
   volatile char *gap = (volatile char *)SCAN_ALLOCA(96 * 1024);
