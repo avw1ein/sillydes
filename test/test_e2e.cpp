@@ -608,7 +608,9 @@ void powershell_tests(const std::string &nfc)
   const std::string cmd = find_program("cmd.exe");
   for (int i = 0; i < 2 && !cmd.empty(); i++) {
     const std::string out = T(i ? "cmd65001.bin" : "cmd.bin");
-    const std::string script = std::string(i ? "chcp 65001>nul & " : "") + "echo " + nfc + "| " + exe + " act=e in=" + T("ps.txt") + " out=" + out + " phrase";
+    // cmd takes a / for the start of an option: the paths need backslashes.
+    auto bs = [](const std::string &path) { return replace_all(path, "/", "\\"); };
+    const std::string script = std::string(i ? "chcp 65001>nul & " : "") + "echo " + nfc + "| " + bs(exe) + " act=e in=" + bs(T("ps.txt")) + " out=" + bs(out) + " phrase";
     RunResult r = run_program(cmd, { "/c", script }, RunOptions());
     printf("info: cmd.exe%s piped the phrase: encryption exit code %d, a file that %s with the phrase as UTF-8\n", i ? " after chcp 65001" : "", r.code,
            r.code == 0 && decrypts(out) ? "decrypts" : "does not decrypt");
