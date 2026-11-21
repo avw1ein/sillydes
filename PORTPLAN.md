@@ -106,7 +106,7 @@ What exists now, all green on the runners (Linux g++ and clang++, Windows MSVC a
 - `src/platform_win32.cpp`: the whole platform API with W functions only (`CreateFileW`, `BCryptGenRandom`, `VirtualAlloc`/`VirtualLock`, `ReadConsoleW` with echo off, `WriteConsoleW`, `SecureZeroMemory`, `TerminateProcess` as `exit_process`). `wmain` in `main.cpp` converts the arguments with `utf8_args` (unpaired surrogate: error 4) and calls `run`; MinGW links with `-municode`. A file is opened without sharing for writing, a link is refused by looking at the handle before the file is truncated (the equivalent of `O_NOFOLLOW`).
 - `src/platform_posix.cpp` has `__APPLE__` branches: `memset_s`, `getentropy`, `host_statistics64` for the free memory, no `prctl`, no `MADV_DONTDUMP`.
 - `test/test_os.h` with `test_os_posix.cpp` and `test_os_win32.cpp`: temporary file, delete, silence stderr, lock figures. `test_primitives.cpp` includes no OS header any more.
-- `cmake/smoke.cmake`, the CTest test `smoke`: usage, binary and armored round trips with a key file (a plaintext with CR, LF and 0x1A), no CR in armor, the committed fixtures, a phrase from a file, error codes 1 and 6. It runs on every OS and goes when `test_e2e.cpp` (todo 10) exists.
+- `cmake/smoke.cmake`, the CTest test `smoke`: usage, binary and armored round trips with a key file (a plaintext with CR, LF and 0x1A), no CR in armor, the committed fixtures, a phrase from a file, error codes 1 and 6. It ran on every OS until `test_e2e.cpp` replaced it (0g).
 - CI: `windows-msvc` (`/W4 /WX`, static runtime), `windows-mingw` (MSYS2 UCRT64, static), `macos` on `macos-latest` and `macos-15-intel`; each builds with CMake and runs `ctest`.
 - The code was first compiled with a local MinGW cross compiler (compile only, never run); that caught nothing the runners did not also catch, so it is a convenience and not a step.
 
@@ -126,7 +126,7 @@ Build hardening (`cmake/harden.cmake`, the same list in the Makefile for the Lin
 - Linux, gcc and clang: `-fstack-protector-strong`, `-fstack-clash-protection`, `-fcf-protection=full` (x86-64) or `-mbranch-protection=standard` (arm64), `-D_FORTIFY_SOURCE=3` (not in Debug, not with the sanitizers), PIE, `-z relro -z now -z noexecstack`. macOS: stack protector and fortify level 2 (PIE is the default; clang reports the Linux-only flags as unused, which `-Werror` turns into errors, hence the Linux condition). MinGW: stack protector, `--dynamicbase --nxcompat --high-entropy-va`. MSVC: `/GS /sdl /guard:cf /Qspectre`, `/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF /CETCOMPAT`.
 - Every flag is tried first (`check_cxx_compiler_flag`); `SILLYDES_HARDEN=OFF` turns the block off.
 - `cmake/check_hardening.cmake` (CTest `hardening`) reads the finished binary: ELF (PIE, stack not executable, RELRO, BIND_NOW, `__stack_chk_fail`, IBT and SHSTK, or BTI and PAC instructions on arm64) and PE (the DllCharacteristics bits for ASLR, high-entropy ASLR, DEP and, with MSVC, CFG). `test.sh` carries the ELF part for the Makefile build. Verified on all runners.
-- `SILLYDES_SANITIZE=ON` (ASan and UBSan, gcc and clang): CI jobs on ubuntu-latest and macos-latest run `primitives`, `hardening` and `smoke`; `test.sh` is left out because its LD_PRELOAD scanner does not go with the sanitizer's allocator, and the stack layout test is skipped (red zones).
+- `SILLYDES_SANITIZE=ON` (ASan and UBSan, gcc and clang): CI jobs on ubuntu-latest and macos-latest run `primitives`, `hardening` and (since 0g) the whole `e2e`, without the LD_PRELOAD residue scan (it does not go with the sanitizer's allocator) and without the address-space limit; the stack layout test is skipped (red zones).
 - A new job `linux-arm64` (`ubuntu-24.04-arm`) runs the whole suite natively, residue scan included.
 
 Constant-time: `value_barrier`, `ct_equal` (the MAC compare), the barrier around the key-bit masks in `Des::setkey`, a branch-free `hex_digit` for the key file (every byte value is tested), and DIT. Tests: `ct_equal` for a difference in every bit of every position; the key file with all 256 byte values in a digit place. Not verified yet: that the compiler keeps these branch-free (todo 8: ctgrind, disassembly gate, timing).
@@ -149,6 +149,16 @@ Findings:
 - Valgrind marks the return value of the program as undefined if it is derived from a secret (the control); results have to be declassified before they are used.
 - Still open from 5.3: a macOS Valgrind equivalent does not exist (Valgrind does not run on current macOS), and Windows has only the timing test; BlaMka's multiply on each target (`mul` 32x32 to 64) is covered only by the timing test, which does not exercise Argon2id.
 
+## 0g. Todo 10, done: `test_e2e.cpp` replaces `test.sh`
+
+- `test/test_e2e.cpp` (`test_e2e <sillydes> <source root> [<residue_scan.so>] [--no-address-limit]`) runs the real binary through a spawn helper in `test_os.h` (`run_program`: arguments in UTF-8, input bytes, extra environment, an address-space limit where the OS has one, exit code and both output streams; POSIX `fork`/`execv`/`poll`, Windows `CreateProcessW` and two reader threads), and the file helpers it needs (`make_temp_dir`, `remove_tree`, `list_dir`, hard links, symbolic links). Everything of `test.sh` is in it with the same `ok:` lines: the golden files, round trips, container size, phrase mode, wrong key, parity bit, six keys, CRC, repeated blocks, tampering, other versions, salt, wrong phrase, key files and e-mail text in other line endings and encodings, phrases piped and typed another way, refused phrases, data that is not translated, non-ASCII file names, the same file under other spellings (plus another case where the file system is case-insensitive), the ASCII-and-LF check of the sources, and the residue scan (Linux).
+- The byte-exact tests that `cmake/smoke.cmake` could not do (CMake's `file(WRITE)` is text mode on Windows) now run on every OS: the phrase with a BOM, spaces and CR LF is written to the pipe as bytes.
+- `test.sh`, `cmake/run_test_sh.cmake` and `cmake/smoke.cmake` are gone. The Makefile builds and runs `test_e2e`, and runs the hardening check through cmake when it is installed (the readelf lines of `test.sh` moved into `cmake/check_hardening.cmake`). The release skill and STRUCTURE.md name `test_e2e`; `test_e2e --nfc-phrase` prints the phrase of the fixtures for the format-change appendix.
+- Where a part cannot run it prints `skipped:` and why, and CI runs the tests with `-V` so that these lines are in the log. On the runners: Windows and macOS skip the residue scan (todo 4) and error 7 (no way to limit the address space of a child there); symbolic links, hard links and the case-insensitive spelling ran on Windows and macOS; Linux skips only the case-insensitive spelling.
+- The sanitizer jobs now run the whole end-to-end test (ASan and UBSan, ubuntu and macOS), which found nothing.
+
+Not done from section 6: the Windows console input test (`WriteConsoleInputW`; todo 5), an in-process residue scanner for macOS and Windows (todo 4), an injectable `available_memory()` for error 7 without a limit (todo 4), the interoperability job between the OSes (todo 11).
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -164,7 +174,7 @@ Steps 1 to 3 (section 0c) moved the OS calls of `common.cpp`, `kdf.cpp`, `keys.c
 | src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes | `same_file()`; argv is a vector of UTF-8 strings, `wmain` is open |
 | src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() | done |
 | test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test's OS needs (temporary files, stderr, lock figures) are in `test/test_os_posix.cpp` and `test_os_win32.cpp` (section 0d) |
-| test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | open (todo 10) |
+| test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | done: `test/test_e2e.cpp` (section 0g) |
 | Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake, a `cmake` job (g++, clang++), `windows-msvc`, `windows-mingw` and `macos` jobs exist; the Makefile (Linux only) goes with todo 13 |
 
 ### 1.2 Latent bugs a port would trigger
@@ -355,12 +365,12 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 5. Record results per compiler/arch in ANALYSIS.md section 8.
 
 ## 6. Tests
-- Port test.sh to C++ `test_e2e.cpp` under CTest (library calls + a spawn helper for CLI runs); dependency-free, same on all OSes.
+- **Done (0g).** Port test.sh to C++ `test_e2e.cpp` under CTest (a spawn helper for CLI runs); dependency-free, same on all OSes.
 - Port, do not drop, the Linux-only checks of step 0: the unit tests of the key file parser, buffer growth and locking (skip under sanitizers), and the residue scan. The scan needs an equivalent per OS: `DYLD_INSERT_LIBRARIES` + `vm_region` on macOS; on Windows an in-process variant (a test-only hook in the binary that walks `VirtualQuery` regions at exit) is simpler than injecting a DLL. Prefer one in-process implementation (test build only) for all three, so the scanner is not itself a platform port.
 - Keep: golden decrypts (hello.sdes, format-5.2.0/hello.bin, hello-phrase.sdes, hello-utf8-phrase.sdes); round trips at 0, 1, 255, 256, 257, 1000, 5000; tamper tests (bit flip, truncation, header, KDF params); wrong key/phrase; parity bit; short key file; short phrase; fresh salt/IV; repeated blocks.
 - New: in/out same file via different path spellings, hard link, symlink, case-insensitive paths; armor counter above 2^32 (unit test); size-overflow guards.
 - **Done (step 0b), in test_primitives.cpp; runs on every OS once ported.** Text interchange (section 3.4), unit tests: `decode_text`; one key file as LF, CRLF, CR, with a UTF-8 BOM and as UTF-16 LE and BE gives the same keys; the armored fixture in the same variants decrypts; an armor known answer without CR; the canonical phrase table (every step, accepted and refused); the normalisation subset and the hash of the tables.
-- **Done (step 0b), in test.sh; port to test_e2e.cpp.** Text interchange, end to end: new fixture `test/format-5.2.0/hello-utf8-phrase.sdes` (Latin, Greek, CJK and one character outside the BMP) opened with NFC, NFD, full-width, CRLF and BOM input and with an invisible character inserted; a phrase that is not UTF-8 is refused without a KDF run; a 5.1.0 file is refused; a data file containing 0x0D 0x0A 0x1A; non-ASCII input, output and key file names; the residue scan with a non-ASCII phrase.
+- **Done (step 0b; ported to test_e2e.cpp in 0g).** Text interchange, end to end: new fixture `test/format-5.2.0/hello-utf8-phrase.sdes` (Latin, Greek, CJK and one character outside the BMP) opened with NFC, NFD, full-width, CRLF and BOM input and with an invisible character inserted; a phrase that is not UTF-8 is refused without a KDF run; a 5.1.0 file is refused; a data file containing 0x0D 0x0A 0x1A; non-ASCII input, output and key file names; the residue scan with a non-ASCII phrase.
 - New, Windows only: a phrase typed into a console through injected key events (WriteConsoleInputW), including a surrogate pair; a piped CRLF phrase; a redirected message is UTF-8.
 - Error 7 without ulimit: injectable available_memory() in test builds; keep ulimit test on Linux.
 - Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`. This runs only on the GitHub runners (section 7.1).
@@ -414,7 +424,7 @@ How the work proceeds, because there is no local test bench for the ports:
 7. ct-hardening (after 2): **done** (section 0e); the verification is todo 8
 8. ct-verification (after 7): **done** (section 0f)
 9. build-hardening (after 1): **done** (section 0e)
-10. tests-portable (after 3, 14)
+10. tests-portable (after 3, 14): **done** (section 0g)
 11. ci-matrix (after 5, 6, 9, 10): completes the matrix (interop, arm64, extras); the early runner jobs of todo 15 already exist by then
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// LD_PRELOAD helper for test.sh. When the program has finished, it searches its own writable memory
+// LD_PRELOAD helper for test_e2e. When the program has finished, it searches its own writable memory
 // (heap, stack, mappings) for the byte strings in SCAN_MARKS and reports how many copies are left:
 //
 //   RESIDUE-SCAN: <n> hit(s)

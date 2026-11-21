@@ -34,6 +34,10 @@ the section of the tag's version as the text of the GitHub Release.
   markers (IBT and shadow stack on x86-64, BTI and pointer authentication on arm64), fortified C
   library calls, PIE and a non-executable stack on Linux; ASLR, DEP and control flow guard on
   Windows. A test checks the finished binary for them.
+- Internal: the end-to-end tests are a C++ program (`test/test_e2e.cpp`) instead of a shell script,
+  so that they run on Windows and macOS as well as Linux; they test the same things, and more byte
+  for byte on every system (a phrase with a byte order mark and CR LF, file names outside ASCII,
+  links).
 - Constant-time checks: a Valgrind test (secrets marked uninitialised), a branch report of the
   disassembly and a statistical timing test, run by the new `constant-time` workflow on x86-64 and
   arm64 Linux, macOS and Windows.

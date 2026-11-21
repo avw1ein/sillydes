@@ -33,7 +33,7 @@ Facts that follow from this:
 - Example: program 5.1.1 read and wrote format **5.1.0**, so its e-mail messages started with
   `*BEGIN SillyDES 5.1.0 message`; a later 5.2.1 still writes `*BEGIN SillyDES 5.2.0 message`.
   That is correct, not a stale string.
-- If `test.sh` fails on the format fixtures during a release that was not meant to change the format,
+- If `test_e2e` fails on the format fixtures during a release that was not meant to change the format,
   the format *was* changed by accident. Stop and tell the user; do not regenerate fixtures to make
   the test pass.
 - `FORMAT_NAME` is hashed into the keys. Changing it makes every existing file unreadable.
@@ -106,7 +106,7 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
 3. Leave every other `5.2.0` alone: those name the *format* (the labels `SillyDES 5.2.0 white/tweak/mac`
    in `ANALYSIS.md`, `STRUCTURE.md` and `VISUALIZATION.md`, the cipher names in the `ANALYSIS.md`
    tables, the README paragraph on the file format, `hello.sdes`, `test/format-5.2.0/`, and
-   the strings in `test/test.sh`). Check afterwards:
+   the strings in `test/test_e2e.cpp`). Check afterwards:
    ```sh
    grep -rn "SillyDES [0-9]\+\.[0-9]\+\.[0-9]\+" --include='*.md' --include='*.h' --include='*.cpp' --include='*.sh' . | grep -v '^./.git/'
    ```
@@ -205,7 +205,7 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    `MAGIC = { 'S', 'D', major, (minor << 4) | patch }` together (5.2.0 is `{ 'S','D', 5, 0x20 }`).
 2. Build the **previous release's** binary to be able to read the old fixtures:
    `git worktree add /tmp/sillydes-old vPREV && make -C /tmp/sillydes-old` (remove the worktree after).
-3. Regenerate the fixtures with the new build, from the same plaintext (`test.sh` expects it to start with
+3. Regenerate the fixtures with the new build, from the same plaintext (`test_e2e` expects it to start with
    `Hello,`):
    ```sh
    P="The quick brown fox jumps over the lazy dog, again and again."
@@ -214,12 +214,12 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    mkdir test/format-N
    ./sillydes act=e  in=/tmp/hello.txt out=test/format-N/hello.bin key=sample.key
    echo "$P" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-phrase.sdes phrase
-   eval "$(grep '^U_NFC=' test/test.sh)"        # the non-ASCII phrase of the tests
+   make test/test_e2e && U_NFC=$(./test/test_e2e --nfc-phrase)   # the non-ASCII phrase of the tests
    printf '%s\n' "$U_NFC" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-utf8-phrase.sdes phrase
    chmod 644 test/format-N/*
    git rm -r test/format-OLD
    ```
-4. `test/test.sh`: point the fixture steps at `test/format-N`, update the comment and the `ok:` text
+4. `test/test_e2e.cpp`: point the fixture paths (`golden_files`) at `test/format-N`, update the comment and the `ok:` text
    (they name the format), and change the "another version is rejected" step so that the magic byte
    and the substituted name are those of the previous format.
 5. Only if the new format is to follow a newer Unicode version: set the version and the SHA-256
