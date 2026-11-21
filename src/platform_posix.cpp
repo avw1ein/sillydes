@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// The platform layer for Linux (and, later, other POSIX systems). See platform.h.
+// The platform layer for Linux and macOS. See platform.h. What differs on macOS is marked __APPLE__.
 
 #include "platform.h"
 
@@ -12,20 +12,38 @@
 #include <cstring>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach/mach.h>
+#else
+#include <sys/prctl.h>
+#endif
+
 void secure_zero(void *p, size_t n)
 {
-  if (n) explicit_bzero(p, n);
+  if (!n) return;
+#ifdef __APPLE__
+  memset_s(p, n, 0, n);
+#else
+  explicit_bzero(p, n);
+#endif
 }
 
 bool os_random(uint8_t *p, size_t n)
 {
+#ifdef __APPLE__
+  while (n > 0) {
+    size_t k = n < 256 ? n : 256;  // getentropy takes at most 256 bytes
+    if (getentropy(p, k) != 0) return false;
+    p += k;
+    n -= k;
+  }
+#else
   while (n > 0) {
     ssize_t k = getrandom(p, n, 0);
     if (k < 0) {
@@ -35,6 +53,7 @@ bool os_random(uint8_t *p, size_t n)
     p += k;
     n -= (size_t)k;
   }
+#endif
   return true;
 }
 
@@ -93,6 +112,15 @@ bool same_file(const std::string &a, const std::string &b)
 uint64_t available_memory()
 {
   uint64_t avail = UINT64_MAX;
+#ifdef __APPLE__
+  // Free pages and the ones the system can reclaim at once.
+  vm_statistics64_data_t vm;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  vm_size_t page = 0;
+  if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vm, &count) == KERN_SUCCESS &&
+      host_page_size(mach_host_self(), &page) == KERN_SUCCESS)
+    avail = ((uint64_t)vm.free_count + vm.inactive_count + vm.purgeable_count) * page;
+#else
   if (FILE *f = fopen("/proc/meminfo", "r")) {
     char line[128];
     while (fgets(line, sizeof line, f)) {
@@ -105,6 +133,7 @@ uint64_t available_memory()
     long pages = sysconf(_SC_AVPHYS_PAGES), psize = sysconf(_SC_PAGESIZE);
     if (pages > 0 && psize > 0) avail = (uint64_t)pages * (uint64_t)psize;
   }
+#endif
   struct rlimit rl;
   for (auto res : { RLIMIT_AS, RLIMIT_DATA })
     if (getrlimit(res, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < avail) avail = rl.rlim_cur;
@@ -115,7 +144,9 @@ void harden_process()
 {
   const rlimit nocore = { 0, 0 };
   setrlimit(RLIMIT_CORE, &nocore);
+#ifndef __APPLE__
   prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+#endif
 }
 
 void exit_process(int code)
@@ -139,7 +170,9 @@ void *map_pages(size_t n)
 {
   void *p = mmap(nullptr, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (p == MAP_FAILED) throw std::bad_alloc();
+#ifdef MADV_DONTDUMP
   madvise(p, n, MADV_DONTDUMP);
+#endif
   return p;
 }
 
