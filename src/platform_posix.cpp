@@ -3,6 +3,10 @@
 //
 // The platform layer for Linux and macOS. See platform.h. What differs on macOS is marked __APPLE__.
 
+#ifdef __APPLE__
+#define __STDC_WANT_LIB_EXT1__ 1  // for memset_s
+#endif
+
 #include "platform.h"
 
 #include <alloca.h>
