@@ -150,7 +150,7 @@ if(SILLYDES_BUILD_TESTS)
   add_executable(test_primitives test/test_primitives.cpp ${SILLYDES_TEST_OS_SOURCE})
   target_link_libraries(test_primitives PRIVATE sillydes_core)
   if(WIN32)
-    target_link_libraries(test_primitives PRIVATE psapi)  # QueryWorkingSetEx: which pages are locked
+    target_link_libraries(test_primitives PRIVATE psapi advapi32)  # QueryWorkingSetEx: which pages are locked; advapi32: the access control list
   endif()
   if(MSVC)
     # The test blocks reuse the names msg, a, b on purpose; each block stands alone.

@@ -13,7 +13,9 @@
 #endif
 #include <windows.h>
 
+#include <aclapi.h>
 #include <psapi.h>
+#include <sddl.h>
 
 #include <cstring>
 #include <thread>
@@ -375,6 +377,12 @@ TerminalResult run_on_terminal(const std::string &exe, const std::vector<std::st
   STARTUPINFOEXW si = {};
   si.StartupInfo.cb = sizeof si;
   si.lpAttributeList = list;
+  // Without this the program can get the standard handles of this process (pipes of the test runner)
+  // instead of the console.
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+  si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+  si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
   PROCESS_INFORMATION pi = {};
   if (ok) ok = CreateProcessW(wexe.c_str(), cmdline.data(), nullptr, nullptr, FALSE, EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &si.StartupInfo, &pi) != 0;
   if (!ok) {
@@ -437,6 +445,44 @@ std::string find_program(const std::string &name)
   return n > 0 && n <= MAX_PATH ? narrow(std::wstring(path, n)) : std::string();
 }
 
+namespace {
+
+// For a failure: the access control list of this process as text, and whether SeDebugPrivilege is
+// enabled in its token (which would let anybody of this user in whatever the list says).
+std::string describe_access()
+{
+  std::string text;
+  PSECURITY_DESCRIPTOR sd = nullptr;
+  if (GetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &sd) ==
+      ERROR_SUCCESS) {
+    wchar_t *sddl = nullptr;
+    if (ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, SDDL_REVISION_1, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &sddl, nullptr)) {
+      text += "; security descriptor " + narrow(sddl);
+      LocalFree(sddl);
+    }
+    LocalFree(sd);
+  } else {
+    text += "; security descriptor unreadable";
+  }
+  HANDLE token = nullptr;
+  LUID debug;
+  if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) && LookupPrivilegeValueW(nullptr, L"SeDebugPrivilege", &debug)) {
+    std::vector<char> buf(4096);
+    DWORD n = 0;
+    if (GetTokenInformation(token, TokenPrivileges, buf.data(), (DWORD)buf.size(), &n)) {
+      const TOKEN_PRIVILEGES *tp = (const TOKEN_PRIVILEGES *)buf.data();
+      text += "; SeDebugPrivilege absent";
+      for (DWORD i = 0; i < tp->PrivilegeCount; i++)
+        if (tp->Privileges[i].Luid.LowPart == debug.LowPart && tp->Privileges[i].Luid.HighPart == debug.HighPart)
+          text = text.substr(0, text.size() - 7) + ((tp->Privileges[i].Attributes & SE_PRIVILEGE_ENABLED) ? "enabled" : "present but disabled");
+    }
+  }
+  if (token) CloseHandle(token);
+  return text;
+}
+
+}  // namespace
+
 int check_hardening(std::string &detail)
 {
   detail.clear();
@@ -444,7 +490,7 @@ int check_hardening(std::string &detail)
   HANDLE h = OpenProcess(PROCESS_VM_READ, FALSE, GetCurrentProcessId());
   if (h) {
     CloseHandle(h);
-    detail = "a process of the same user can still open this one to read its memory";
+    detail = "a process of the same user can still open this one to read its memory" + describe_access();
     return 1;
   }
   if (GetLastError() != ERROR_ACCESS_DENIED) {

@@ -533,9 +533,15 @@ void terminal_tests(const std::string &nfc)
   };
   const std::string enter = "\r";
 
+  // The harness first: what the program writes to its terminal must come back, and the usage text is
+  // the shortest thing to show it.
+  TerminalResult t = run_on_terminal(exe, {}, {});
+  need(t.started && !t.timed_out && t.output.find("Usage:") != std::string::npos,
+       "the output of a program in a terminal does not come back (exit code " + str(t.code) + "): " + t.output);
+
   // Encryption asks twice. The phrase has Latin, Greek and Japanese text and a character outside the
   // BMP (a surrogate pair on Windows), and must be the same keys as the same text through a pipe.
-  TerminalResult t = run_on_terminal(exe, act("e", T("t.txt"), T("t.bin"), "phrase"), { { "minimum", nfc + enter }, { "Repeat", nfc + enter } });
+  t = run_on_terminal(exe, act("e", T("t.txt"), T("t.bin"), "phrase"), { { "minimum", nfc + enter }, { "Repeat", nfc + enter } });
   ran(t, 0, "encryption with a typed phrase");
   need(silent(t), "the typed phrase was echoed");
   sd_ok(act("d", T("t.bin"), T("t.out"), "phrase"), "decryption through a pipe of a file made with a typed phrase", with_stdin(nfc + "\n"));
