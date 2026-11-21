@@ -4,7 +4,7 @@
 # Checks that the program carries the hardening of PORTPLAN.md 4.2: that the build did what
 # cmake/harden.cmake says, not just that the flags were passed.
 #   ELF (Linux): position independent, non-executable stack, read-only relocations, bound at load,
-#                stack protector, and IBT and shadow stack (x86-64) or BTI and PAC (arm64).
+#                stack protector, and IBT and shadow stack (x86-64) or BTI (arm64).
 #   PE (Windows): ASLR, high-entropy ASLR, DEP, and with MSVC control flow guard.
 #   Mach-O (macOS): nothing is checked; PIE is the default there.
 #
@@ -56,8 +56,9 @@ if(magic STREQUAL "7f454c46")
       fail("no IBT and SHSTK markers (-fcf-protection)")
     endif()
   elseif(header MATCHES "AArch64")
-    if(NOT notes MATCHES "BTI" OR NOT notes MATCHES "PAC")
-      fail("no BTI and PAC markers (-mbranch-protection)")
+    # PAC is left out: the marker is only set when every object, the C runtime's too, was built with it.
+    if(NOT notes MATCHES "BTI")
+      fail("no BTI marker (-mbranch-protection)")
     endif()
   endif()
   message(STATUS "hardening: ELF ok")

@@ -11,7 +11,7 @@ if(SILLYDES_SANITIZE)
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
   elseif(MSVC)
-    add_compile_options(/fsanitize=address)
+    add_compile_options(/fsanitize=address /wd5072)  # 5072: asks for debug information, which a Release build has not
   endif()
 endif()
 
@@ -30,13 +30,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   endfunction()
 
   sillydes_add_flag(-fstack-protector-strong)
-  if(NOT MINGW)
+  # Mach-O and PE have no use for these: clang accepts the flags there and reports them unused.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     sillydes_add_flag(-fstack-clash-protection)
-  endif()
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
-    sillydes_add_flag(-fcf-protection=full)  # IBT and shadow stack markers
-  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
-    sillydes_add_flag(-mbranch-protection=standard)  # PAC and BTI
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+      sillydes_add_flag(-fcf-protection=full)  # IBT and shadow stack markers
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+      sillydes_add_flag(-mbranch-protection=standard)  # PAC and BTI
+    endif()
   endif()
 
   # Checks of the C library on buffer sizes. Needs optimisation, clashes with the sanitizers, and
