@@ -334,12 +334,14 @@ void block_tests()
   for (int i = 0; i < 9; i++) need(differing_bytes(block(enc, i), block(enc2, i)) > 200, "the same block is nearly equal in two encryptions");
   passed("random IV makes every block differ between runs");
 
-  struct Tamper { const char *name; size_t at; int value; };  // value -1: truncate by 256 bytes
-  const Tamper tampers[] = { { "bit flip in a block", HDR + 300, 0x55 }, { "truncation", 0, -1 }, { "header byte 7", 7, 0x01 },
+  // value -1: truncate by 256 bytes; -2: flip bits (the byte may happen to have the value, so a flip, not an assignment)
+  struct Tamper { const char *name; size_t at; int value; };
+  const Tamper tampers[] = { { "bit flip in a block", HDR + 300, -2 }, { "truncation", 0, -1 }, { "header byte 7", 7, 0x01 },
                              { "KDF memory parameter too large", 4, 0x1e }, { "KDF time parameter zero", 5, 0x00 } };
   for (const Tamper &t : tampers) {
     std::string bad = enc;
-    if (t.value < 0) bad.resize(bad.size() - 256);
+    if (t.value == -1) bad.resize(bad.size() - 256);
+    else if (t.value == -2) bad[t.at] = (char)(bad[t.at] ^ 0x55);
     else bad[t.at] = (char)t.value;
     put(T("tampered"), bad);
     sd_rc(13, act("d", T("tampered"), T("x"), R("sample.key")), RunOptions(), std::string(t.name) + " not rejected");
