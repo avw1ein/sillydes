@@ -91,6 +91,26 @@ void randbytes(uint8_t *p, size_t n);
 // Zeroises memory in a way the compiler will not remove.
 void wipe(void *p, size_t n);
 
+// Constant-time helpers (PORTPLAN.md 5.2). value_barrier returns v, but the compiler may assume nothing
+// about the result: wrapped around a mask or an accumulator it stops the optimiser from turning
+// branch-free code into branches (or a loop into an early exit) on a secret.
+#if defined(__GNUC__) || defined(__clang__)
+static inline uint32_t value_barrier(uint32_t v)
+{
+  __asm__ __volatile__("" : "+r"(v));
+  return v;
+}
+#else
+static inline uint32_t value_barrier(uint32_t v)
+{
+  volatile uint32_t t = v;
+  return t;
+}
+#endif
+
+// True if the n bytes at a and at b are equal; the time does not depend on where they differ.
+bool ct_equal(const uint8_t *a, const uint8_t *b, size_t n);
+
 // Size arithmetic that cannot wrap around: the result, or std::bad_alloc (reported as error 7) if it
 // does not fit in a size_t. Used wherever a size is computed from the size of a file.
 inline size_t checked_add(size_t a, size_t b)

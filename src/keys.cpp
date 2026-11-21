@@ -12,12 +12,21 @@
 
 namespace {
 
-int htoa(char c)
+// All ones if a < b (unsigned, the whole range), else zero.
+uint32_t below(uint32_t a, uint32_t b)
 {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return 10 + c - 'a';
-  if (c >= 'A' && c <= 'F') return 10 + c - 'A';
-  return -1;
+  return 0u - (((~a & b) | (~(a ^ b) & (a - b))) >> 31);
+}
+
+// The value of a hexadecimal digit, with bit 8 set if c is none. Key digits are secret, so there is
+// no branch and no table index on c (PORTPLAN.md 5.1).
+uint32_t hex_digit(uint8_t c)
+{
+  uint32_t x = c;
+  uint32_t is_digit = below(x - '0', 10);           // '0'-'9' (below '0' the difference wraps and is large)
+  uint32_t is_letter = below((x | 0x20) - 'a', 6);  // 'a'-'f' and 'A'-'F'
+  uint32_t v = ((x - '0') & is_digit) | ((((x | 0x20) - 'a') + 10) & is_letter);
+  return value_barrier(v | (~(is_digit | is_letter) & 0x100));
 }
 
 uint8_t length_mask(const uint8_t key[NL][8])
@@ -65,11 +74,13 @@ void readkeyfile(const std::string &name, uint8_t key[NL][8])
     }
     errarg = name;  // never echo key material
     if (len != 16) errorexit(5);
+    uint32_t bad = 0;
     for (int i = 0; i < 16; i += 2) {
-      int hi = htoa((char)f[tok + i]), lo = htoa((char)f[tok + i + 1]);
-      if (hi < 0 || lo < 0) errorexit(5);
+      uint32_t hi = hex_digit(f[tok + i]), lo = hex_digit(f[tok + i + 1]);
+      bad |= hi | lo;
       key[n][i / 2] = (uint8_t)((hi << 4) | lo);
     }
+    if (bad & 0x100) errorexit(5);
   }
 }
 

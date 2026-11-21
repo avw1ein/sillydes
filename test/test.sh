@@ -223,6 +223,11 @@ echo "ok: the sources are ASCII with LF line endings"
 if command -v readelf >/dev/null 2>&1; then
   readelf -d ./sillydes | grep -q 'BIND_NOW\|FLAGS.*NOW' || { echo "FAIL: sillydes is not linked with -z now"; exit 1; }
   echo "ok: the binary binds its symbols at load"
+  readelf -h ./sillydes | grep -q 'Type: *DYN' || { echo "FAIL: sillydes is not a position-independent executable"; exit 1; }
+  readelf -lW ./sillydes | grep 'GNU_STACK' | grep -q ' RW ' || { echo "FAIL: sillydes has an executable stack"; exit 1; }
+  readelf -lW ./sillydes | grep -q 'GNU_RELRO' || { echo "FAIL: sillydes has no read-only relocations"; exit 1; }
+  readelf -sW ./sillydes | grep -q '__stack_chk_fail' || { echo "FAIL: sillydes has no stack protector"; exit 1; }
+  echo "ok: PIE, non-executable stack, read-only relocations, stack protector"
 fi
 
 # Memory residue: once the program has exited, normally or on an error, no copy of the phrase, the

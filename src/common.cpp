@@ -94,6 +94,13 @@ void randbytes(uint8_t *p, size_t n)
   if (!os_random(p, n)) errorexit(14);
 }
 
+bool ct_equal(const uint8_t *a, const uint8_t *b, size_t n)
+{
+  uint32_t diff = 0;
+  for (size_t i = 0; i < n; i++) diff = value_barrier(diff | (uint32_t)(a[i] ^ b[i]));
+  return diff == 0;
+}
+
 void wipe(void *p, size_t n)
 {
   secure_zero(p, n);

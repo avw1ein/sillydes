@@ -21,6 +21,8 @@ endif()
 
 option(SILLYDES_WERROR "Treat compiler warnings as errors" OFF)
 option(SILLYDES_BUILD_TESTS "Build the tests" ON)
+option(SILLYDES_HARDEN "Compile and link with the hardening flags of PORTPLAN.md 4.2" ON)
+option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (no hardening flags that clash with them)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
     "Directory with the Unicode data files of the pinned version (tools/fetch_ucd.sh fills it); adds the targets regenerate_unicode and check_unicode and the test unicode_check")
@@ -31,10 +33,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   add_compile_options(-Wall -Wextra)
   if(SILLYDES_WERROR)
     add_compile_options(-Werror)
-  endif()
-  # Bind every symbol of the program at load time and make the relocations read-only (PORTPLAN.md 4.2).
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_link_options(-Wl,-z,relro -Wl,-z,now)
   endif()
   # No DLLs to ship next to the program: the C and C++ runtimes are linked in.
   if(MINGW)
@@ -57,6 +55,8 @@ else()
   set(SILLYDES_PLATFORM_SOURCE src/platform_posix.cpp)
   set(SILLYDES_TEST_OS_SOURCE test/test_os_posix.cpp)
 endif()
+
+include(cmake/harden.cmake)
 
 set(SILLYDES_CORE_SOURCES
   src/armor.cpp
@@ -151,6 +151,11 @@ if(SILLYDES_BUILD_TESTS)
     target_compile_options(test_primitives PRIVATE /wd4456)
   endif()
   add_test(NAME primitives COMMAND test_primitives)
+  if(SILLYDES_HARDEN)
+    add_test(NAME hardening
+      COMMAND ${CMAKE_COMMAND} -DBINARY=$<TARGET_FILE:sillydes> -DCOMPILER_ID=${CMAKE_CXX_COMPILER_ID}
+              -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_hardening.cmake)
+  endif()
   # Round trips through the binary itself, on every OS (until test_e2e.cpp, PORTPLAN.md todo 10).
   add_test(NAME smoke
     COMMAND ${CMAKE_COMMAND} -DSILLYDES=$<TARGET_FILE:sillydes> -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DWORK=${CMAKE_BINARY_DIR}/smoke

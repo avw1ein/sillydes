@@ -43,7 +43,8 @@ bool same_file(const std::string &a, const std::string &b);
 uint64_t available_memory();
 
 // Disables core dumps and the attaching of debuggers by other processes of the same user, as far
-// as the OS lets a program do that. Best effort, never fatal.
+// as the OS lets a program do that, and switches the CPU to data-independent timing where it has
+// such a mode (arm64 DIT). Best effort, never fatal.
 void harden_process();
 // Ends the process with this exit code without running the exit handlers, the destructors of
 // static objects or any other code of the C library. Call it last, after scrub_stack: the vector

@@ -24,9 +24,33 @@
 
 #ifdef __APPLE__
 #include <mach/mach.h>
+#include <sys/sysctl.h>
 #else
+#include <sys/auxv.h>
 #include <sys/prctl.h>
 #endif
+
+namespace {
+
+// arm64: the data-independent timing mode (DIT, ARMv8.4) makes the CPU run the data-processing
+// instructions in a time that does not depend on their operands. The program is single-threaded and
+// the bit is never cleared. Without the feature the instruction is undefined, so ask first.
+void enable_dit()
+{
+#if defined(__aarch64__)
+#ifdef __APPLE__
+  int has = 0;
+  size_t len = sizeof has;
+  if (sysctlbyname("hw.optional.arm.FEAT_DIT", &has, &len, nullptr, 0) != 0 || !has) return;
+#else
+  const unsigned long HWCAP_DIT_BIT = 1ul << 24;
+  if (!(getauxval(AT_HWCAP) & HWCAP_DIT_BIT)) return;
+#endif
+  __asm__ __volatile__(".inst 0xd503415f");  // msr dit, #1; spelled as a number: older assemblers do not know the name
+#endif
+}
+
+}  // namespace
 
 void secure_zero(void *p, size_t n)
 {
@@ -146,6 +170,7 @@ uint64_t available_memory()
 
 void harden_process()
 {
+  enable_dit();
   const rlimit nocore = { 0, 0 };
   setrlimit(RLIMIT_CORE, &nocore);
 #ifndef __APPLE__

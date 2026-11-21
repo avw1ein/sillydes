@@ -57,10 +57,9 @@ void unseal(Buf &d, const KeyInput &keys)
   memcpy(iv, &d[8 + SALT_LEN], IV_LEN);
   KeyMaterial km = derive_keys(keys, salt, kdf);
 
-  uint8_t tag[TAG_LEN], diff = 0;
+  uint8_t tag[TAG_LEN];
   Hmac512(km.mackey, sizeof km.mackey).mac(d.data(), d.size() - TAG_LEN, tag);
-  for (int i = 0; i < TAG_LEN; i++) diff |= tag[i] ^ d[d.size() - TAG_LEN + i];
-  if (diff) errorexit(13);
+  if (!ct_equal(tag, d.data() + d.size() - TAG_LEN, TAG_LEN)) errorexit(13);
 
   SillyDesCipher cipher(km.key, salt);
   cipher.cbc_decrypt(d.data() + HDR_LEN, body, iv);

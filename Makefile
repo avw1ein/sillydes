@@ -4,25 +4,39 @@
 CXX      ?= g++
 CXXFLAGS ?= -O2 -Wall -Wextra
 
+# Hardening (PORTPLAN.md 4.2); cmake/harden.cmake has the same list for the CMake build. It is kept
+# apart from CXXFLAGS so that a CXXFLAGS given on the command line (CI does) does not remove it;
+# make HARDEN= builds without.
+ARCH     := $(shell $(CXX) -dumpmachine)
+HARDEN   ?= -fPIE -fstack-protector-strong -fstack-clash-protection -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
+ifneq (,$(findstring x86_64,$(ARCH)))
+HARDEN   += -fcf-protection=full
+endif
+ifneq (,$(findstring aarch64,$(ARCH)))
+HARDEN   += -mbranch-protection=standard
+endif
+comma    := ,
+LDHARDEN := $(if $(HARDEN),-pie -Wl$(comma)-z$(comma)relro$(comma)-z$(comma)now$(comma)-z$(comma)noexecstack)
+
 # The Makefile is for Linux: the Windows platform file belongs to the CMake build.
 SRCS     := $(filter-out src/main.cpp src/platform_win32.cpp,$(wildcard src/*.cpp))
 OBJS     := $(SRCS:src/%.cpp=obj/%.o)
 
 sillydes: obj/main.o $(OBJS)
-	$(CXX) $(CXXFLAGS) -Wl,-z,relro,-z,now -o $@ $^
+	$(CXX) $(CXXFLAGS) $(HARDEN) $(LDHARDEN) -o $@ $^
 
-# -z now binds every symbol at load time and -z relro makes the relocations read-only (PORTPLAN.md 4.2);
-# Ubuntu's gcc does this by default, clang does not.
+# -z now binds every symbol at load time and -z relro makes the relocations read-only; Ubuntu's gcc
+# does this by default, clang does not.
 
 test/test_primitives: test/test_primitives.cpp test/test_os_posix.cpp $(OBJS)
-	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^
+	$(CXX) $(CXXFLAGS) $(HARDEN) $(LDHARDEN) -Isrc -o $@ $^
 
 test/residue_scan.so: test/residue_scan.cpp
 	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $<
 
 obj/%.o: src/%.cpp
 	@mkdir -p obj
-	$(CXX) $(CXXFLAGS) -MMD -MP -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(HARDEN) -MMD -MP -c -o $@ $<
 
 -include obj/*.d
 

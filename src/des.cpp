@@ -107,7 +107,7 @@ void Des::setkey(const uint8_t key[8])
   uint32_t cd[56], rot[56];
   for (int j = 0; j < 56; j++) {
     int l = pc1[j] - 1;
-    cd[j] = 0u - ((key[l >> 3] >> (7 - (l & 7))) & 1u);
+    cd[j] = 0u - value_barrier((key[l >> 3] >> (7 - (l & 7))) & 1u);
   }
   for (int i = 0; i < 16; i++) {
     for (int j = 0; j < 56; j++) {

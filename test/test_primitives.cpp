@@ -568,6 +568,20 @@ int main()
     if (exit_code([] { errorexit(14); }) != 14) { puts("FAIL: errorexit does not throw its code"); fails++; }
   }
 
+  // ct_equal: a difference at any place, in any bit, is seen; equal is equal; nothing is equal to nothing.
+  {
+    uint8_t a[64], b[64];
+    for (int i = 0; i < 64; i++) a[i] = b[i] = (uint8_t)(i * 7 + 1);
+    bool ok = ct_equal(a, b, 64) && ct_equal(a, b, 0) && ct_equal(a, a, 64);
+    for (int i = 0; i < 64; i++)
+      for (int bit = 0; bit < 8; bit++) {
+        b[i] ^= (uint8_t)(1 << bit);
+        if (ct_equal(a, b, 64)) ok = false;
+        b[i] ^= (uint8_t)(1 << bit);
+      }
+    if (!ok) { puts("FAIL: ct_equal"); fails++; }
+  }
+
   // The key file parser: comments, blank lines, tabs and a missing final newline are fine;
   // anything else that is not exactly eight 16-digit hexadecimal keys is error 5.
   {
@@ -593,6 +607,21 @@ int main()
       uint8_t kk[NL][8];
       if (exit_code([&] { readkeyfile(f, kk); }) != 5) { puts("FAIL: faulty key file accepted"); fails++; }
       remove_file(f);
+    }
+    // Every byte value in a digit place: only 0-9, a-f and A-F are accepted, with the right value. The
+    // decoder works without branches, so this covers the whole table, the neighbours of each range included.
+    for (int c = 0; c < 256; c++) {
+      if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;  // they split lines and tokens
+      std::string text = "0";
+      text += (char)c;
+      text += std::string(14, '0') + "\n";
+      for (int i = 1; i < NL; i++) text += "0001020304050607\n";
+      f = write_temp(text);
+      uint8_t kk[NL][8] = {};
+      int rc = exit_code([&] { readkeyfile(f, kk); });
+      remove_file(f);
+      int want = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+      if (want < 0 ? rc != 5 : (rc != -1 || kk[0][0] != want)) { printf("FAIL: key file digit 0x%02X\n", c); fails++; }
     }
     uint8_t kk[NL][8];
     if (exit_code([&] { readkeyfile("/nonexistent/sillydes.key", kk); }) != 1) { puts("FAIL: missing key file is not error 1"); fails++; }
