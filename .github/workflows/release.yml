@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 1993-1994, 2026 Andy van Wezel
+#
+# Publishes a release when a version tag such as v5.1.0 is pushed: builds and tests the binary,
+# generates its CycloneDX SBOM, attests the SBOM to the binary (verify with
+# `gh attestation verify <binary> --repo avw1ein/sillydes`) and attaches binary, SBOM and
+# SHA256SUMS to a GitHub Release.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create the release and upload its files
+      id-token: write      # sign the attestation
+      attestations: write  # store the attestation
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: The tag must name the program version
+        run: |
+          version=$(sed -n 's/^#define PACKAGE_VERSION "\(.*\)"/\1/p' src/version.h)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match PACKAGE_VERSION $version in src/version.h" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
+      - run: make test
+      - run: make sbom
+
+      - name: Name the files after the release
+        run: |
+          mkdir dist
+          name="sillydes-$VERSION-linux-x86_64"
+          cp sillydes "dist/$name"
+          cp sillydes.cdx.json "dist/$name.cdx.json"
+          (cd dist && sha256sum "$name" "$name.cdx.json" > SHA256SUMS)
+          echo "NAME=$name" >> "$GITHUB_ENV"
+
+      - uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: dist/${{ env.NAME }}
+          sbom-path: dist/${{ env.NAME }}.cdx.json
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "SillyDES $VERSION" --generate-notes

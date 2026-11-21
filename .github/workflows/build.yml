@@ -18,6 +18,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
       - run: make test
+      # The SBOM describes the binary built above, so it is generated here and kept as an artifact.
+      - run: make sbom
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sillydes-sbom
+          path: sillydes.cdx.json
