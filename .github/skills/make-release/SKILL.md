@@ -118,9 +118,13 @@ id=$(gh run list --branch main --limit 1 --json databaseId --jq '.[0].databaseId
 gh run watch "$id" --exit-status
 ```
 
-CI builds on `ubuntu-latest` with a different gcc than a developer machine; a failure that does not
-reproduce locally is usually that (it has happened: stack residue). Read `gh run view "$id" --log-failed`
-and fix forward with a normal commit. Do not tag until `build` is green on the release commit.
+CI runs on `ubuntu-latest`, which can differ from a developer machine (compiler, CPU, kernel limits).
+If a failure does not reproduce locally, read `gh run view "$id" --log-failed` before assuming a program
+bug: the residue test once failed on every other attempt because of its own harness, not the program.
+When re-running to check for flakiness, read each attempt's own result with
+`gh api repos/avw1ein/sillydes/actions/runs/$id/attempts/N --jq .conclusion`; `gh run view` shows a stale
+attempt right after a rerun. Fix forward with a normal commit. Do not tag until `build` is green on the
+release commit.
 
 ## 5. Tag and publish (the irreversible step: this is where the go-ahead is needed)
 

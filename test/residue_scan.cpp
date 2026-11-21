@@ -16,7 +16,8 @@
 // disturbing what it measures: scan() first moves its own frames 96 KiB down, below the part of the
 // dead stack that matters (the program wipes 256 KiB), and the bytes around a hit are copied into
 // a buffer before anything is printed, because printing overwrites the stack too. The scanner's own
-// frames sit in the memory it scans, so anything it leaves there can look like residue of the program.
+// frames sit in the memory it scans, so anything it leaves there can look like residue of the program;
+// hits in the zone of its own frames are therefore not counted (SCANNER-OWN line with SCAN_VERBOSE).
 // The preloaded program stays the one thing that is measured: a leak injected into main's frames
 // (a 400-byte and a 30 KB stack array left unwiped) is still found, and scrub_stack removes it.
 
