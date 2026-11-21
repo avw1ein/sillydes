@@ -6,6 +6,9 @@
 //
 //   RESIDUE-SCAN: <n> hit(s)
 //
+// With SCAN_VERBOSE set it also prints, for every hit, the number of the mark, the mapping it is in
+// and the bytes around it.
+//
 // The marks are comma separated hexadecimal strings with every byte XORed with 0x5a. The environment
 // is part of the scanned memory, so a plain mark in it would find itself.
 
@@ -19,6 +22,7 @@ namespace {
 unsigned char marks[16][128];
 size_t marklen[16];
 int nmarks;
+bool verbose;
 
 void scan()
 {
@@ -36,7 +40,16 @@ void scan()
       while (p < end) {
         const unsigned char *q = (const unsigned char *)memmem(p, (size_t)(end - p), marks[k], marklen[k]);
         if (!q) break;
-        if (q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) hits++;  // our own copy does not count
+        if (q < &marks[0][0] || q >= &marks[0][0] + sizeof marks) {  // our own copy does not count
+          hits++;
+          if (verbose) {
+            fprintf(stderr, "\nRESIDUE mark#%d at %p in %s  context: ", k, (const void *)q, line);
+            for (const unsigned char *c = q < (const unsigned char *)lo + 32 ? (const unsigned char *)lo : q - 32;
+                 c < q + marklen[k] + 32 && c < end; c++)
+              fputc(*c >= 32 && *c < 127 ? *c : '.', stderr);
+            fputc('\n', stderr);
+          }
+        }
         p = q + marklen[k];
       }
     }
@@ -47,6 +60,7 @@ void scan()
 
 __attribute__((constructor)) void init()
 {
+  verbose = getenv("SCAN_VERBOSE") != nullptr;
   const char *env = getenv("SCAN_MARKS");
   if (!env) return;
   const char *p = env;

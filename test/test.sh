@@ -132,32 +132,34 @@ mask() { local i; for ((i = 0; i < ${#1}; i++)); do printf '%02x' $(( $(printf '
 maskhex() { local i; for ((i = 0; i < ${#1}; i += 2)); do printf '%02x' $(( 0x${1:i:2} ^ 0x5a )); done; }
 hits() {  # hits MARKS COMMAND...: the number of marks still in memory when COMMAND exits
   local marks=$1 n; shift
-  n=$(LD_PRELOAD="$SCAN" SCAN_MARKS="$marks" "$@" 2>&1 >/dev/null | sed -n 's/.*RESIDUE-SCAN: \([0-9]*\) hit.*/\1/p')
+  LD_PRELOAD="$SCAN" SCAN_VERBOSE=1 SCAN_MARKS="$marks" "$@" 2>&1 >/dev/null | tr -c '[:print:]\n' '.' > "$T/scan.log" || true
+  n=$(sed -n 's/.*RESIDUE-SCAN: \([0-9]*\) hit.*/\1/p' "$T/scan.log")
   echo "${n:-none}"
 }
+residue_fail() { echo "FAIL: $1"; grep -a 'RESIDUE\|RESIDUE-SCAN\|ERROR' "$T/scan.log" | cut -c1-300; exit 1; }
 PT="PLAINTEXT-MARKER-XYZZY-0123456789"
 for i in 1 2 3 4 5 6 7 8 9 10; do echo "$PT"; done > "$T/rin.txt"
-[ "$(hits "$(mask SecretMarker42)" bash -c 'v=SecretMarker42; :')" -gt 0 ] || { echo "FAIL: residue scanner finds nothing in a process that holds the mark"; exit 1; }
+[ "$(hits "$(mask SecretMarker42)" bash -c 'v=SecretMarker42; :')" -gt 0 ] || residue_fail "residue scanner finds nothing in a process that holds the mark"
 
 K1=$(grep -E '^[0-9A-F]{16}' sample.key | head -n 1 | cut -c1-16)
 KMARKS="$(mask "$K1"),$(maskhex "$K1"),$(mask "$PT")"
-[ "$(hits "$KMARKS" ./sillydes act=e in="$T/rin.txt" out="$T/r.bin" key=sample.key)" = 0 ] || { echo "FAIL: key or plaintext left in memory after key file encryption"; exit 1; }
-[ "$(hits "$KMARKS" ./sillydes act=d in="$T/r.bin" out="$T/r.out" key=sample.key)" = 0 ] || { echo "FAIL: key or plaintext left in memory after key file decryption"; exit 1; }
+[ "$(hits "$KMARKS" ./sillydes act=e in="$T/rin.txt" out="$T/r.bin" key=sample.key)" = 0 ] || residue_fail "key or plaintext left in memory after key file encryption"
+[ "$(hits "$KMARKS" ./sillydes act=d in="$T/r.bin" out="$T/r.out" key=sample.key)" = 0 ] || residue_fail "key or plaintext left in memory after key file decryption"
 cmp "$T/rin.txt" "$T/r.out"
 printf '%s\n' a5c3e1f0d2b49687 1122334455667788 99aabbccddeeff00 0011223344556677 \
   13579bdf02468ace a1b2c3d4e5f60718 0f1e2d3c4b5a6978 fedcba9876543210 > "$T/scankey"
 WMARKS="$(mask a5c3e1f0d2b49687),$(maskhex a5c3e1f0d2b49687),$(mask "$PT")"
-[ "$(hits "$WMARKS" ./sillydes act=d in="$T/r.bin" out="$T/x" key="$T/scankey")" = 0 ] || { echo "FAIL: key left in memory after authentication failure"; exit 1; }
+[ "$(hits "$WMARKS" ./sillydes act=d in="$T/r.bin" out="$T/x" key="$T/scankey")" = 0 ] || residue_fail "key left in memory after authentication failure"
 echo "ok: no key or plaintext left in memory, also after an error"
 
 # A phrase longer than the 4096-byte read buffer, so that the buffer grows; random, so that a stale
 # partial copy is recognisable by 16 bytes taken from the start and from the middle.
 LONG=$(head -c 4000 /dev/urandom | base64 -w0 | head -c 5000)
 PMARKS="$(mask "${LONG:0:16}"),$(mask "${LONG:2500:16}"),$(mask "$PT")"
-[ "$(echo "$LONG" | hits "$PMARKS" ./sillydes act=e in="$T/rin.txt" out="$T/lp.bin" phrase)" = 0 ] || { echo "FAIL: phrase or plaintext left in memory after encryption"; exit 1; }
-[ "$(echo "$LONG" | hits "$PMARKS" ./sillydes act=d in="$T/lp.bin" out="$T/lp.out" phrase)" = 0 ] || { echo "FAIL: phrase or plaintext left in memory after decryption"; exit 1; }
+[ "$(echo "$LONG" | hits "$PMARKS" ./sillydes act=e in="$T/rin.txt" out="$T/lp.bin" phrase)" = 0 ] || residue_fail "phrase or plaintext left in memory after encryption"
+[ "$(echo "$LONG" | hits "$PMARKS" ./sillydes act=d in="$T/lp.bin" out="$T/lp.out" phrase)" = 0 ] || residue_fail "phrase or plaintext left in memory after decryption"
 cmp "$T/rin.txt" "$T/lp.out"
-[ "$(echo "${LONG:0:4999}" | hits "$PMARKS" ./sillydes act=d in="$T/lp.bin" out="$T/x" phrase)" = 0 ] || { echo "FAIL: phrase left in memory after authentication failure"; exit 1; }
+[ "$(echo "${LONG:0:4999}" | hits "$PMARKS" ./sillydes act=d in="$T/lp.bin" out="$T/x" phrase)" = 0 ] || residue_fail "phrase left in memory after authentication failure"
 echo "ok: no phrase left in memory, also after an error; a 5000-character phrase round-trips"
 
 echo "all tests passed"
