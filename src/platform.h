@@ -71,3 +71,9 @@ bool stdin_is_terminal();
 // terminal. The bytes are returned as they came, without the LF: they are checked and normalised by
 // canonical_phrase, which also removes a CR. False at the end of input before any byte.
 bool read_secret_line(const char *prompt, SecretBuf &line);
+
+#ifdef _WIN32
+#include <vector>
+// Windows only: the arguments of wmain as UTF-8. False if one is not valid UTF-16 (an unpaired surrogate).
+bool utf8_args(int argc, wchar_t **argv, std::vector<std::string> &out);
+#endif

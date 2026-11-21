@@ -5,10 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
 #include <initializer_list>
-#include <sys/resource.h>
-#include <unistd.h>
 
 #include "armor.h"
 #include "blake2b.h"
@@ -22,6 +19,7 @@
 #include "platform.h"
 #include "sillydes_cipher.h"
 #include "sha512.h"
+#include "test_os.h"
 #include "text.h"
 #include "unicode_tables.h"
 
@@ -170,18 +168,9 @@ static std::string a2(const char *pw, const char *salt, uint32_t m, uint32_t t, 
 
 // Error messages go to stderr; the tests that provoke them keep the output readable.
 struct QuietStderr {
-  int saved;
-  QuietStderr() : saved(dup(STDERR_FILENO))
-  {
-    int nul = open("/dev/null", O_WRONLY);
-    dup2(nul, STDERR_FILENO);
-    close(nul);
-  }
-  ~QuietStderr()
-  {
-    dup2(saved, STDERR_FILENO);
-    close(saved);
-  }
+  intptr_t saved;
+  QuietStderr() : saved(silence_stderr()) {}
+  ~QuietStderr() { restore_stderr(saved); }
 };
 
 // The ExitError code that fn() throws, or -1 if it returns.
@@ -204,42 +193,38 @@ static int exit_code(F fn)
 
 // Leaves a pattern in a large stack frame, and counts how much of it a frame of the same size
 // finds in uninitialised memory at the same place.
-__attribute__((noinline)) static void leave_pattern()
+SILLYDES_NOINLINE static void leave_pattern()
 {
   volatile uint8_t junk[30000];
   for (size_t i = 0; i < sizeof junk; i++) junk[i] = 0xA7;
 }
 
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
 #ifndef __clang__
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-__attribute__((noinline)) static size_t find_pattern()
+#endif
+SILLYDES_NOINLINE static size_t find_pattern()
 {
   volatile uint8_t probe[30000];  // read on purpose before it is written
   size_t n = 0;
   for (size_t i = 0; i < sizeof probe; i++) n += probe[i] == 0xA7;
   return n;
 }
+#if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
-
-static long vmlck_kb()
-{
-  FILE *f = fopen("/proc/self/status", "r");
-  long kb = -1;
-  char line[128];
-  while (f && fgets(line, sizeof line, f))
-    if (sscanf(line, "VmLck: %ld kB", &kb) == 1) break;
-  if (f) fclose(f);
-  return kb;
-}
+#endif
 
 static std::string write_temp(const std::string &text)
 {
-  char name[] = "/tmp/sillydes_test_XXXXXX";
-  int fd = mkstemp(name);
-  if (fd >= 0) { if (write(fd, text.data(), text.size()) < 0) {} close(fd); }
+  std::string name = temp_file_name();
+  FileHandle f = open_output(name);
+  if (f != NO_FILE) {
+    write_output(f, (const uint8_t *)text.data(), text.size());
+    close_file(f);
+  }
   return name;
 }
 
@@ -581,7 +566,7 @@ int main()
     readkeyfile(f, k);
     if (k[0][0] != 0x00 || k[0][7] != 0x07 || k[1][0] != 0x08 || k[1][7] != 0x0F || k[7][0] != 0x50 || k[7][7] != 0x57)
       { puts("FAIL: key file parsed wrongly"); fails++; }
-    unlink(f.c_str());
+    remove_file(f);
     const struct { const char *first; int more; } bad[] = {
       { "0001020304050607\n", 6 },  // seven keys
       { "000102030405060\n", 7 },   // 15 digits
@@ -594,7 +579,7 @@ int main()
       f = write_temp(text);
       uint8_t kk[NL][8];
       if (exit_code([&] { readkeyfile(f, kk); }) != 5) { puts("FAIL: faulty key file accepted"); fails++; }
-      unlink(f.c_str());
+      remove_file(f);
     }
     uint8_t kk[NL][8];
     if (exit_code([&] { readkeyfile("/nonexistent/sillydes.key", kk); }) != 1) { puts("FAIL: missing key file is not error 1"); fails++; }
@@ -633,7 +618,7 @@ int main()
       std::string f = write_temp(variants[i]);
       uint8_t k[NL][8] = {};
       int rc = exit_code([&] { readkeyfile(f, k); });
-      unlink(f.c_str());
+      remove_file(f);
       if (i == 0) memcpy(first, k, sizeof first);
       if (rc != -1 || memcmp(first, k, sizeof k) != 0 || k[7][7] != 0x57) { printf("FAIL: key file variant %zu\n", i); fails++; }
     }
@@ -857,27 +842,26 @@ int main()
 
   // Locking is best effort, so these run only when RLIMIT_MEMLOCK leaves room for them.
   {
-    rlimit rl;
-    long limit_kb = getrlimit(RLIMIT_MEMLOCK, &rl) != 0 ? 0 : rl.rlim_cur == RLIM_INFINITY ? 1L << 40 : (long)(rl.rlim_cur / 1024);
-    long before = vmlck_kb();
+    long limit_kb = memlock_limit_kb();
+    long before = locked_kb();
 #ifdef SANITIZED
     before = -1;
 #endif
     if (before < 0 || limit_kb < 1024) {
-      puts("skipped: memory locking tests (RLIMIT_MEMLOCK below 1 MiB, no /proc, or a sanitizer build)");
+      puts("skipped: memory locking tests (the lock limit is below 1 MiB, the OS does not report locked memory, or a sanitizer build)");
     } else {
       lock_stack();
-      long after_stack = vmlck_kb();
+      long after_stack = locked_kb();
       if (after_stack <= before) { puts("FAIL: lock_stack locked nothing"); fails++; }
       {
         SecretBuf s(100);
-        if (vmlck_kb() < after_stack + 4) { puts("FAIL: SecretBuf is not locked"); fails++; }
+        if (locked_kb() < after_stack + 4) { puts("FAIL: SecretBuf is not locked"); fails++; }
       }
-      if (vmlck_kb() != after_stack) { puts("FAIL: SecretBuf stays locked after it is freed"); fails++; }
+      if (locked_kb() != after_stack) { puts("FAIL: SecretBuf stays locked after it is freed"); fails++; }
       if (limit_kb < (512L << 10)) {
         size_t big = (size_t)(limit_kb + (64 << 10)) * 1024;  // 64 MiB over the limit
         void *p = secure_alloc(big);
-        if (lock_memory(p, big) || vmlck_kb() != after_stack) { puts("FAIL: lock_memory past the limit"); fails++; }
+        if (lock_memory(p, big) || locked_kb() != after_stack) { puts("FAIL: lock_memory past the limit"); fails++; }
         secure_free(p, big);
       }
     }

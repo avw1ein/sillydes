@@ -4,7 +4,8 @@
 CXX      ?= g++
 CXXFLAGS ?= -O2 -Wall -Wextra
 
-SRCS     := $(filter-out src/main.cpp,$(wildcard src/*.cpp))
+# The Makefile is for Linux: the Windows platform file belongs to the CMake build.
+SRCS     := $(filter-out src/main.cpp src/platform_win32.cpp,$(wildcard src/*.cpp))
 OBJS     := $(SRCS:src/%.cpp=obj/%.o)
 
 sillydes: obj/main.o $(OBJS)
@@ -13,7 +14,7 @@ sillydes: obj/main.o $(OBJS)
 # -z now binds every symbol at load time and -z relro makes the relocations read-only (PORTPLAN.md 4.2);
 # Ubuntu's gcc does this by default, clang does not.
 
-test/test_primitives: test/test_primitives.cpp $(OBJS)
+test/test_primitives: test/test_primitives.cpp test/test_os_posix.cpp $(OBJS)
 	$(CXX) $(CXXFLAGS) -Isrc -o $@ $^
 
 test/residue_scan.so: test/residue_scan.cpp

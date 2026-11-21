@@ -36,11 +36,26 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_link_options(-Wl,-z,relro -Wl,-z,now)
   endif()
+  # No DLLs to ship next to the program: the C and C++ runtimes are linked in.
+  if(MINGW)
+    add_link_options(-static)
+  endif()
 elseif(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Ob2")  # no /DNDEBUG, as on Linux
   add_compile_options(/W4 /utf-8)
   if(SILLYDES_WERROR)
     add_compile_options(/WX)
   endif()
+endif()
+
+# One platform file per OS (src/platform.h): the only code that includes OS headers.
+if(WIN32)
+  set(SILLYDES_PLATFORM_SOURCE src/platform_win32.cpp)
+  set(SILLYDES_TEST_OS_SOURCE test/test_os_win32.cpp)
+else()
+  set(SILLYDES_PLATFORM_SOURCE src/platform_posix.cpp)
+  set(SILLYDES_TEST_OS_SOURCE test/test_os_posix.cpp)
 endif()
 
 set(SILLYDES_CORE_SOURCES
@@ -52,7 +67,7 @@ set(SILLYDES_CORE_SOURCES
   src/des.cpp
   src/kdf.cpp
   src/keys.cpp
-  src/platform_posix.cpp
+  ${SILLYDES_PLATFORM_SOURCE}
   src/sha512.cpp
   src/sillydes_cipher.cpp
   src/text.cpp)
@@ -62,6 +77,13 @@ target_include_directories(sillydes_core PUBLIC src)
 
 add_executable(sillydes src/main.cpp)
 target_link_libraries(sillydes PRIVATE sillydes_core)
+
+if(WIN32)
+  target_link_libraries(sillydes_core PUBLIC bcrypt)
+  if(MINGW)
+    target_link_options(sillydes PRIVATE -municode)  # wmain, the wide arguments
+  endif()
+endif()
 install(TARGETS sillydes RUNTIME DESTINATION bin)
 install(FILES README.md LICENSE LICENSE.Unicode DESTINATION share/doc/sillydes)
 
@@ -122,9 +144,13 @@ endif()
 if(SILLYDES_BUILD_TESTS)
   enable_testing()
 
-  add_executable(test_primitives test/test_primitives.cpp)
+  add_executable(test_primitives test/test_primitives.cpp ${SILLYDES_TEST_OS_SOURCE})
   target_link_libraries(test_primitives PRIVATE sillydes_core)
   add_test(NAME primitives COMMAND test_primitives)
+  # Round trips through the binary itself, on every OS (until test_e2e.cpp, PORTPLAN.md todo 10).
+  add_test(NAME smoke
+    COMMAND ${CMAKE_COMMAND} -DSILLYDES=$<TARGET_FILE:sillydes> -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DWORK=${CMAKE_BINARY_DIR}/smoke
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/smoke.cmake)
 
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND SILLYDES_BASH)
     # LD_PRELOAD helper of test.sh: searches the process for leftover secrets as it exits.

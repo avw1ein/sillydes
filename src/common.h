@@ -13,6 +13,13 @@
 
 static_assert(sizeof(void *) == 8, "SillyDES is for 64-bit targets only");
 
+// For the functions whose stack frame must stay apart from their caller's (see main.cpp).
+#if defined(_MSC_VER)
+#define SILLYDES_NOINLINE __declspec(noinline)
+#else
+#define SILLYDES_NOINLINE __attribute__((noinline))
+#endif
+
 // Backing store of the allocators below, implemented by the platform layer (platform.h). Both
 // wipe the whole block before it is released, so a vector that grows, shrinks or is destroyed
 // never leaves a copy of its contents behind. Blocks of 64 KiB and more get their own mapping

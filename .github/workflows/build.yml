@@ -43,3 +43,29 @@ jobs:
       - run: cmake --build --preset ci
       - run: ctest --preset ci
       - run: cmake --build --preset ci --target sbom
+
+  # Windows, from the first platform file on (PORTPLAN.md todo 15): the Microsoft compiler and
+  # MinGW-w64 are different compilers with different warnings, and users have both.
+  windows-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cmake -S . -B build -DSILLYDES_WERROR=ON
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure
+
+  windows-mingw:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c # v2.34.0
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+      - run: cmake -S . -B build -G Ninja -DSILLYDES_WERROR=ON
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
