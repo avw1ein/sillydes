@@ -108,7 +108,7 @@ void scan()
     }
   }
   fclose(maps);
-  if (verbose && own) fprintf(stderr, "RESIDUE-SCAN: %d hit(s) in the scanner's own frames, not counted\n", own);
+  if (verbose && own) fprintf(stderr, "SCANNER-OWN: %d hit(s) in the scanner's own frames, not counted\n", own);
   fprintf(stderr, "RESIDUE-SCAN: %d hit(s)\n", hits);
 }
 

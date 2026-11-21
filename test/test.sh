@@ -133,10 +133,10 @@ maskhex() { local i; for ((i = 0; i < ${#1}; i += 2)); do printf '%02x' $(( 0x${
 hits() {  # hits MARKS COMMAND...: the number of marks still in memory when COMMAND exits
   local marks=$1 n; shift
   LD_PRELOAD="$SCAN" SCAN_VERBOSE=1 SCAN_MARKS="$marks" "$@" 2>&1 >/dev/null | tr -c '[:print:]\n' '.' > "$T/scan.log" || true
-  n=$(sed -n 's/.*RESIDUE-SCAN: \([0-9]*\) hit.*/\1/p' "$T/scan.log")
+  n=$(sed -n 's/.*RESIDUE-SCAN: \([0-9]*\) hit.*/\1/p' "$T/scan.log" | tail -n 1)
   echo "${n:-none}"
 }
-residue_fail() { echo "FAIL: $1"; grep -a 'RESIDUE\|RESIDUE-SCAN\|ERROR' "$T/scan.log" | cut -c1-300; exit 1; }
+residue_fail() { echo "FAIL: $1"; grep -a 'RESIDUE\|SCANNER-OWN\|ERROR' "$T/scan.log" | cut -c1-300; exit 1; }
 PT="PLAINTEXT-MARKER-XYZZY-0123456789"
 for i in 1 2 3 4 5 6 7 8 9 10; do echo "$PT"; done > "$T/rin.txt"
 [ "$(hits "$(mask SecretMarker42)" bash -c 'v=SecretMarker42; :')" -gt 0 ] || residue_fail "residue scanner finds nothing in a process that holds the mark"
