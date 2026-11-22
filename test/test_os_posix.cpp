@@ -191,7 +191,10 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
 #ifdef __APPLE__
       // The kernel may not enforce either limit there; the program reads both before it allocates.
       // RLIMIT_AS can keep dyld from mapping the shared cache, RLIMIT_DATA cannot.
-      if (setrlimit(RLIMIT_DATA, &rl) != 0) _exit(126);
+      if (setrlimit(RLIMIT_DATA, &rl) != 0) {
+        dprintf(2, "setrlimit(RLIMIT_DATA) failed: %s\n", strerror(errno));
+        _exit(126);
+      }
 #else
       setrlimit(RLIMIT_AS, &rl);
 #endif
@@ -405,7 +408,8 @@ int check_hardening(std::string &detail)
   // to a child that called harden_process, and, as a control, to one that did not.
   const int target = attach_to_child(true), control = attach_to_child(false);
   if (target < 0 || control < 0 || control == 2) {
-    detail = "RLIMIT_CORE is 0; the attach experiment could not be run";
+    detail = "RLIMIT_CORE is 0; the attach experiment could not be run (hardened child " + std::to_string(target) +
+             ", control child " + std::to_string(control) + ")";
     return -1;
   }
   if (target == 1) {
