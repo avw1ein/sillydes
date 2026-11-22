@@ -7,6 +7,9 @@
 //   test_e2e <sillydes binary> <source root> [--scan-lib <residue_scan.so>] [--scan-exe <sillydes_scan>]
 //            [--no-address-limit]
 //   test_e2e --nfc-phrase       prints the non-ASCII phrase of the fixtures (for the release skill)
+//   test_e2e <sillydes binary> <source root> --interop-make <directory> <label>
+//   test_e2e <sillydes binary> <source root> --interop-check <directory> <label>,<label>...
+//            files made by this system for the others, and files of the others opened here (the interop job of CI)
 //
 // The residue scan (does a secret survive in the memory of the exited process?) searches the process
 // as it ends, in one of two ways: a library that is preloaded into the real binary (Linux), or the
@@ -14,6 +17,7 @@
 // the same search code (residue_core.cpp). Where a part cannot run, the test says so and why, so that
 // a skip is never silent.
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -769,6 +773,171 @@ void residue(const std::string &nfc, const std::string &other)
   for (const Scanner &sc : scanners) residue_with(sc, nfc, other);
 }
 
+// ---- files and phrases that travel between operating systems (PORTPLAN.md todo 11)
+//
+// Every OS makes files with its own build of the program, and every OS opens the files of all of them,
+// which is what "interchange" means. The CI job uploads what --interop-make wrote and runs
+// --interop-check with everything. The text has every byte value and all three line endings, so that
+// nothing along the way may touch it.
+
+std::string interop_plain()
+{
+  std::string s;
+  for (int i = 0; i < 70001; i++) s += (char)((i * 7 + i / 256) & 0xFF);
+  return s + "\r\nline\rline\n";
+}
+
+enum InteropKey { KEY_FILE, ASCII_PHRASE, NFC_PHRASE };
+struct InteropCase {
+  const char *name;
+  bool armored;
+  InteropKey key;
+  bool shell;  // made through PowerShell or cmd.exe: Windows only
+};
+const InteropCase interop_cases[] = {
+  { "binary-keyfile", false, KEY_FILE, false },
+  { "armored-keyfile", true, KEY_FILE, false },
+  { "binary-ascii-phrase", false, ASCII_PHRASE, false },
+  { "armored-ascii-phrase", true, ASCII_PHRASE, false },
+  { "binary-nfc-phrase", false, NFC_PHRASE, false },
+  { "armored-nfc-phrase", true, NFC_PHRASE, false },
+  { "armored-other-phrase", true, NFC_PHRASE, false },  // made with the same text typed another way, read with the NFC form
+  { "ps51-keyfile", false, KEY_FILE, true },              // the key file written by Windows PowerShell 5.1 with >: UTF-16
+  { "ps51-utf8-phrase", false, NFC_PHRASE, true },
+  { "ps7-keyfile", false, KEY_FILE, true },
+  { "ps7-phrase", false, NFC_PHRASE, true },
+  { "cmd-phrase", false, NFC_PHRASE, true },
+};
+const std::string interop_ascii_phrase = "The quick brown fox jumps over the lazy dog, again and again.";
+
+long long milliseconds_since(std::chrono::steady_clock::time_point t0)
+{
+  return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+}
+
+void interop_make(const std::string &dir, const std::string &label)
+{
+  need(make_dir(dir) || is_directory(dir), "cannot make the directory " + dir);
+  tmp = make_temp_dir();
+  need(!tmp.empty(), "cannot make a temporary directory");
+  const std::string plain = interop_plain();
+  put(T("plain.bin"), plain);
+  auto out_of = [&](const InteropCase &c) { return dir + "/" + label + "." + c.name + ".sdes"; };
+  auto made = [&](const InteropCase &c, long long ms) { printf("ok: %s %s (%lld ms)\n", label.c_str(), c.name, ms); };
+  for (const InteropCase &c : interop_cases) {
+    if (c.shell) continue;
+    const std::string phrase = c.key == ASCII_PHRASE ? interop_ascii_phrase : strcmp(c.name, "armored-other-phrase") == 0 ? other_phrase() : nfc_phrase();
+    auto t0 = std::chrono::steady_clock::now();
+    sd_ok(act(c.armored ? "em" : "e", T("plain.bin"), out_of(c), c.key == KEY_FILE ? R("sample.key") : "phrase"), label + " " + c.name,
+          with_stdin(c.key == KEY_FILE ? std::string() : phrase + "\n"));
+    made(c, milliseconds_since(t0));
+  }
+#ifdef _WIN32
+  const std::string ps5 = find_program("powershell.exe"), ps7 = find_program("pwsh.exe"), cmd = find_program("cmd.exe");
+  const std::string q = "'";
+  auto shell_case = [&](const char *name, const std::string &shell, const std::string &script) {
+    for (const InteropCase &c : interop_cases) {
+      if (strcmp(c.name, name) != 0) continue;
+      auto t0 = std::chrono::steady_clock::now();
+      RunResult r = run_program(shell, { "-NoProfile", "-NonInteractive", "-Command", script }, RunOptions());
+      need(r.code == 0, label + " " + name + ": " + r.err + r.out);
+      need(file_exists(out_of(c)), label + " " + name + ": no file");
+      made(c, milliseconds_since(t0));
+    }
+  };
+  auto key_file_case = [&](const char *name, const std::string &shell, const std::string &key) {
+    run_program(shell, { "-NoProfile", "-NonInteractive", "-Command", "Get-Content -Raw " + q + R("sample.key") + q + " > " + q + key + q }, RunOptions());
+    for (const InteropCase &c : interop_cases) {
+      if (strcmp(c.name, name) != 0) continue;
+      auto t0 = std::chrono::steady_clock::now();
+      sd_ok(act("e", T("plain.bin"), out_of(c), key), label + " " + name);
+      made(c, milliseconds_since(t0));
+    }
+  };
+  auto piped = [&](const std::string &prefix, const std::string &out) {
+    return prefix + q + nfc_phrase() + q + " | & " + q + exe + q + " act=e in=" + q + T("plain.bin") + q + " out=" + q + out + q + " phrase; exit $LASTEXITCODE";
+  };
+  auto path_of = [&](const char *name) {
+    for (const InteropCase &c : interop_cases)
+      if (strcmp(c.name, name) == 0) return out_of(c);
+    return std::string();
+  };
+  if (!ps5.empty()) {
+    key_file_case("ps51-keyfile", ps5, T("ps5.key"));
+    shell_case("ps51-utf8-phrase", ps5, piped("$OutputEncoding = New-Object System.Text.UTF8Encoding $false; ", path_of("ps51-utf8-phrase")));
+  } else skipped(label + ": Windows PowerShell 5.1 is not installed");
+  if (!ps7.empty()) {
+    key_file_case("ps7-keyfile", ps7, T("ps7.key"));
+    shell_case("ps7-phrase", ps7, piped("", path_of("ps7-phrase")));
+  } else skipped(label + ": PowerShell 7 is not installed");
+  if (!cmd.empty()) {
+    auto bs = [](const std::string &path) { return replace_all(path, "/", "\\"); };
+    auto t0 = std::chrono::steady_clock::now();
+    const std::string script = "chcp 65001>nul & echo " + nfc_phrase() + "| " + bs(exe) + " act=e in=" + bs(T("plain.bin")) + " out=" + bs(path_of("cmd-phrase")) + " phrase";
+    RunResult r = run_program(cmd, { "/c", script }, RunOptions());
+    need(r.code == 0 && file_exists(path_of("cmd-phrase")), label + " cmd-phrase: " + r.err + r.out);
+    for (const InteropCase &c : interop_cases)
+      if (strcmp(c.name, "cmd-phrase") == 0) made(c, milliseconds_since(t0));
+  } else skipped(label + ": cmd.exe not found");
+#endif
+  remove_tree(tmp);
+}
+
+// Opens every file in `dir` (named <label>.<case>.sdes) and compares it with the text it was made from;
+// every label in `labels` must have all the portable cases, and the Windows ones also those of the shells.
+void interop_check(const std::string &dir, const std::string &labels)
+{
+  tmp = make_temp_dir();
+  need(!tmp.empty(), "cannot make a temporary directory");
+  const std::string plain = interop_plain();
+  std::vector<std::string> names;
+  need(list_dir(dir, names), "cannot read the directory " + dir);
+  std::set<std::string> seen;
+  int failures = 0;
+  for (const std::string &file : names) {
+    const std::string tail = ".sdes";
+    if (file.size() <= tail.size() || file.compare(file.size() - tail.size(), tail.size(), tail) != 0) continue;
+    const size_t dot = file.find('.');
+    const std::string label = file.substr(0, dot), name = file.substr(dot + 1, file.size() - tail.size() - dot - 1);
+    const InteropCase *found = nullptr;
+    for (const InteropCase &c : interop_cases)
+      if (name == c.name) found = &c;
+    if (!found) {
+      printf("FAIL: %s: not a case that is known\n", file.c_str());
+      failures++;
+      continue;
+    }
+    seen.insert(file);
+    const std::string phrase = found->key == ASCII_PHRASE ? interop_ascii_phrase : nfc_phrase();
+    auto t0 = std::chrono::steady_clock::now();
+    RunResult r = sd(act(found->armored ? "dm" : "d", dir + "/" + file, T("out.bin"), found->key == KEY_FILE ? R("sample.key") : "phrase"),
+                     with_stdin(found->key == KEY_FILE ? std::string() : phrase + "\n"));
+    std::string got;
+    if (r.code == 0 && slurp(T("out.bin"), got) && got == plain) printf("ok: %s (%lld ms)\n", file.c_str(), milliseconds_since(t0));
+    else {
+      printf("FAIL: %s (exit code %d, %zu bytes): %s\n", file.c_str(), r.code, got.size(), r.err.c_str());
+      failures++;
+    }
+    remove_file(T("out.bin"));
+  }
+  for (size_t at = 0; at < labels.size();) {
+    size_t comma = labels.find(',', at);
+    if (comma == std::string::npos) comma = labels.size();
+    const std::string label = labels.substr(at, comma - at);
+    at = comma + 1;
+    for (const InteropCase &c : interop_cases) {
+      if (c.shell && label.compare(0, 7, "windows") != 0) continue;
+      if (!seen.count(label + "." + c.name + ".sdes")) {
+        printf("FAIL: the file %s.%s.sdes is missing\n", label.c_str(), c.name);
+        failures++;
+      }
+    }
+  }
+  remove_tree(tmp);
+  need(failures == 0, std::to_string(failures) + " files of other systems do not open here");
+  printf("ok: %zu files of other systems open here\n", seen.size());
+}
+
 }  // namespace
 
 int main(int argc, char **argv)
@@ -783,6 +952,14 @@ int main(int argc, char **argv)
   }
   exe = argv[1];
   root = argv[2];
+  if (argc == 6 && strcmp(argv[3], "--interop-make") == 0) {
+    interop_make(argv[4], argv[5]);
+    return 0;
+  }
+  if (argc == 6 && strcmp(argv[3], "--interop-check") == 0) {
+    interop_check(argv[4], argv[5]);
+    return 0;
+  }
   for (int i = 3; i < argc; i++) {
     if (strcmp(argv[i], "--no-address-limit") == 0) use_limit = false;
     else if (strcmp(argv[i], "--scan-lib") == 0 && i + 1 < argc) scanners.push_back({ "preloaded library", argv[++i], std::string() });
