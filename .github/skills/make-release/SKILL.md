@@ -6,8 +6,10 @@ description: Publish a new SillyDES release. Use when asked to make, cut, publis
 # Making a SillyDES release
 
 A release is a **version tag** `vX.Y.Z` on `main`. Pushing the tag runs
-[release.yml](../../workflows/release.yml), which builds, tests, generates the CycloneDX SBOM,
-attests the build provenance and the SBOM, and creates the GitHub Release with `sillydes-X.Y.Z-linux-x86_64`, its `.cdx.json` and
+[release.yml](../../workflows/release.yml), which builds and tests on five targets, generates a
+CycloneDX SBOM for each binary, attests the build provenance and the SBOM of each, and creates the
+GitHub Release with the five binaries (`sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`,
+`-macos-universal`, `-windows-x86_64.exe`, `-windows-arm64.exe`), their `.cdx.json` files and
 `SHA256SUMS`. Everything before the tag is yours to do and verify; the tag is the point of no return.
 
 The same procedure is summarised for humans in `STRUCTURE.md`, section 10 ("Making a release").
@@ -143,8 +145,12 @@ If a failure does not reproduce locally, read `gh run view "$id" --log-failed` b
 bug: the residue test once failed on every other attempt because of its own harness, not the program.
 When re-running to check for flakiness, read each attempt's own result with
 `gh api repos/avw1ein/sillydes/actions/runs/$id/attempts/N --jq .conclusion`; `gh run view` shows a stale
-attempt right after a rerun. Fix forward with a normal commit. Do not tag until `build` is green on the
-release commit.
+attempt right after a rerun. Fix forward with a normal commit. Do not tag until the `build` workflow
+(all of its jobs: Linux, macOS, Windows, the interop and big-endian jobs) is green on the release commit.
+Then run the release workflow by hand on `main` as a dry run (`gh workflow run release.yml --ref main`,
+then `gh run watch`): it does everything but attest and publish, and a failure on one of the five
+targets (a new compiler warning on Ubuntu 22.04, a runner label that went away) is better found
+before the tag. Its artifacts hold the five binaries and SBOMs for a look.
 
 ## 5. Tag and publish (the irreversible step: this is where the go-ahead is needed)
 
@@ -154,38 +160,45 @@ git push origin vX.Y.Z
 gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
 ```
 
-The tag must point at the commit that passed CI. The workflow then: checks tag against
-`PACKAGE_VERSION`, builds with `cmake --preset ci`, runs the tests, generates the SBOM, names the files
-after the release, attests the build provenance of the binary and the SBOM to the binary
-(`actions/attest`, without and with `sbom-path`), and runs
-`gh release create --verify-tag --notes-file` with the changelog section.
+The tag must point at the commit that passed CI. The workflow then: checks the tag against
+`PACKAGE_VERSION` and the changelog (`prepare`); builds and tests on each target (`build`: the `ci`
+preset on Ubuntu 22.04 and its arm64 twin, the `universal` preset on macOS, the plain build on Windows
+x64 and arm64), checks that the banner names the version, generates the SBOM with `tools/gen_sbom.sh`
+and names the files after the release; attests the build provenance and the SBOM of each binary
+(`attest`, one job per file, `actions/attest` without and with `sbom-path`); and, when all of that
+succeeded, writes `SHA256SUMS` and runs `gh release create --verify-tag --notes-file` with the
+changelog section and a note that Windows and macOS binaries are not signed (`publish`). The Linux
+binaries are built on Ubuntu 22.04 on purpose, so that they need glibc 2.34 or newer and not the
+version of `ubuntu-latest`; keep it that way, and look at `objdump -T` for `GLIBC_` if the label changes.
 
 ## 6. Verify the release
 
 ```sh
-gh release view vX.Y.Z --json url,assets --jq '.url, (.assets[].name)'   # 3 assets
+gh release view vX.Y.Z --json url,assets --jq '.url, (.assets[].name)'   # 11 assets: 5 binaries, 5 SBOMs, SHA256SUMS
 d=$(mktemp -d) && gh release download vX.Y.Z --dir "$d" && (cd "$d" && sha256sum -c SHA256SUMS)
 gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes                                              # build provenance
 gh attestation verify "$d/sillydes-X.Y.Z-linux-x86_64" --repo avw1ein/sillydes --predicate-type https://cyclonedx.org/bom   # SBOM
 chmod +x "$d/sillydes-X.Y.Z-linux-x86_64" && "$d/sillydes-X.Y.Z-linux-x86_64" | head -1   # banner shows X.Y.Z
 ```
 
-A release has two attestations for its binary. Without a predicate type `gh` checks the build
+Do the two attestation commands for each of the five binaries, or at least for one per system.
+A release has two attestations for each binary. Without a predicate type `gh` checks the build
 provenance; the SBOM attestation needs its type named. Releases 5.1.1 and 5.2.0 have the SBOM
 attestation only, so for them the first command ends in `HTTP 404`, which says nothing about the
-release. The provenance step runs for the first time in the release after 5.2.0: if it fails there,
-nothing is published yet (section 7). `gh attestation` needs gh 2.49 or newer; Ubuntu's own package
+release. The provenance step has never run on a tag yet (a dry run skips it): if it fails in the first release
+that has it, nothing is published yet (section 7). `gh attestation` needs gh 2.49 or newer; Ubuntu's own package
 is older (the packages of cli.github.com are current).
 
-Report to the user: the release URL, the commit SHA, the binary's SHA-256, and whether the format
+Report to the user: the release URL, the commit SHA, the SHA-256 of each binary, and whether the format
 changed. Clean up the temp directory.
 
 ## 7. When something goes wrong
 
-- **Fails before the release is created** (the last step creates it): nothing is published.
+- **Fails before the release is created** (the `publish` job creates it; `attest` may already have
+  attested files of a release that never appears, which is harmless): nothing is published.
   If the cause is the commit (tests, version mismatch), delete the tag, fix and re-tag:
   `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`, then repeat from step 3/4.
-  If the cause is infrastructure, re-run the failed job: `gh run rerun <id> --failed`.
+  If the cause is infrastructure, re-run the failed jobs: `gh run rerun <id> --failed`.
 - **Release already exists** (even a bad one): never move or reuse the tag; users may have the files.
   Delete the release and tag only if it was never announced and the user says so; otherwise publish
   the next patch version.

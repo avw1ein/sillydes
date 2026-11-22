@@ -111,13 +111,16 @@ if [ "$SYSTEM" = Linux ]; then
 fi
 if [ "$SYSTEM" = Darwin ]; then
   # One component per library, from "<path> (compatibility version X, current version Y)".
+  # Library lines start with a tab; a universal binary lists them once per architecture.
   while IFS= read -r line; do
+    case "$line" in $'\t'*) ;; *) continue ;; esac
     path=${line%% (*}
     path=${path#"${path%%[![:space:]]*}"}
     ver=${line##*current version }
     ver=${ver%)}
     [ -n "$path" ] || continue
     ref="lib:$path"
+    case ", $macdeps" in *"\"$(esc "$ref")\""*) continue ;; esac
     entry="    {
       \"bom-ref\": \"$(esc "$ref")\",
       \"type\": \"library\",
@@ -129,7 +132,7 @@ if [ "$SYSTEM" = Darwin ]; then
     maclibs+="${maclibs:+,
 }$entry"
     macdeps+="${macdeps:+, }\"$(esc "$ref")\""
-  done < <(otool -L "$BIN" | tail -n +2)
+  done < <(otool -L "$BIN")
 fi
 
 # The only third-party material in the binary: tables generated from the Unicode Character Database.
