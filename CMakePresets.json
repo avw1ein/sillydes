@@ -15,6 +15,12 @@
       "cacheVariables": { "SILLYDES_WERROR": "ON" }
     },
     {
+      "name": "universal",
+      "displayName": "macOS universal binary (arm64 and x86_64), what CI runs besides ci",
+      "inherits": "ci",
+      "cacheVariables": { "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64", "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0" }
+    },
+    {
       "name": "debug",
       "displayName": "Debug",
       "binaryDir": "${sourceDir}/build/${presetName}",
@@ -24,11 +30,13 @@
   "buildPresets": [
     { "name": "default", "configurePreset": "default" },
     { "name": "ci", "configurePreset": "ci" },
+    { "name": "universal", "configurePreset": "universal" },
     { "name": "debug", "configurePreset": "debug" }
   ],
   "testPresets": [
     { "name": "default", "configurePreset": "default", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
     { "name": "ci", "configurePreset": "ci", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
+    { "name": "universal", "configurePreset": "universal", "output": { "outputOnFailure": true, "verbosity": "verbose" } },
     { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true, "verbosity": "verbose" } }
   ]
 }

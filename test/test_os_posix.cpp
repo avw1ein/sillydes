@@ -5,6 +5,8 @@
 
 #include "test_os.h"
 
+#include "platform.h"
+
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -24,6 +26,7 @@
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#include <sys/ptrace.h>
 #else
 #include <sys/prctl.h>
 #endif
@@ -157,11 +160,7 @@ bool make_symlink(const std::string &target, const std::string &link)
 
 bool can_limit_address_space()
 {
-#ifdef __linux__
   return true;
-#else
-  return false;  // macOS does not enforce RLIMIT_AS
-#endif
 }
 
 RunResult run_program(const std::string &exe, const std::vector<std::string> &args, const RunOptions &opt)
@@ -187,12 +186,16 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
       size_t eq = e.find('=');
       if (eq != std::string::npos) setenv(e.substr(0, eq).c_str(), e.substr(eq + 1).c_str(), 1);
     }
-#ifdef __linux__
     if (opt.address_space_limit_kb > 0) {
       rlimit rl = { (rlim_t)opt.address_space_limit_kb * 1024, (rlim_t)opt.address_space_limit_kb * 1024 };
+#ifdef __APPLE__
+      // The kernel may not enforce either limit there; the program reads both before it allocates.
+      // RLIMIT_AS can keep dyld from mapping the shared cache, RLIMIT_DATA cannot.
+      if (setrlimit(RLIMIT_DATA, &rl) != 0) _exit(126);
+#else
       setrlimit(RLIMIT_AS, &rl);
-    }
 #endif
+    }
     execv(exe.c_str(), argv.data());
     _exit(127);
   }
@@ -339,6 +342,40 @@ std::string find_program(const std::string &name)
   return std::string();
 }
 
+#ifdef __APPLE__
+// Forks a child (that calls harden_process() first if `hardened`) and tries to attach to it as a
+// debugger: 1 if that worked, 0 if the system refused, -1 if the experiment did not run.
+static int attach_to_child(bool hardened)
+{
+  int ready[2];
+  if (pipe(ready) != 0) return -1;
+  pid_t pid = fork();
+  if (pid < 0) {
+    close(ready[0]);
+    close(ready[1]);
+    return -1;
+  }
+  if (pid == 0) {
+    close(ready[0]);
+    if (hardened) harden_process();
+    char c = 'x';
+    if (write(ready[1], &c, 1) != 1) _exit(1);
+    for (;;) pause();
+  }
+  close(ready[1]);
+  char c = 0;
+  ssize_t got;
+  do got = read(ready[0], &c, 1); while (got < 0 && errno == EINTR);
+  close(ready[0]);
+  int result = -1;
+  if (got == 1) result = ptrace(PT_ATTACH, pid, nullptr, 0) == 0 ? 1 : 0;
+  kill(pid, SIGKILL);
+  int status;
+  waitpid(pid, &status, 0);
+  return result;
+}
+#endif
+
 int check_hardening(std::string &detail)
 {
   rlimit rl;
@@ -347,7 +384,22 @@ int check_hardening(std::string &detail)
     return 1;
   }
 #ifdef __APPLE__
-  detail = "RLIMIT_CORE is 0; whether PT_DENY_ATTACH is set cannot be read back";
+  // PT_DENY_ATTACH cannot be read back, so try what it prevents: a debugger of the same user attaching
+  // to a child that called harden_process, and, as a control, to one that did not.
+  const int target = attach_to_child(true), control = attach_to_child(false);
+  if (target < 0 || control < 0) {
+    detail = "RLIMIT_CORE is 0; the attach experiment could not be run";
+    return -1;
+  }
+  if (target == 0) {
+    detail = "RLIMIT_CORE is 0, but a debugger of the same user could attach to a hardened process (PT_DENY_ATTACH)";
+    return 1;
+  }
+  if (control == 1) {
+    detail = "RLIMIT_CORE is 0; a debugger could not attach to an ordinary child either (taken from the signature or SIP), so PT_DENY_ATTACH is not shown";
+    return -1;
+  }
+  detail = "RLIMIT_CORE is 0, and a debugger could attach to an ordinary child but not to a hardened one (PT_DENY_ATTACH)";
   return 0;
 #else
   if (prctl(PR_GET_DUMPABLE) != 0) {

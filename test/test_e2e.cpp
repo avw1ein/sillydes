@@ -276,7 +276,7 @@ void phrases(const std::string &phrase)
     passed("short phrase and missing memory are refused");
   } else {
     passed("short phrase is refused");
-    skipped("error 7 with too little memory (the address space of a child cannot be limited on this OS or under a sanitizer)");
+    skipped("error 7 with too little memory (the memory of a child is not limited under a sanitizer)");
   }
 }
 

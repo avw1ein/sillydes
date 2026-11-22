@@ -6,9 +6,11 @@
 #   ELF (Linux): position independent, non-executable stack, read-only relocations, bound at load,
 #                stack protector, and IBT and shadow stack (x86-64) or BTI and PAC code (arm64).
 #   PE (Windows): ASLR, high-entropy ASLR, DEP, and with MSVC control flow guard.
-#   Mach-O (macOS): nothing is checked; PIE is the default there.
+#   Mach-O (macOS): every architecture of the file is position independent and has the stack
+#                protector; the signature is valid and carries the hardened runtime and no
+#                get-task-allow entitlement; a universal build holds the architectures asked for.
 #
-#   cmake -DBINARY=<file> -DCOMPILER_ID=<id> -P check_hardening.cmake
+#   cmake -DBINARY=<file> -DCOMPILER_ID=<id> [-DARCHS=<list>] [-DSIGNED=ON|OFF] -P check_hardening.cmake
 
 function(fail what)
   message(FATAL_ERROR "${BINARY}: ${what}")
@@ -100,6 +102,57 @@ elseif(magic MATCHES "^4d5a")
     endif()
   endwhile()
   message(STATUS "hardening: PE ok (DllCharacteristics ${chars})")
+elseif(magic STREQUAL "cffaedfe" OR magic MATCHES "^cafeba")
+  # Thin Mach-O (64-bit, little endian) or universal ("fat") file.
+  function(run out)
+    execute_process(COMMAND ${ARGN} OUTPUT_VARIABLE text ERROR_VARIABLE more RESULT_VARIABLE rc)
+    if(NOT rc EQUAL 0)
+      fail("${ARGN} failed (${rc}): ${more}")
+    endif()
+    set(${out} "${text}${more}" PARENT_SCOPE)
+  endfunction()
+
+  run(archs lipo -archs "${BINARY}")
+  string(STRIP "${archs}" archs)
+  separate_arguments(archs)
+  list(LENGTH archs count)
+  if(ARCHS)
+    set(want ${ARCHS})
+    list(SORT want)
+    set(have ${archs})
+    list(SORT have)
+    if(NOT want STREQUAL have)
+      fail("architectures are '${archs}', not '${ARCHS}'")
+    endif()
+  endif()
+
+  run(header otool -hv "${BINARY}")
+  string(REGEX MATCHALL "[ \t]PIE" pie "${header}")
+  list(LENGTH pie pies)
+  if(NOT pies EQUAL count)
+    fail("not every architecture (${archs}) is a position-independent executable")
+  endif()
+  run(symbols nm -u "${BINARY}")
+  string(REGEX MATCHALL "___stack_chk_fail" guards "${symbols}")
+  list(LENGTH guards guarded)
+  if(NOT guarded EQUAL count)
+    fail("not every architecture (${archs}) has the stack protector")
+  endif()
+
+  if(SIGNED)
+    run(verified codesign --verify --strict --verbose=2 "${BINARY}")
+    foreach(arch ${archs})
+      run(info codesign -d -vv --arch ${arch} "${BINARY}")
+      if(NOT info MATCHES "flags=0x[0-9a-f]+\\([^)]*runtime")
+        fail("${arch}: the signature has no hardened runtime flag:\n${info}")
+      endif()
+      run(entitlements codesign -d --entitlements - --arch ${arch} "${BINARY}")
+      if(entitlements MATCHES "get-task-allow")
+        fail("${arch}: the entitlement get-task-allow lets any debugger attach")
+      endif()
+    endforeach()
+  endif()
+  message(STATUS "hardening: Mach-O ok (${archs})")
 else()
-  message(STATUS "hardening: not ELF or PE, nothing checked")
+  message(STATUS "hardening: not ELF, PE or Mach-O, nothing checked")
 endif()

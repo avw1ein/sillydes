@@ -70,18 +70,26 @@ jobs:
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure -V
 
-  # macOS on both architectures (PORTPLAN.md todo 15): Apple clang, arm64 and Intel.
+  # macOS on both architectures (PORTPLAN.md todos 15 and 6): Apple clang, arm64 and Intel, one
+  # architecture and the universal binary. A universal binary runs its own slice on each runner, so
+  # both slices are tested natively; the signature and the hardened runtime are checked by ctest.
   macos:
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, macos-15-intel]
+        preset: [ci, universal]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: cmake --preset ci
-      - run: cmake --build --preset ci
-      - run: ctest --preset ci
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - run: ctest --preset ${{ matrix.preset }}
+      - name: Signature and architectures
+        run: |
+          lipo -archs build/${{ matrix.preset }}/sillydes
+          codesign -dvv build/${{ matrix.preset }}/sillydes
+          codesign -d --entitlements - build/${{ matrix.preset }}/sillydes
 
   # The native arm64 runner: the whole suite, with PAC and BTI in the binary and DIT switched on where
   # the CPU has it (PORTPLAN.md 4.2, 5.2).

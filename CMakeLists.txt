@@ -25,6 +25,8 @@ option(SILLYDES_HARDEN "Compile and link with the hardening flags of PORTPLAN.md
 set(SILLYDES_OPT_LEVEL "2" CACHE STRING "Optimisation level (-O<level>) of the Release build; the constant-time checks run it at 0, 2 and 3")
 option(SILLYDES_TIMING_TESTS "Add the statistical timing test ct_timing (takes seconds and is sensitive to a busy machine; the constant-time workflow turns it on)" OFF)
 set(SILLYDES_TIMING_SCALE "1" CACHE STRING "Sample multiplier of ct_timing; 10 for the nightly run")
+option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and without entitlements (PORTPLAN.md 4.1)" ON)
+set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; - is an ad hoc signature, a Developer ID name signs for distribution")
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
@@ -86,6 +88,23 @@ if(WIN32)
   if(MINGW)
     target_link_options(sillydes PRIVATE -municode)  # wmain, the wide arguments
   endif()
+endif()
+if(APPLE AND SILLYDES_CODESIGN)
+  find_program(SILLYDES_CODESIGN_TOOL codesign)
+  if(NOT SILLYDES_CODESIGN_TOOL)
+    message(FATAL_ERROR "codesign not found (SILLYDES_CODESIGN=OFF builds without signing)")
+  endif()
+  # The hardened runtime is what refuses a debugger and injected code to a process that is not
+  # signed to allow it; no --entitlements, so no get-task-allow either. An ad hoc signature carries
+  # the flag as well; a real identity adds the secure timestamp that notarization asks for.
+  set(sillydes_sign_args --force --options runtime --sign "${SILLYDES_CODESIGN_IDENTITY}")
+  if(NOT SILLYDES_CODESIGN_IDENTITY STREQUAL "-")
+    list(APPEND sillydes_sign_args --timestamp)
+  endif()
+  add_custom_command(TARGET sillydes POST_BUILD
+    COMMAND ${SILLYDES_CODESIGN_TOOL} ${sillydes_sign_args} $<TARGET_FILE:sillydes>
+    COMMENT "Signing sillydes (hardened runtime)"
+    VERBATIM)
 endif()
 install(TARGETS sillydes RUNTIME DESTINATION bin)
 install(FILES README.md LICENSE LICENSE.Unicode DESTINATION share/doc/sillydes)
@@ -160,6 +179,7 @@ if(SILLYDES_BUILD_TESTS)
   if(SILLYDES_HARDEN)
     add_test(NAME hardening
       COMMAND ${CMAKE_COMMAND} -DBINARY=$<TARGET_FILE:sillydes> -DCOMPILER_ID=${CMAKE_CXX_COMPILER_ID}
+              "-DARCHS=${CMAKE_OSX_ARCHITECTURES}" -DSIGNED=${SILLYDES_CODESIGN}
               -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_hardening.cmake)
   endif()
   # End-to-end tests: the real binary, on every OS the same way.
