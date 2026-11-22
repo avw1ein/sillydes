@@ -157,7 +157,11 @@ bool make_symlink(const std::string &target, const std::string &link)
 
 bool can_limit_address_space()
 {
+#ifdef __linux__
   return true;
+#else
+  return false;  // macOS: setrlimit refuses (EINVAL) a RLIMIT_AS or RLIMIT_DATA below what is mapped already, and nothing else limits a child
+#endif
 }
 
 RunResult run_program(const std::string &exe, const std::vector<std::string> &args, const RunOptions &opt)
@@ -183,23 +187,12 @@ RunResult run_program(const std::string &exe, const std::vector<std::string> &ar
       size_t eq = e.find('=');
       if (eq != std::string::npos) setenv(e.substr(0, eq).c_str(), e.substr(eq + 1).c_str(), 1);
     }
+#ifdef __linux__
     if (opt.address_space_limit_kb > 0) {
       rlimit rl = { (rlim_t)opt.address_space_limit_kb * 1024, (rlim_t)opt.address_space_limit_kb * 1024 };
-#ifdef __APPLE__
-      // The kernel need not enforce these limits there; the program reads both before it allocates.
-      // Only the soft limit is lowered (the kernel refuses a new hard limit); RLIMIT_AS can keep dyld
-      // from mapping the shared cache, so RLIMIT_DATA is tried first.
-      for (int res : { RLIMIT_DATA, RLIMIT_AS }) {
-        rlimit cur;
-        if (getrlimit(res, &cur) != 0) continue;
-        cur.rlim_cur = rl.rlim_cur;
-        if (setrlimit(res, &cur) == 0) break;
-        dprintf(2, "setrlimit(%s) failed: %s\n", res == RLIMIT_DATA ? "RLIMIT_DATA" : "RLIMIT_AS", strerror(errno));
-      }
-#else
       setrlimit(RLIMIT_AS, &rl);
-#endif
     }
+#endif
     execv(exe.c_str(), argv.data());
     _exit(127);
   }

@@ -54,8 +54,7 @@ struct RunResult {
 };
 RunResult run_program(const std::string &exe, const std::vector<std::string> &args, const RunOptions &opt = RunOptions());
 // True where run_program can limit the memory of the program: the address space on Linux, the commit
-// charge of a job object on Windows, the data segment limit on macOS (which the kernel need not enforce:
-// the program refuses on reading it).
+// charge of a job object on Windows. macOS has no such limit that a test can set (setrlimit fails with EINVAL, measured on the runners).
 bool can_limit_address_space();
 
 // A program run with a terminal for standard input, output and error, as a person would use it: a

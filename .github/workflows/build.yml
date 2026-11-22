@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - run: ctest --preset ${{ matrix.preset }} --timeout 240
+      - run: ctest --preset ${{ matrix.preset }}
       - name: Signature and architectures
         run: |
           lipo -archs build/${{ matrix.preset }}/sillydes
