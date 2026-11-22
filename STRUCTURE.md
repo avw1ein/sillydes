@@ -445,7 +445,7 @@ flowchart LR
   3. Run what CI runs, from a clean tree: `rm -rf build`, `cmake --preset ci`, `cmake --build --preset ci`, `ctest --preset ci`, and `cmake --build --preset ci --target sbom` to check that the SBOM still generates.
   4. Commit and push to `main`, and wait for the `build` workflow to go green (all jobs). Then start the release workflow by hand as a dry run (`gh workflow run release.yml --ref main`): it builds, tests and makes the SBOMs on all five targets and publishes nothing.
   5. Tag that commit `vX.Y.Z` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must equal `v` plus `PACKAGE_VERSION`; the workflow stops at its first step if it does not. Only tags of the form `v<number>.<number>.<number>` trigger it.
-  6. The workflow ([release.yml](.github/workflows/release.yml)) checks the tag and the changelog, builds and tests on five targets (Linux x86-64 and arm64 on Ubuntu 22.04, so that they need glibc 2.34 and not the newest; macOS as one universal file; Windows x86-64 and arm64), generates a CycloneDX SBOM for each binary ([tools/gen_sbom.sh](tools/gen_sbom.sh), which runs in bash on all three systems), attests the build provenance and the SBOM of each binary, and creates the GitHub Release with the changelog section as its notes, a line that the Windows and macOS binaries are not signed, and `sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`, `-macos-universal`, `-windows-x86_64.exe` and `-windows-arm64.exe`, an `.cdx.json` for each and `SHA256SUMS`. Check the release page afterwards, and verify downloads with `sha256sum -c SHA256SUMS` and `gh attestation verify sillydes-X.Y.Z-linux-x86_64 --repo avw1ein/sillydes`, which checks the build provenance; add `--predicate-type https://cyclonedx.org/bom` to check the SBOM attestation. Releases up to 5.2.0 are Linux x86-64 only and have the SBOM attestation only.
+  6. The workflow ([release.yml](.github/workflows/release.yml)) checks the tag and the changelog, builds and tests on five targets (Linux x86-64 and arm64 as static PIEs, built with `-DSILLYDES_STATIC=ON` on Ubuntu 22.04, so that they need no library of the system; macOS as one universal file; Windows x86-64 and arm64), generates a CycloneDX SBOM for each binary ([tools/gen_sbom.sh](tools/gen_sbom.sh), which runs in bash on all three systems), attests the build provenance and the SBOM of each binary, and creates the GitHub Release with the changelog section as its notes, a line that the Windows and macOS binaries are not signed, and `sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`, `-macos-universal`, `-windows-x86_64.exe` and `-windows-arm64.exe`, an `.cdx.json` for each and `SHA256SUMS`. Check the release page afterwards, and verify downloads with `sha256sum -c SHA256SUMS` and `gh attestation verify sillydes-X.Y.Z-linux-x86_64 --repo avw1ein/sillydes`, which checks the build provenance; add `--predicate-type https://cyclonedx.org/bom` to check the SBOM attestation. Releases up to 5.2.0 are Linux x86-64 only and have the SBOM attestation only.
 
   The same procedure, with the checks and the extra steps of a release that does change the format, is written down for AI assistants in [.github/skills/make-release/SKILL.md](.github/skills/make-release/SKILL.md); keep the two in step.
 
@@ -534,7 +534,14 @@ is `strtoll`, and counts are `uint64_t` with `PRIu64`). Sizes computed from the 
 
 **Linux.** Ubuntu's arm64 toolchain does not leave a BTI marker in the GNU property note (it survives only
 if every input has it), so the hardening check looks for `bti` and `paciasp` in the code. Release binaries
-are built on Ubuntu 22.04 so that they need glibc 2.34, not that of the newest image.
+are static PIEs (`-DSILLYDES_STATIC=ON`, linked with `-static-pie`): the C and C++ libraries are in the file, so the
+program runs on any 64-bit Linux whatever its C library, and there is no loader, no lazy binding and no
+library search at run time. They are built on Ubuntu 22.04, whose glibc is the one they carry. Details:
+CMake puts `-pie` after the link options, and `-pie` after `-static-pie` makes a dynamic executable, so the
+flag is passed with the libraries; only `sillydes` and the scan binary are static (Valgrind and the
+preloaded residue scan need the dynamic loader, so the test programs stay dynamic and the preload scan is
+left out of a static build); the `hardening` test checks that a static build has no interpreter and needs
+no library; the SBOM lists the static archives that went in (package, version, SHA-256).
 
 ## 12. Memory, process and build hardening
 

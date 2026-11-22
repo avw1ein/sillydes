@@ -80,7 +80,7 @@ that. Releases up to 5.2.0 are Linux x86-64 only and have the SBOM attestation o
 
 ## Supply chain
 
-SillyDES links no library other than the C and C++ runtime of the system (linked in on Windows);
+SillyDES links no library other than the C and C++ runtime of the system, and that is linked into every released binary (a static PIE on Linux, the static runtime on Windows; on macOS the system libraries `libSystem` and `libc++` are used, as Apple requires);
 every algorithm is implemented in this repository from its published standard. The Unicode tables
 are generated from the Unicode Character Database, whose data files are checked against stored
 SHA-256 sums (`tools/fetch_ucd.sh`) and whose result is compared with the committed header in CI.

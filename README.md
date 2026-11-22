@@ -72,7 +72,7 @@ SillyDES has no dependencies. It needs only a C++11 compiler and CMake; it uses 
 
 ### Get the program
 
-**Download.** The [releases](https://github.com/avw1ein/sillydes/releases) after 5.2.0 carry a binary for each system: `sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`, `-macos-universal`, `-windows-x86_64.exe` and `-windows-arm64.exe`, with `SHA256SUMS`, an SBOM and an attestation for each; release 5.2.0 itself is a Linux x86-64 binary only. The Windows binaries are not signed with a certificate and the macOS binary is signed ad hoc and not notarized, so SmartScreen and Gatekeeper may warn about a downloaded copy; [SECURITY.md](SECURITY.md) says how to check a download. Or build it yourself, which takes a minute.
+**Download.** The [releases](https://github.com/avw1ein/sillydes/releases) after 5.2.0 carry a binary for each system: `sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`, `-macos-universal`, `-windows-x86_64.exe` and `-windows-arm64.exe`, with `SHA256SUMS`, an SBOM and an attestation for each; release 5.2.0 itself is a Linux x86-64 binary only. The Windows binaries are not signed with a certificate and the macOS binary is signed ad hoc and not notarized, so SmartScreen and Gatekeeper may warn about a downloaded copy; [SECURITY.md](SECURITY.md) says how to check a download. The Linux binaries are static: they run on any 64-bit Linux, whatever its C library. Or build it yourself, which takes a minute.
 
 **Build.** On every system the steps are the same three: configure, build, test (the tests need 2 GiB of free memory and take about a minute). The details differ:
 
@@ -85,7 +85,7 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-The program is `build/default/sillydes`. The binary needs the C and C++ libraries of the system (the released ones, glibc 2.34 or newer). Copy it to a directory in your `PATH`, or run it as `./build/default/sillydes`.
+The program is `build/default/sillydes`. It uses the C and C++ libraries of your system; add `-DSILLYDES_STATIC=ON` to the first command to link them in (a static PIE that needs nothing from the system, which is how the released Linux binaries are made; it needs the static C and C++ libraries, which the compiler packages usually bring). Copy it to a directory in your `PATH`, or run it as `./build/default/sillydes`.
 
 *macOS*
 

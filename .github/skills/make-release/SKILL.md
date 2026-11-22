@@ -162,14 +162,15 @@ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -
 
 The tag must point at the commit that passed CI. The workflow then: checks the tag against
 `PACKAGE_VERSION` and the changelog (`prepare`); builds and tests on each target (`build`: the `ci`
-preset on Ubuntu 22.04 and its arm64 twin, the `universal` preset on macOS, the plain build on Windows
+preset with `-DSILLYDES_STATIC=ON` on Ubuntu 22.04 and its arm64 twin, the `universal` preset on macOS, the plain build on Windows
 x64 and arm64), checks that the banner names the version, generates the SBOM with `tools/gen_sbom.sh`
 and names the files after the release; attests the build provenance and the SBOM of each binary
 (`attest`, one job per file, `actions/attest` without and with `sbom-path`); and, when all of that
 succeeded, writes `SHA256SUMS` and runs `gh release create --verify-tag --notes-file` with the
 changelog section and a note that Windows and macOS binaries are not signed (`publish`). The Linux
-binaries are built on Ubuntu 22.04 on purpose, so that they need glibc 2.34 or newer and not the
-version of `ubuntu-latest`; keep it that way, and look at `objdump -T` for `GLIBC_` if the label changes.
+binaries are static PIEs (`file` must say `static`; `ldd` says `statically linked`; the workflow checks it), so
+they need no library of the system, and they carry the glibc of the image that built them (Ubuntu 22.04, kept
+for its conservative toolchain; the kernel needs only the syscalls the program uses).
 
 ## 6. Verify the release
 

@@ -66,7 +66,7 @@ Read the section that matches the file you are about to change before you change
   effort and silent; check STRUCTURE.md section 11.3 for the pitfalls of the system you touch.
 - **A new test:** follow TESTING.md section 2 (loud skip, a control, ASCII source, bytes from C++, XOR tamper,
   shared buffer in timing tests, an independent source for expected values).
-- **Workflows:** actions are pinned to commit hashes; Linux release builds stay on `ubuntu-22.04`; the Windows
+- **Workflows:** actions are pinned to commit hashes; Linux release builds are static (`-DSILLYDES_STATIC=ON`) on `ubuntu-22.04`; the Windows
   and macOS labels float (pin them on purpose, not by accident); a release is tried with the workflow's dry
   run (`gh workflow run release.yml --ref <branch>`) before a tag.
 - **A claim about a system you cannot run** (a debugger is refused, a dump excludes a block) is not a result.

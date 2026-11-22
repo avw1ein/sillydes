@@ -49,13 +49,17 @@ the section of the tag's version as the text of the GitHub Release.
   runner built the binary. `gh attestation verify <binary> --repo avw1ein/sillydes` checks it;
   the SBOM attestation is checked with `--predicate-type https://cyclonedx.org/bom` added.
 
-- The release workflow builds, tests and publishes five binaries: Linux x86-64 and arm64 (built on
-  Ubuntu 22.04, so they need glibc 2.34 or newer instead of that of the newest image), macOS
+- The release workflow builds, tests and publishes five binaries: Linux x86-64 and arm64 (static
+  PIEs: they need no library of the system and run on any 64-bit Linux), macOS
   (one universal file, arm64 and x86-64), and Windows x86-64 and arm64, each with a CycloneDX SBOM
   and a build provenance and an SBOM attestation, and one `SHA256SUMS`. The Windows binaries are
   not signed with a certificate and the macOS binary is not notarized. Started by hand, the
   workflow is a dry run that publishes nothing. `tools/gen_sbom.sh` now runs on macOS and Windows
   too.
+- Linux: `-DSILLYDES_STATIC=ON` links the program as a static PIE, which needs no library of the system.
+  The released Linux binaries are built that way, and the `linux-static` job tests that very binary
+  (the hardening test checks that it has no interpreter and needs no library). The SBOM of a static
+  binary lists the archives of the C and C++ runtime that went into it.
 - `SECURITY.md`: how to report a problem, what the program is meant to protect, what it does not,
   what has not been verified, and how to verify a download.
 

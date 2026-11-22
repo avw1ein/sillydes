@@ -35,6 +35,7 @@ CI ([build.yml](.github/workflows/build.yml), [constant-time.yml](.github/workfl
 |---|---|---|
 | `cmake` | ubuntu-latest, g++ and clang++ | the SBOM target, the SBOM artifact, interop files |
 | `linux-arm64` | ubuntu-24.04-arm | the whole suite natively, residue scan included |
+| `linux-static` | ubuntu-latest, ubuntu-24.04-arm | `-DSILLYDES_STATIC=ON`: the program as it is released, a static PIE; the whole suite on it, except the preloaded scan (it needs the dynamic loader; the scan binary does the same search). The test programs stay dynamic |
 | `windows-msvc`, `windows-arm64` | windows-latest, windows-11-arm | `/W4 /WX`, static runtime |
 | `windows-mingw` | windows-latest, MSYS2 UCRT64 | static; MINGW64 is deprecated by MSYS2 |
 | `macos` | macos-latest (arm64), macos-15-intel; presets `ci` and `universal` | a universal binary runs its own slice on each runner, so both slices are tested natively |
@@ -105,7 +106,7 @@ Two ways in, sharing the same core:
   exactly where the program would end, after `scrub_stack`. That `#ifdef` is the only test hook in the
   program, one per platform file, and it is absent from the real binary;
 - the **preloaded library** `residue_scan.so` (Linux): `LD_PRELOAD` into the real binary, hooking only
-  `_exit` and a constructor. Linux runs both, which ties the new scanner to the old one.
+  `_exit` and a constructor. Linux runs both, which ties the new scanner to the old one. A static build (`-DSILLYDES_STATIC=ON`) has no loader to preload into, so there only the scan binary runs; it found nothing on the static glibc either.
 
 Controls (the test fails unless they are found): the preload scanner is shown a shell that holds the mark;
 the scan binary keeps a plain copy of the mark on the heap (`SCAN_CONTROL=heap`) and in the frame of the
@@ -225,8 +226,8 @@ Facts about the runners:
 - `gh run rerun` and then `gh api repos/avw1ein/sillydes/actions/runs/<id>/attempts/N --jq .conclusion`
   for each attempt: `gh run view` shows a stale attempt right after a rerun.
 - Runner labels (`windows-latest`, `macos-latest`) float to newer images; Linux release builds are pinned
-  to `ubuntu-22.04` on purpose (glibc floor). The Windows and macOS labels should be pinned and updated
-  on purpose.
+  to `ubuntu-22.04` on purpose (the glibc they carry), as static programs. The Windows and macOS labels
+  should be pinned and updated on purpose.
 - Public repositories have free runners; the whole matrix takes about ten minutes, the macOS Intel runner
   being the slowest.
 - Measured on the runners: `available_memory()` 13 to 14 GiB (Windows, Linux arm64), 3.0 GiB (macOS arm64),
