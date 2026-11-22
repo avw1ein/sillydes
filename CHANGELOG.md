@@ -2,13 +2,25 @@
 
 All notable changes to SillyDES, newest first. Every release says whether the **file format**
 changed, because that decides whether files written by one release can be read by another.
-The format is named after the release that introduced it (currently 5.1.0); see section 1 of the
+The format is named after the release that introduced it (currently 5.2.0); see section 1 of the
 [README](README.md).
 
 Maintainers: add the entry for a release here before tagging it. The release workflow publishes
 the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
+
+## [5.2.1] - 2026-11-22
+
+**File format: unchanged (5.2.0).** Files written by 5.2.0 and by 5.2.1 open in each other, with a
+key file or a phrase, and the e-mail text still starts with `*BEGIN SillyDES 5.2.0 message`.
+
+SillyDES now runs on Linux, macOS and Windows, on x86-64 and arm64, and a file made on any of them
+opens on all the others. This is the first release with binaries for all of these systems (Linux
+x86-64 and arm64 as static executables that need no library of the system, macOS as one universal
+file, Windows x86-64 and arm64), each with an SBOM and attestations, and with hardening of the
+process and of the build on every system. The macOS binary is signed ad hoc and not notarized, and
+the Windows binaries are not signed with a certificate.
 
 ### Added
 
@@ -195,7 +207,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.1...HEAD
+[5.2.1]: https://github.com/avw1ein/sillydes/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/avw1ein/sillydes/compare/v5.1.1...v5.2.0
 [5.1.1]: https://github.com/avw1ein/sillydes/compare/v5.1.0...v5.1.1
 [5.1.0]: https://github.com/avw1ein/sillydes/compare/v5.03...v5.1.0

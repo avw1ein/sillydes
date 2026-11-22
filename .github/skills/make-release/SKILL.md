@@ -103,8 +103,8 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
 1. In `src/version.h` set `PACKAGE_VERSION "X.Y.Z"`. Nothing else in that file.
 2. Update the **program version in the document titles** (line 1 of each):
    `README.md` (`# SillyDES X.Y.Z`), `STRUCTURE.md` (`# SillyDES X.Y.Z: software structure and flow`),
-   `ANALYSIS.md` (`# Mathematical analysis of SillyDES X.Y.Z`) and `VISUALIZATION.md`
-   (`# SillyDES X.Y.Z in pictures: ...`).
+   `ANALYSIS.md` (`# Mathematical analysis of SillyDES X.Y.Z`), `TESTING.md` (`# SillyDES X.Y.Z: tests, verification and CI`)
+   and `VISUALIZATION.md` (`# SillyDES X.Y.Z in pictures: ...`).
 3. Leave every other `5.2.0` alone: those name the *format* (the labels `SillyDES 5.2.0 white/tweak/mac`
    in `ANALYSIS.md`, `STRUCTURE.md` and `VISUALIZATION.md`, the cipher names in the `ANALYSIS.md`
    tables, the README paragraph on the file format, `hello.sdes`, `test/format-5.2.0/`, and
@@ -112,7 +112,7 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
    ```sh
    grep -rn "SillyDES [0-9]\+\.[0-9]\+\.[0-9]\+" --include='*.md' --include='*.h' --include='*.cpp' --include='*.sh' . | grep -v '^./.git/'
    ```
-   Every hit must be either one of the four new titles or a format reference.
+   Every hit must be either one of the five new titles or a format reference.
 4. Add the `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` below `## [Unreleased]` (move anything
    that is listed under Unreleased into it) and update the compare links at the end of the file.
    Test the extraction the workflow uses:
