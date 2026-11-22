@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 1993-1994, 2026 Andy van Wezel
 #
-# The disassembly gate of PORTPLAN.md 5.3 (item 2). Counts the conditional branches of every
+# The disassembly gate (TESTING.md section 5). Counts the conditional branches of every
 # function of a built binary that handles secrets, prints them as a report, and fails if a function
 # that must be free of them has one. Whether a branch depends on a secret cannot be seen in the
 # disassembly (a loop over a public length branches, and so does any bounds check), so only the

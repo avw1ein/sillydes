@@ -4,7 +4,7 @@
 // The platform layer: everything that needs an operating system. It is implemented once per OS
 // (platform_posix.cpp today), and no other file of the program includes an OS header. The rest of
 // the program sees text as UTF-8 and data as bytes; converting at the edge is the job of this layer
-// (see PORTPLAN.md, sections 2 and 3.4).
+// (see STRUCTURE.md, sections 2 and 11).
 //
 // Also part of the layer, but declared in common.h because the containers need them: secure_alloc,
 // secure_free, locked_alloc and locked_free.

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 1993-1994, 2026 Andy van Wezel
 #
-# Checks that the program carries the hardening of PORTPLAN.md 4.2: that the build did what
+# Checks that the program carries the hardening of STRUCTURE.md section 12: that the build did what
 # cmake/harden.cmake says, not just that the flags were passed.
 #   ELF (Linux): position independent, non-executable stack, read-only relocations, bound at load,
 #                stack protector, and IBT and shadow stack (x86-64) or BTI and PAC code (arm64).

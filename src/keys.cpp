@@ -31,7 +31,7 @@ uint8_t length_mask(const uint8_t key[NL][8])
 }  // namespace
 
 // The value of a hexadecimal digit, with bit 8 set if c is none. Key digits are secret, so there is
-// no branch and no table index on c (PORTPLAN.md 5.1).
+// no branch and no table index on c (STRUCTURE.md section 12).
 uint32_t hex_digit(uint8_t c)
 {
   uint32_t x = c;

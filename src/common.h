@@ -91,7 +91,7 @@ void randbytes(uint8_t *p, size_t n);
 // Zeroises memory in a way the compiler will not remove.
 void wipe(void *p, size_t n);
 
-// Constant-time helpers (PORTPLAN.md 5.2). value_barrier returns v, but the compiler may assume nothing
+// Constant-time helpers (STRUCTURE.md section 12). value_barrier returns v, but the compiler may assume nothing
 // about the result: wrapped around a mask or an accumulator it stops the optimiser from turning
 // branch-free code into branches (or a loop into an early exit) on a secret.
 #if defined(__GNUC__) || defined(__clang__)

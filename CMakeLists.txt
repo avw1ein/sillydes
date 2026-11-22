@@ -20,11 +20,11 @@ endif()
 
 option(SILLYDES_WERROR "Treat compiler warnings as errors" OFF)
 option(SILLYDES_BUILD_TESTS "Build the tests" ON)
-option(SILLYDES_HARDEN "Compile and link with the hardening flags of PORTPLAN.md 4.2" ON)
+option(SILLYDES_HARDEN "Compile and link with the hardening flags of STRUCTURE.md section 12" ON)
 set(SILLYDES_OPT_LEVEL "2" CACHE STRING "Optimisation level (-O<level>) of the Release build; the constant-time checks run it at 0, 2 and 3")
 option(SILLYDES_TIMING_TESTS "Add the statistical timing test ct_timing (takes seconds and is sensitive to a busy machine; the constant-time workflow turns it on)" OFF)
 set(SILLYDES_TIMING_SCALE "1" CACHE STRING "Sample multiplier of ct_timing; 10 for the nightly run")
-option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and without entitlements (PORTPLAN.md 4.1)" ON)
+option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and without entitlements (STRUCTURE.md section 12)" ON)
 set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; - is an ad hoc signature, a Developer ID name signs for distribution")
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
@@ -217,7 +217,7 @@ if(SILLYDES_BUILD_TESTS)
   endif()
   add_test(NAME e2e COMMAND test_e2e ${SILLYDES_E2E_ARGS})
 
-  # Constant-time check with Valgrind's Memcheck (ctgrind style, PORTPLAN.md 5.3); needs valgrind.
+  # Constant-time check with Valgrind's Memcheck (ctgrind style, TESTING.md section 5); needs valgrind.
   find_program(SILLYDES_VALGRIND valgrind)
   include(CheckIncludeFileCXX)
   check_include_file_cxx(valgrind/memcheck.h SILLYDES_HAVE_MEMCHECK_H)

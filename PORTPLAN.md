@@ -1,5 +1,13 @@
 # Plan: make SillyDES portable (Linux, macOS, Windows) and harden it
 
+> **Status: finished working document.** The port is done, and what it taught is kept in the repository
+> proper: design and per-system pitfalls in [STRUCTURE.md](STRUCTURE.md) sections 11 and 12, tests, CI,
+> findings and what cannot be verified in [TESTING.md](TESTING.md), the threat model in
+> [SECURITY.md](SECURITY.md), what a user sees in the [README](README.md), how to work with the runners in
+> `.github/skills/runner-driven-development/SKILL.md`, and releases in `.github/skills/make-release/SKILL.md`.
+> Nothing else refers to this file; it is the history (todo by todo, with the numbers and the dead ends)
+> and may be deleted.
+
 ## Decisions
 | Topic | Decision |
 |---|---|

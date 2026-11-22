@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  # Linux, gcc and clang (PORTPLAN.md todos 1 and 13: CMake is the only build).
+  # Linux, gcc and clang (CMake is the only build).
   cmake:
     strategy:
       fail-fast: false
@@ -52,7 +52,7 @@ jobs:
             build/ci/sillydes
             build/ci/test_e2e
 
-  # Windows, from the first platform file on (PORTPLAN.md todo 15): the Microsoft compiler and
+  # Windows, from the first platform file on: the Microsoft compiler and
   # MinGW-w64 are different compilers with different warnings, and users have both.
   windows-msvc:
     runs-on: windows-latest
@@ -74,7 +74,7 @@ jobs:
             build/Release/sillydes.exe
             build/Release/test_e2e.exe
 
-  # The native Windows arm64 runner (PORTPLAN.md todo 11): the same build as windows-msvc.
+  # The native Windows arm64 runner: the same build as windows-msvc.
   windows-arm64:
     runs-on: windows-11-arm
     steps:
@@ -125,7 +125,7 @@ jobs:
             build/sillydes.exe
             build/test_e2e.exe
 
-  # macOS on both architectures (PORTPLAN.md todos 15 and 6): Apple clang, arm64 and Intel, one
+  # macOS on both architectures: Apple clang, arm64 and Intel, one
   # architecture and the universal binary. A universal binary runs its own slice on each runner, so
   # both slices are tested natively; the signature and the hardened runtime are checked by ctest.
   macos:
@@ -162,7 +162,7 @@ jobs:
             build/ci/test_e2e
 
   # The native arm64 runner: the whole suite, with PAC and BTI in the binary and DIT switched on where
-  # the CPU has it (PORTPLAN.md 4.2, 5.2).
+  # the CPU has it (STRUCTURE.md section 12).
   linux-arm64:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -183,7 +183,7 @@ jobs:
             build/ci/sillydes
             build/ci/test_e2e
 
-  # Big endian (PORTPLAN.md todo 11): s390x under QEMU user mode, cross-compiled. The unit tests run
+  # Big endian: s390x under QEMU user mode, cross-compiled. The unit tests run
   # there, and the files made there and by the x86-64 build open on the other one: the format is bytes,
   # not memory images. The end-to-end test is not run (QEMU does not limit the address space of a
   # child, and the residue scan preloads a library into a native process).
@@ -220,7 +220,7 @@ jobs:
 
   # Files made by every system's own build are opened by every system's build: binary and armored, with
   # a key file, an ASCII phrase and a non-ASCII phrase (also typed another way), and on Windows through
-  # PowerShell and cmd.exe (PORTPLAN.md todo 11, README section 1).
+  # PowerShell and cmd.exe (TESTING.md section 6, README section 1).
   interop:
     needs: [cmake, linux-arm64, macos, windows-msvc, windows-arm64, windows-mingw]
     strategy:

@@ -108,6 +108,11 @@ the section of the tag's version as the text of the GitHub Release.
   is not verified), how error 7 is decided on each system, and what PowerShell 5.1, PowerShell 7
   and `cmd.exe` hand to the program as a phrase. ANALYSIS.md and STRUCTURE.md follow, and
   ANALYSIS.md lists the cross-system results and the time of the key derivation per system.
+- README section 1 and the introduction say that SillyDES runs on Linux, macOS and Windows, with
+  the way to download or build it, and to run it, per system. New: `TESTING.md` (tests, CI, the
+  rules for writing a test, findings, what cannot be verified), STRUCTURE.md sections 11 and 12
+  (the platform layer, per-system pitfalls, memory, process and build hardening), and a
+  `runner-driven-development` skill for working with CI runners.
 
 ## [5.2.0] - 2026-11-21
 

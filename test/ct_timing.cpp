@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// Timing check in the style of dudect (PORTPLAN.md 5.3, items 3 and 4): two classes of input are
+// Timing check in the style of dudect (TESTING.md section 5): two classes of input are
 // timed in random order and compared with Welch's t-test. For code that runs in constant time the
 // two distributions are the same, and |t| stays small however long one measures; a leak shows as a
 // |t| that grows with the number of measurements.

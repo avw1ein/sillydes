@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// Constant-time check in the style of ctgrind (PORTPLAN.md 5.3, item 1): the secret inputs are marked
+// Constant-time check in the style of ctgrind (TESTING.md section 5): the secret inputs are marked
 // as uninitialised for Valgrind's Memcheck, which reports every conditional jump and every memory
 // address that depends on them. Run under Valgrind with --error-exitcode, any report fails the test:
 //
@@ -11,7 +11,7 @@
 //
 // In scope: the key schedule and the layer of DES, SHA-512, HMAC, BLAKE2b, the MAC compare, the hex
 // decoding of key files, key derivation from a key file, the cipher in CBC mode, padding.
-// Out of scope, by design (PORTPLAN.md 5.1): Argon2id in phrase mode (data-dependent addressing),
+// Out of scope, by design (STRUCTURE.md section 12): Argon2id in phrase mode (data-dependent addressing),
 // the normalisation of a phrase, and what runs after authentication (unpad256 branches on the
 // length, which is public).
 //

@@ -4,9 +4,9 @@
 // The platform layer for Windows (MSVC and MinGW-w64). See platform.h. Only the W functions are
 // used, never the ANSI or OEM code page, and no CRT file descriptor touches data: there is no text
 // mode, so a file is read and written as the bytes it is. Names, arguments and the phrase are UTF-8
-// inside the program (PORTPLAN.md, 3.4).
+// inside the program (STRUCTURE.md section 11).
 //
-// Memory hygiene is best effort and silent (PORTPLAN.md 4.1 and 4.3): the pages that hold secrets are
+// Memory hygiene is best effort and silent (STRUCTURE.md section 12): the pages that hold secrets are
 // locked with VirtualLock, after the working set has been raised far enough for that (the limit of
 // VirtualLock is the minimum working set), and they are registered with WerRegisterExcludedMemoryBlock,
 // so that a Windows Error Reporting dump of a crash leaves them out.
@@ -498,7 +498,7 @@ bool read_console_line(HANDLE in, SecretBuf &s)
 }  // namespace
 
 // A pipe or a file is read with ReadFile a byte at a time: no CRT text mode, no buffer that holds a
-// copy of the phrase, and the bytes are what the writer sent (PORTPLAN.md: a pipe carries UTF-8).
+// copy of the phrase, and the bytes are what the writer sent (README section 7: a pipe carries UTF-8).
 bool read_secret_line(const char *prompt, SecretBuf &s)
 {
   write_message(MSG_ERR, prompt);

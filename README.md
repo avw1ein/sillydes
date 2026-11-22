@@ -20,7 +20,7 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 9. [Error levels](#9-error-levels)
 10. [Disclaimer](#10-disclaimer)
 
-What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning and [STRUCTURE.md](STRUCTURE.md) for the code layout. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning, [STRUCTURE.md](STRUCTURE.md) for the code layout, [TESTING.md](TESTING.md) for the tests and the CI, and [SECURITY.md](SECURITY.md) for the threat model and how to report a problem. The analysis in ANALYSIS.md was written by Claude Fable 5.1 (Anthropic), working from the source code; it is not an independent human review.
 
 ---
 
@@ -30,9 +30,11 @@ What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUA
 
 SillyDES gives you a way to protect your data, whether you keep it at home or send it throughout the world. The program provides two sorts of output, High-ASCII and Low-ASCII. You can use the first for security at home. The second one is aimed at e-mail. SillyDES was originally released as GPG, a DOS program (1993 - 1994).
 
+It runs on Linux, macOS and Windows, on x86-64 and arm64, and a file made on one of them opens on all the others, with a key file or with a phrase typed in any language: the same phrase gives the same keys on every system. Section 1 shows how to get and build it on your system.
+
 The program uses the Data Encryption Standard (DES). See section 2 for the reasoning behind this choice.
 
-Every cryptographic algorithm in SillyDES is implemented in this repository from its published standard; the program links no cryptographic library. DES follows FIPS 46-3, SHA-512 FIPS 180-4, HMAC RFC 2104, BLAKE2b RFC 7693, Argon2id RFC 9106, and the CRC-32 is the IEEE 802.3 polynomial used by zlib. Each implementation is checked against the test vectors of its standard by `make test`. The one piece of outside material is data: the Unicode tables behind the canonical form of a phrase (section 7), generated from the Unicode Character Database into a source file; the normalisation itself is implemented here too, from Unicode Standard Annex #15, and passes the complete conformance file of that standard. Only the composition of these pieces, the block expansion and the eight-layer DES construction described in section 4, is SillyDES's own.
+Every cryptographic algorithm in SillyDES is implemented in this repository from its published standard; the program links no cryptographic library. DES follows FIPS 46-3, SHA-512 FIPS 180-4, HMAC RFC 2104, BLAKE2b RFC 7693, Argon2id RFC 9106, and the CRC-32 is the IEEE 802.3 polynomial used by zlib. Each implementation is checked against the test vectors of its standard by the tests (`ctest`). The one piece of outside material is data: the Unicode tables behind the canonical form of a phrase (section 7), generated from the Unicode Character Database into a source file; the normalisation itself is implemented here too, from Unicode Standard Annex #15, and passes the complete conformance file of that standard. Only the composition of these pieces, the block expansion and the eight-layer DES construction described in section 4, is SillyDES's own.
 
 Features:
 
@@ -43,6 +45,7 @@ Features:
 - Key phrase (Argon2id, 2 GiB of memory, salted) or key file.
 - One phrase gives the same keys on every system, however it was typed (Unicode NFKC).
 - Constant-time DES: no key- or data-dependent memory access or branch during encryption.
+- Linux, macOS and Windows (x86-64 and arm64), one file format: files made on one system open on every other.
 - Self-contained: DES, SHA-512, HMAC, BLAKE2b, Argon2id and CRC-32 are implemented from their standards, with no external cryptographic library.
 - Easy to use.
 - Slow! Which is good!
@@ -65,17 +68,62 @@ If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts SillyDE
 
 ## 1. Quick start
 
-SillyDES has no dependencies. It needs only a C++11 compiler and CMake (3.21 or newer for the presets); it uses nothing beyond the C++ standard library and the system headers, which is why GitHub's dependency graph finds no manifest file. Build and test with:
+SillyDES has no dependencies. It needs only a C++11 compiler and CMake; it uses nothing beyond the C++ standard library and the system headers, which is why GitHub's dependency graph finds no manifest file. It is for 64-bit systems: Linux (x86-64, arm64), macOS (arm64, Intel) and Windows 10 or later (x86-64, arm64).
+
+### Get the program
+
+**Download.** The [releases](https://github.com/avw1ein/sillydes/releases) after 5.2.0 carry a binary for each system: `sillydes-X.Y.Z-linux-x86_64`, `-linux-arm64`, `-macos-universal`, `-windows-x86_64.exe` and `-windows-arm64.exe`, with `SHA256SUMS`, an SBOM and an attestation for each; release 5.2.0 itself is a Linux x86-64 binary only. The Windows binaries are not signed with a certificate and the macOS binary is signed ad hoc and not notarized, so SmartScreen and Gatekeeper may warn about a downloaded copy; [SECURITY.md](SECURITY.md) says how to check a download. Or build it yourself, which takes a minute.
+
+**Build.** On every system the steps are the same three: configure, build, test (the tests need 2 GiB of free memory and take about a minute). The details differ:
+
+*Linux*
 
 ```sh
+# needs g++ or clang++ and cmake (3.21 or newer for the presets); use your distribution's packages
 cmake --preset default
 cmake --build --preset default
 ctest --preset default
 ```
 
-The program is `build/default/sillydes` (`build\default\Release\sillydes.exe` on Windows with Visual Studio). gcc, clang, Apple clang, MSVC and MinGW-w64 all work.
+The program is `build/default/sillydes`. The binary needs the C and C++ libraries of the system (the released ones, glibc 2.34 or newer). Copy it to a directory in your `PATH`, or run it as `./build/default/sillydes`.
 
-**Systems.** SillyDES is for 64-bit systems: Linux (x86-64 and arm64), macOS (arm64 and Intel; `cmake --preset universal` makes one file for both) and Windows 10 or later (x86-64 and arm64). Every push is built and tested on all of them by the [build workflow](.github/workflows/build.yml), on GitHub's own runners: the unit tests, the end-to-end tests with the real program (a phrase typed into a terminal included), a search of the exited process's memory for secrets, and a check that files made on every system open on every other. A runner is a server image, not your computer, so what depends on your setup (your terminal, your shell profile, a machine with less than 2 GiB free) is not covered. The [releases](https://github.com/avw1ein/sillydes/releases) after 5.2.0 carry a binary for each of Linux (x86-64 and arm64, glibc 2.34 or newer), macOS (one universal file) and Windows (x86-64 and arm64), with a checksum file, an SBOM and an attestation for each; release 5.2.0 itself is a Linux x86-64 binary only. The Windows binaries are not signed with a certificate and the macOS binary is signed ad hoc with the hardened runtime and not notarized, so SmartScreen and Gatekeeper may warn about a downloaded copy; [SECURITY.md](SECURITY.md) says how to check a download, and you can always build it yourself. The examples in this file use a Unix shell; on Windows read `sillydes.exe` for `./sillydes` and `type` for `cat`, and see the notes on PowerShell and `cmd` in section 7.
+*macOS*
+
+```sh
+xcode-select --install          # Apple clang, once
+brew install cmake              # or the installer from cmake.org
+cmake --preset default          # for this Mac only
+cmake --preset universal        # instead: one file for arm64 and Intel (macOS 11 or later)
+cmake --build --preset default  # or: --preset universal
+ctest --preset default
+```
+
+The program is `build/default/sillydes` (`build/universal/sillydes`). The build is signed with the hardened runtime, ad hoc, by the build itself. A copy you built is not quarantined; a downloaded one is, and Gatekeeper may refuse it until you remove the quarantine (`xattr -d com.apple.quarantine sillydes-...`) or build it yourself.
+
+*Windows*
+
+Install Visual Studio or the Build Tools for Visual Studio with the workload "Desktop development with C++" (it includes CMake), or MSYS2 with its UCRT64 gcc, cmake and ninja. In PowerShell or `cmd`:
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The program is `build\Release\sillydes.exe`. With MSYS2 (UCRT64 shell) use `cmake -S . -B build -G Ninja`, then `cmake --build build` and `ctest --test-dir build`; the program is `build/sillydes.exe`. Both are linked statically: no DLL needs to go with the program. The presets are for Unix-like shells; the commands above are what the project's tests on Windows run.
+
+**Systems and tests.** Every push is built and tested on all of these systems by the [build workflow](.github/workflows/build.yml), on GitHub's own runners: the unit tests, the end-to-end tests with the real program (a phrase typed into a terminal included), a search of the exited process's memory for secrets, and a check that files made on every system open on every other. A runner is a server image, not your computer, so what depends on your setup (your terminal, your shell profile, a machine with less than 2 GiB free) is not covered. [TESTING.md](TESTING.md) says what is tested and what is not.
+
+### First run
+
+The examples in this file use a Unix shell (Linux, macOS). **On Windows** use PowerShell or `cmd`, and write `sillydes.exe` (or `.\sillydes.exe` in PowerShell) for `./sillydes` and `type` for `cat`:
+
+```bat
+sillydes.exe act=dm in=hello.sdes out=hello.txt key=sample.key
+type hello.txt
+```
+
+A file name with spaces needs quotes, as for any program. Section 7 has what PowerShell 5.1 and `cmd` do to a phrase that is piped in.
 
 For a quick e-mail-style demonstration:
 

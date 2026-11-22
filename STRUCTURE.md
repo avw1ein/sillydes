@@ -1,10 +1,10 @@
 # SillyDES 5.2.0: software structure and flow
 
-This document describes how the program is built and how data moves through it. For the cryptographic reasoning see [ANALYSIS.md](ANALYSIS.md); for usage see [README.md](README.md); for diagrams of one block passing through the cipher see [VISUALIZATION.md](VISUALIZATION.md).
+This document describes how the program is built and how data moves through it. For the cryptographic reasoning see [ANALYSIS.md](ANALYSIS.md); for usage see [README.md](README.md); for diagrams of one block passing through the cipher see [VISUALIZATION.md](VISUALIZATION.md); for the tests, the CI and what they cannot show see [TESTING.md](TESTING.md); for the threat model and how to report a problem see [SECURITY.md](SECURITY.md).
 
 ## 1. Overview
 
-SillyDES is a single-process command line tool written in C++ for Linux, with no third-party dependencies. It reads one input file completely into memory, transforms it, and writes one output file. There is no daemon, network access, or persistent state.
+SillyDES is a single-process command line tool written in C++11 for Linux, macOS and Windows (64-bit, x86-64 and arm64), with no third-party dependencies. Everything that differs between the systems is in one platform layer (sections 2 and 11). It reads one input file completely into memory, transforms it, and writes one output file. There is no daemon, network access, or persistent state.
 
 ```
 sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase
@@ -405,6 +405,8 @@ All failures end in `errorexit(code)`, which prints a message to stderr and thro
 
 ## 9. Build and test structure
 
+This section describes how the build is put together. What the tests prove, how the CI is arranged, the rules for writing a test and what the tests cannot show are in [TESTING.md](TESTING.md).
+
 [CMakeLists.txt](CMakeLists.txt) is the only build: the units except `main.cpp` as the library `sillydes_core`, `sillydes`, `test_primitives`, `test_e2e`, the scan binary `sillydes_scan` and (Linux) `residue_scan`, with C++11 and no compiler extensions, for 64-bit targets only. `CMakePresets.json` has `default`, `ci` (warnings are errors, what CI runs), `universal` (macOS, arm64 and x86_64 in one file) and `debug`; on macOS a post-build step signs `sillydes` with the hardened runtime and no entitlements (`SILLYDES_CODESIGN`, `SILLYDES_CODESIGN_IDENTITY`), and the `hardening` test checks the signature and every architecture; `cmake --preset ci && cmake --build --preset ci && ctest --preset ci` builds and tests the program, with gcc and clang. CTest runs `test_primitives`, `test_e2e` and `hardening`, on every OS. `test_e2e --interop-make` and `--interop-check` (not part of CTest) are what the `interop` job of the `build` workflow uses: each build makes files for the others and opens theirs. `-DSILLYDES_REGENERATE_SBOX=ON` adds the target `regenerate_sbox`, which builds [tools/gen_des_sbox.cpp](tools/gen_des_sbox.cpp) and rewrites [src/des_sbox_ct.h](src/des_sbox_ct.h); the generated header is committed, so a normal build does not need it. `-DSILLYDES_REGENERATE_UNICODE=dir` adds `regenerate_unicode`, `check_unicode` and the test `unicode_check`, for [src/unicode_tables.h](src/unicode_tables.h) and [tools/gen_unicode.cpp](tools/gen_unicode.cpp): `dir` holds the Unicode data files, which [tools/fetch_ucd.sh](tools/fetch_ucd.sh) downloads and checks against stored SHA-256 sums, and the notice comes from [LICENSE.Unicode](LICENSE.Unicode); the tables belong to the file format, so `regenerate_unicode` is only for a new format. `check_unicode` confirms that the committed tables are exactly what the generator makes of those files and runs [test/unicode_conformance.cpp](test/unicode_conformance.cpp) on the conformance file of that Unicode version; the [unicode](.github/workflows/unicode.yml) workflow does this whenever one of the files involved changes. The target `sbom` (Linux only) runs [tools/gen_sbom.sh](tools/gen_sbom.sh) on the built binary and writes `sillydes.cdx.json` into the build directory, a CycloneDX 1.5 SBOM with the binary's SHA-256, the shared libraries `ldd` reports (one component per distribution package, with version, purl and file hashes), the Unicode data that is compiled in, the compiler and the source commit; it is generated rather than committed because it holds the hash of the binary. Hardening flags (stack protector, stack clash protection, control-flow markers, fortified libc calls, PIE, relro and now, a non-executable stack; ASLR, DEP and control flow guard on Windows) come from [cmake/harden.cmake](cmake/harden.cmake); the CTest test `hardening` ([cmake/check_hardening.cmake](cmake/check_hardening.cmake)) reads the finished binary for them, and `-DSILLYDES_SANITIZE=ON` builds with AddressSanitizer and UndefinedBehaviorSanitizer. The `build` workflow builds on Linux (gcc and clang, x86-64 and arm64), Windows and macOS.
 
 ```mermaid
@@ -448,3 +450,151 @@ flowchart LR
   The same procedure, with the checks and the extra steps of a release that does change the format, is written down for AI assistants in [.github/skills/make-release/SKILL.md](.github/skills/make-release/SKILL.md); keep the two in step.
 
   Never move or reuse a published tag: a pushed tag is not run again, and users may already have its files. If a run fails before the last step, nothing was published, so fix the cause and re-run the failed workflow; if a bad release did go out, delete the release and the tag and publish the next patch version instead. Each SBOM holds the hash of its CI-built binary and is attached to the release; it is never committed. The tag `v5.1.0` already exists from before the workflow, so it will not trigger it; the first release with all five binaries and the build provenance attestation is the next version.
+
+## 11. Platforms
+
+### 11.1 Decisions that stay
+
+| Topic | Decision |
+|---|---|
+| Build system | CMake only (3.16; the presets need 3.21). C++11, extensions off, 64-bit only (`static_assert(sizeof(void *) == 8)` and a CMake error), `-O2` and no `-DNDEBUG` |
+| Targets | Linux x86-64 and arm64 (gcc, clang), macOS arm64 and x86-64 (Apple clang, one universal file possible), Windows x86-64 and arm64 (MSVC) and x86-64 (MinGW-w64, MSYS2 UCRT64) |
+| Operating system code | Only in [platform.h](src/platform.h) with `platform_posix.cpp` and `platform_win32.cpp`. No other source file includes an OS header or stdio; every message goes through `write_message`. `main` takes its arguments as a `std::vector<std::string>` of UTF-8 (`run`), so a `wmain` only converts and calls it |
+| Text | UTF-8 inside the program: phrase, file names, messages. Windows uses wide-character (W) functions only, never the ANSI or OEM code page, and never `SetConsoleOutputCP` (it changes the user's console for the rest of the session). The program never calls `setlocale`, so `tolower`, `strtoull` and `snprintf` behave the same everywhere. MSVC builds with `/utf-8` |
+| Data | Bytes. Plaintext and the binary container are never translated: a CR LF text file decrypts to the same CR LF file on every system. Windows opens with `CreateFileW`, so no text mode exists |
+| Text the program writes | The armor, with LF only, the same on every system (equal containers give equal text) |
+| Text the program reads | Key file, armor and phrase are accepted with every line ending and in the common encodings (section 7 and 6.3) |
+| File names | Never normalised: Linux passes the bytes, macOS and Windows hand the name to the system as given |
+| Phrase | One canonical form, part of the file format (section 7.1). Anything that changes the bytes of a phrase is a format change |
+| File format | 5.2.0, byte-identical on every system. `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere |
+| Where it is verified | Everything that is not Linux runs only on GitHub's runners, real Windows and macOS ([TESTING.md](TESTING.md)); nothing counts until a runner has produced it |
+| KDF side channel | Argon2id's data-dependent addressing is documented only ([ANALYSIS.md](ANALYSIS.md) section 8); there is no Argon2i mode |
+
+### 11.2 What the platform layer does per system
+
+| Function | Linux | macOS | Windows |
+|---|---|---|---|
+| `secure_zero` (backs `wipe`) | `explicit_bzero` | `memset_s` (needs `__STDC_WANT_LIB_EXT1__` before the first include) | `SecureZeroMemory` |
+| `os_random` | `getrandom` | `getentropy`, at most 256 bytes at a time | `BCryptGenRandom` (the system preferred generator) |
+| Files | POSIX, `O_NOFOLLOW`, `O_CLOEXEC`, mode 0600 | the same | `CreateFileW`, binary; a link is refused by looking at the handle before the file is truncated (`FILE_FLAG_OPEN_REPARSE_POINT`); a new file inherits the access list of its folder |
+| `same_file` | `st_dev` and `st_ino` | the same | `GetFileInformationByHandle` (volume serial and file index); `st_ino` is 0 on Windows |
+| `available_memory` | `MemAvailable`, and the `RLIMIT_AS` and `RLIMIT_DATA` limits | free, inactive and purgeable pages from `host_statistics64` (an estimate), and the limits | the smaller of free physical memory, the free commit limit and the memory limit of the job object the process is in |
+| `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog (section 12) |
+| Secret memory | `mmap`, `mlock`, `MADV_DONTDUMP` | `mmap`, `mlock` (no `MADV_DONTDUMP`; core dumps being off covers it) | `VirtualAlloc`, `VirtualLock` after raising the working set, `WerRegisterExcludedMemoryBlock` |
+| `lock_stack`, `scrub_stack` | `alloca` window of 256 KiB (halved under a small limit) | the same | `_alloca`, the same window |
+| `read_secret_line` | `termios` without echo (restored by a destructor), `read(2)` to LF or end of input | the same | console: no echo, `ReadConsoleW` into a locked, wiped buffer, strict UTF-16 to UTF-8 (an unpaired surrogate is refused), a line that starts with Ctrl+Z is the end of the input; pipe or file: `ReadFile`, bytes as they are |
+| Arguments | the bytes | the bytes | `wmain` (MinGW: `-municode`), converted to UTF-8; an unpaired surrogate is error 4. Not `CommandLineToArgvW`, which pulls in shell32 |
+| `write_message` | bytes to stdout and stderr | the same | `WriteConsoleW` when the handle is a console, UTF-8 bytes when redirected |
+
+### 11.3 Facts and pitfalls per system
+
+Everything below was found on a runner; the code keeps to it.
+
+**All systems.** `long` is 32 bits on Windows: look for `long`, `unsigned long`, `strtol` and shifts wherever
+text is parsed (the CRC of the armor END line was accepted as 2^32 + n on Linux and clamped on Windows; it
+is `strtoll`, and counts are `uint64_t` with `PRIu64`). Sizes computed from the size of a file go through
+`checked_add` and `checked_mul`. `__builtin_popcount` and `__builtin_ctz` are not portable.
+
+**Windows.**
+- Link `bcrypt` and `advapi32` (and `psapi` for the tests that read the working set); `_WIN32_WINNT` is
+  0x0A00. MSVC and MinGW link the C and C++ runtime statically (`/MT`, `-static`), so no DLL travels with
+  the program.
+- Functions that older systems lack (`CreatePseudoConsole`, `SetProcessMitigationPolicy`,
+  `WerRegisterExcludedMemoryBlock`) are looked up at run time; the pointer is made with `memcpy` from the
+  `FARPROC`, which keeps MSVC (C4054) and gcc (`-Wcast-function-type`) quiet.
+- `VirtualLock` is limited by the minimum working set: on `ERROR_WORKING_SET_QUOTA` the minimum and maximum
+  are raised by the size plus 256 KiB (`SetProcessWorkingSetSize`, allowed for a user, commits nothing) and
+  the lock is tried again. The arena is `VirtualAlloc(MEM_COMMIT)`: a failed commit is `bad_alloc`, error 7.
+- A job object with a process memory limit is how `RLIMIT_AS` is imitated, in the test harness
+  (assigned while the child is suspended) and in `available_memory`.
+- The stack base comes from `VirtualQuery` (`AllocationBase`): `GetCurrentThreadStackLimits` is not declared
+  by the MSYS2 headers. The x64 home space of the callees (32 bytes) lives in the frame of `scrub_stack`
+  and is not wiped, which is why its test allows 80 bytes there.
+- The runner's token has SeDebugPrivilege enabled, which bypasses the access list of the process: a check
+  of it must disable the privilege in the checking process first.
+- MSVC `/W4` reports conversions (`int` to `char`, `uint32_t` to `uint8_t`) that gcc and clang do not;
+  `sscanf` and `getenv` need `_CRT_SECURE_NO_WARNINGS` in the test code.
+- MSYS2's MINGW64 is deprecated: use UCRT64.
+- DIT is not set on Windows arm64 (no feature bit is reported); timing hardening is Linux and macOS only
+  there.
+- Windows PowerShell 5.1 and `cmd.exe` change a piped phrase before the program sees it (README section 7,
+  [TESTING.md](TESTING.md) section 4).
+
+**macOS.**
+- `RLIMIT_AS` and `RLIMIT_DATA` cannot be lowered below the mapped address space (`EINVAL`), so error 7
+  cannot be tested there. `available_memory()` is an estimate: about 3 GiB on an arm64 runner and 10 GiB on
+  an Intel one, and a loaded Mac can get a false error 7 (a decision: the check stays strict).
+- The program is signed after the link (`codesign --force --options runtime`, ad hoc unless
+  `SILLYDES_CODESIGN_IDENTITY` names one, which adds the secure timestamp) and with no entitlements, so no
+  `get-task-allow`. `otool` and `nm` look at the host's slice of a universal file unless `-arch all` is given.
+- `PT_ATTACH` is deprecated (an error under `-Werror`; `PT_ATTACHEXC`). Fortify level is 2. clang reports
+  Linux-only flags as unused arguments, which `-Werror` turns into errors, so those flags are set on Linux only.
+- A universal build is the preset `universal` (`arm64;x86_64`, deployment target 11.0); each runner type
+  runs its own slice natively.
+
+**Linux.** Ubuntu's arm64 toolchain does not leave a BTI marker in the GNU property note (it survives only
+if every input has it), so the hardening check looks for `bti` and `paciasp` in the code. Release binaries
+are built on Ubuntu 22.04 so that they need glibc 2.34, not that of the newest image.
+
+## 12. Memory, process and build hardening
+
+How the program keeps secrets from leaving the process, and how that is checked. What it does per system
+for a user is in the README, section 8; the threat model is in [SECURITY.md](SECURITY.md).
+
+**Containers.** `Buf` is `std::vector<uint8_t, SecureAllocator>`: it wipes the whole block on release, and
+blocks of 64 KiB and more get their own mapping (excluded from dumps). `SecretBuf` uses `LockedAllocator`:
+private pages, locked best effort, excluded from dumps, wiped and unmapped on release; it holds the phrase,
+the hash inputs and the derived keys. Neither is a `std::string`, whose short-string buffer lives inside the
+object and cannot be wiped. The Argon2id table is a `SecureAllocator` vector that is locked when the limit
+allows it and then zeroed.
+
+**Errors unwind.** `errorexit` reports and throws `ExitError{code}`; `main` runs everything in one `try` and
+returns the code (`bad_alloc` is error 7). Never call `exit` on an error path: it skips the destructors that wipe
+keys, cipher state and data. Only `main` and the tests catch `ExitError`.
+
+**No stdio for secrets.** The phrase is read straight into a `SecretBuf` and the key file through the same
+wiped buffer; no library buffer keeps a copy. `decode_text` works in place for the same reason.
+
+**The stack.** `lock_stack` touches and locks a 256 KiB window below `main` (halved down to 16 KiB under a
+small limit), which covers every local of the program (keys, the eight key schedules of about 24 KiB together,
+whitenings, pad states, hash blocks), and is never unlocked. `scrub_stack` wipes the same window before
+`main` returns, because which temporaries and spilled registers a compiler leaves behind cannot be audited
+from the source. Then `exit_process` ends the process with `_exit`: the vector registers can still hold
+plaintext (glibc copies through them) and exit-time code, such as the dynamic linker's resolver for a lazily
+bound symbol, would save them on the stack after the wipe ([TESTING.md](TESTING.md) section 3 has the
+finding). A change near `scrub_stack` is followed by the residue test, several times.
+
+**Best effort, silent.** Locking limits differ by system and distribution (macOS and Windows have small
+defaults; Windows needs a larger working set first). Every hardening call may fail and is then ignored; the
+tests skip below a limit. What cannot be locked (the data buffer, the 2 GiB table without a large limit)
+can be swapped: encrypted swap is the remedy, and hibernation writes all of RAM whatever was locked.
+
+**Process hardening** ([README](README.md) section 8 has the table): Linux and macOS set `RLIMIT_CORE` to 0;
+Linux clears the dumpable flag, macOS calls `PT_DENY_ATTACH` and is signed with the hardened runtime. Windows
+replaces the access list of the process by one entry that gives the owner only
+`PROCESS_QUERY_LIMITED_INFORMATION`, `PROCESS_TERMINATE` and `SYNCHRONIZE` (so a debugger or dump tool of the
+same user cannot read it), sets the mitigation policies for dynamic code, extension points (AppInit DLLs,
+global hooks), remote images and child processes, switches off the crash dialog, and registers secret blocks
+with Windows Error Reporting as excluded from dumps. The strict handle check (an exception on an invalid
+handle) is left out on purpose: the program is single-threaded and closes each handle once, so the gain is
+small and a crash is worse than a failed call. An administrator, root and (on Windows) the debug privilege
+are not stopped; this is a mitigation, not a boundary. A user-only access list on output files was
+decided against: they inherit the folder's list, as every program's files do.
+
+**Build hardening** ([cmake/harden.cmake](cmake/harden.cmake); every flag is tried first and left out if the
+compiler does not know it; `SILLYDES_HARDEN=OFF` turns it off). Linux: `-fstack-protector-strong`,
+`-fstack-clash-protection`, `-fcf-protection=full` (x86-64) or `-mbranch-protection=standard` (arm64),
+`-D_FORTIFY_SOURCE=3` (not in Debug, not with the sanitizers), PIE, `-z relro -z now -z noexecstack`.
+macOS: stack protector, fortify 2, PIE by default, the signature. MinGW: stack protector, `--dynamicbase
+--nxcompat --high-entropy-va`. MSVC: `/GS /sdl /guard:cf /Qspectre`, `/DYNAMICBASE /HIGHENTROPYVA
+/NXCOMPAT /GUARD:CF /CETCOMPAT`. The `hardening` test reads the finished binary
+([cmake/check_hardening.cmake](cmake/check_hardening.cmake)), so a flag that was passed but did nothing fails.
+
+**Constant time.** `value_barrier` (an empty asm on GCC and clang, a volatile read on MSVC) keeps the
+compiler from turning masks into branches in `Des::setkey`, `ct_equal` (the MAC compare) and the key file's
+hexadecimal decoding (`hex_digit`, branch-free, tested for every byte value). On arm64 CPUs that have it,
+the data-independent timing mode (DIT) is switched on once in `harden_process` (the program has no threads):
+`getauxval` on Linux, `sysctl hw.optional.arm.FEAT_DIT` on macOS. The DES layers are bitsliced, with no
+secret-dependent address or branch. Argon2id and the normalisation of a phrase outside ASCII are not
+constant-time, by design ([ANALYSIS.md](ANALYSIS.md) section 8). Verified with Valgrind, a branch report and
+a timing test ([TESTING.md](TESTING.md) section 5): measured, not proved.

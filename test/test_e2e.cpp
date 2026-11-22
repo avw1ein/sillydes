@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// End-to-end tests: runs the real binary, on every OS the same way (PORTPLAN.md todo 10). It replaces
+// End-to-end tests: runs the real binary, on every OS the same way. It replaces
 // test.sh, which only ran on Linux. The operating system comes in through test_os.h only.
 //
 //   test_e2e <sillydes binary> <source root> [--scan-lib <residue_scan.so>] [--scan-exe <sillydes_scan>]
@@ -773,7 +773,7 @@ void residue(const std::string &nfc, const std::string &other)
   for (const Scanner &sc : scanners) residue_with(sc, nfc, other);
 }
 
-// ---- files and phrases that travel between operating systems (PORTPLAN.md todo 11)
+// ---- files and phrases that travel between operating systems
 //
 // Every OS makes files with its own build of the program, and every OS opens the files of all of them,
 // which is what "interchange" means. The CI job uploads what --interop-make wrote and runs

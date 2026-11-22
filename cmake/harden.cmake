@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 1993-1994, 2026 Andy van Wezel
 #
-# Hardening flags (PORTPLAN.md 4.2), for the compilers and systems the project builds on. Every flag
+# Hardening flags (STRUCTURE.md section 12), for the compilers and systems the project builds on. Every flag
 # is tried first and left out where the compiler does not know it. test/ has a check that the
 # result is in the binary (cmake/check_hardening.cmake).
 

@@ -53,7 +53,7 @@ library.
 
 ## What has not been verified
 
-Named, because a test machine cannot show them (details in `PORTPLAN.md`, section 0m):
+Named, because a test machine cannot show them (details in [TESTING.md](TESTING.md), section 8):
 
 - that the Windows Error Reporting exclusion keeps a block out of a crash dump;
 - that `PT_DENY_ATTACH` stops a debugger on macOS (the test machines refuse every debugger);
