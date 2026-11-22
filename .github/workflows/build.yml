@@ -161,6 +161,25 @@ jobs:
             build/ci/sillydes
             build/ci/test_e2e
 
+  # The Linux program as it is released: a static PIE that needs no library of the system. The whole
+  # suite runs on that binary (the preloaded residue scan is left out: it needs the dynamic loader;
+  # the scan binary does the same search).
+  linux-static:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cmake --preset ci -DSILLYDES_STATIC=ON
+      - run: cmake --build --preset ci
+      - run: ctest --preset ci
+      - run: |
+          file build/ci/sillydes
+          ldd build/ci/sillydes || true
+          file build/ci/sillydes | grep -q static
+
   # The native arm64 runner: the whole suite, with PAC and BTI in the binary and DIT switched on where
   # the CPU has it (STRUCTURE.md section 12).
   linux-arm64:

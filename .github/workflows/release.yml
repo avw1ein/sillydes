@@ -6,7 +6,7 @@
 # provenance of each binary and its SBOM, and attaches the binaries, the SBOMs and SHA256SUMS to a
 # GitHub Release. The text of the release is the section of CHANGELOG.md for the version.
 #
-#   sillydes-X.Y.Z-linux-x86_64       Linux, x86-64, built on Ubuntu 22.04 (glibc 2.35 or newer)
+#   sillydes-X.Y.Z-linux-x86_64       Linux, x86-64, a static PIE: it needs no library of the system
 #   sillydes-X.Y.Z-linux-arm64        Linux, arm64, the same
 #   sillydes-X.Y.Z-macos-universal    macOS 11 or later, arm64 and x86-64 in one file; ad hoc signed
 #                                     with the hardened runtime, not notarized
@@ -105,9 +105,13 @@ jobs:
         run: |
           case "${{ matrix.name }}" in
             linux-*)
-              cmake --preset ci
+              # Static: the C and C++ libraries are in the binary (built on Ubuntu 22.04, whose glibc is
+              # the one it carries). The tests run on that very binary.
+              cmake --preset ci -DSILLYDES_STATIC=ON
               cmake --build --preset ci
               ctest --preset ci
+              file build/ci/sillydes
+              file build/ci/sillydes | grep -q "static" || { echo "the Linux binary is not static" >&2; exit 1; }
               echo "BIN=build/ci/sillydes" >> "$GITHUB_ENV" ;;
             macos-*)
               cmake --preset universal

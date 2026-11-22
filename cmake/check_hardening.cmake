@@ -10,7 +10,9 @@
 #                protector; the signature is valid and carries the hardened runtime and no
 #                get-task-allow entitlement; a universal build holds the architectures asked for.
 #
-#   cmake -DBINARY=<file> -DCOMPILER_ID=<id> [-DARCHS=<list>] [-DSIGNED=ON|OFF] -P check_hardening.cmake
+#   With -DSTATIC=ON the ELF must be a static PIE: no interpreter and no library it needs.
+#
+#   cmake -DBINARY=<file> -DCOMPILER_ID=<id> [-DARCHS=<list>] [-DSIGNED=ON|OFF] [-DSTATIC=ON|OFF] -P check_hardening.cmake
 
 function(fail what)
   message(FATAL_ERROR "${BINARY}: ${what}")
@@ -44,7 +46,15 @@ if(magic STREQUAL "7f454c46")
   if(NOT segments MATCHES "GNU_RELRO")
     fail("no read-only relocations (GNU_RELRO)")
   endif()
+  if(STATIC)
+    if(segments MATCHES "INTERP")
+      fail("not a static executable: it asks for a dynamic loader")
+    endif()
+  endif()
   readelf_out(dynamic -dW)
+  if(STATIC AND dynamic MATCHES "NEEDED")
+    fail("not a static executable: it needs shared libraries")
+  endif()
   if(NOT dynamic MATCHES "BIND_NOW|FLAGS[^\n]*NOW")
     fail("symbols are not bound at load (-z now)")
   endif()

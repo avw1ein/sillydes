@@ -24,6 +24,7 @@ option(SILLYDES_HARDEN "Compile and link with the hardening flags of STRUCTURE.m
 set(SILLYDES_OPT_LEVEL "2" CACHE STRING "Optimisation level (-O<level>) of the Release build; the constant-time checks run it at 0, 2 and 3")
 option(SILLYDES_TIMING_TESTS "Add the statistical timing test ct_timing (takes seconds and is sensitive to a busy machine; the constant-time workflow turns it on)" OFF)
 set(SILLYDES_TIMING_SCALE "1" CACHE STRING "Sample multiplier of ct_timing; 10 for the nightly run")
+option(SILLYDES_STATIC "Linux: link the program statically (a static PIE: no library of the system is needed at run time). The tests that need the dynamic loader (the preloaded residue scan) are left out" OFF)
 option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and without entitlements (STRUCTURE.md section 12)" ON)
 set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; - is an ad hoc signature, a Developer ID name signs for distribution")
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
@@ -81,6 +82,18 @@ target_include_directories(sillydes_core PUBLIC src)
 
 add_executable(sillydes src/main.cpp)
 target_link_libraries(sillydes PRIVATE sillydes_core)
+if(SILLYDES_STATIC)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "SILLYDES_STATIC is for Linux (Windows builds link their runtime statically already)")
+  endif()
+  # Only the programs that are shipped or scanned; the test programs stay dynamic (Valgrind and the
+  # preloaded scanner need the dynamic loader). CMake puts -pie after the link options, and -pie after
+  # -static-pie makes a dynamic executable, so the flag goes in with the libraries, at the end.
+  function(sillydes_make_static target)
+    target_link_libraries(${target} PRIVATE -static-pie)
+  endfunction()
+  sillydes_make_static(sillydes)
+endif()
 
 if(WIN32)
   target_link_libraries(sillydes_core PUBLIC bcrypt advapi32)  # advapi32: the access control list of the process
@@ -178,7 +191,7 @@ if(SILLYDES_BUILD_TESTS)
   if(SILLYDES_HARDEN)
     add_test(NAME hardening
       COMMAND ${CMAKE_COMMAND} -DBINARY=$<TARGET_FILE:sillydes> -DCOMPILER_ID=${CMAKE_CXX_COMPILER_ID}
-              "-DARCHS=${CMAKE_OSX_ARCHITECTURES}" -DSIGNED=${SILLYDES_CODESIGN}
+              "-DARCHS=${CMAKE_OSX_ARCHITECTURES}" -DSIGNED=${SILLYDES_CODESIGN} -DSTATIC=${SILLYDES_STATIC}
               -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_hardening.cmake)
   endif()
   # End-to-end tests: the real binary, on every OS the same way.
@@ -202,6 +215,9 @@ if(SILLYDES_BUILD_TESTS)
     target_compile_definitions(sillydes_core_scan PUBLIC SILLYDES_RESIDUE_SCAN)
     add_executable(sillydes_scan src/main.cpp test/residue_core.cpp)
     target_link_libraries(sillydes_scan PRIVATE sillydes_core_scan)
+    if(SILLYDES_STATIC)
+      sillydes_make_static(sillydes_scan)
+    endif()
     if(WIN32)
       target_link_libraries(sillydes_core_scan PUBLIC bcrypt advapi32)
       if(MINGW)
@@ -209,7 +225,7 @@ if(SILLYDES_BUILD_TESTS)
       endif()
     endif()
     list(APPEND SILLYDES_E2E_ARGS --scan-exe $<TARGET_FILE:sillydes_scan>)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT SILLYDES_STATIC)
       add_library(residue_scan SHARED test/residue_scan.cpp test/residue_core.cpp)
       set_target_properties(residue_scan PROPERTIES PREFIX "" SUFFIX ".so" POSITION_INDEPENDENT_CODE ON)
       list(APPEND SILLYDES_E2E_ARGS --scan-lib $<TARGET_FILE:residue_scan>)

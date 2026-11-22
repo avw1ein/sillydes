@@ -87,11 +87,26 @@ owner() {
 }
 
 order=()
+LIBDESC="Loaded dynamically at run time"
+PROPS=""
 maclibs=""
 macdeps=""
 if [ "$SYSTEM" = Linux ]; then
   # One line per distinct file the binary loads; the dynamic loader is listed by ldd without "=>".
-  LIBS=$(ldd "$BIN" | awk '/=>/ { print $3 } !/=>/ && $1 ~ /^\// { print $1 }' | while read -r p; do readlink -f "$p"; done | sort -u)
+  # A static binary loads nothing: what was linked into it is the archives of the C and C++ runtime.
+  if ldd "$BIN" 2>&1 | grep -q "not a dynamic executable\|statically linked"; then
+    LIBDESC="Linked statically into the binary"
+    LIBS=""
+    for a in libstdc++.a libgcc.a libgcc_eh.a libc.a; do
+      path=$("$CXX_BIN" -print-file-name="$a" 2>/dev/null || true)
+      if [ -f "$path" ]; then LIBS+="$(readlink -f "$path")"$'\n'; fi
+    done
+    LIBS=$(printf '%s' "$LIBS" | sort -u)
+    PROPS+='{ "name": "linking", "value": "static" },'
+  else
+    LIBDESC="Loaded dynamically at run time"
+    LIBS=$(ldd "$BIN" | awk '/=>/ { print $3 } !/=>/ && $1 ~ /^\// { print $1 }' | while read -r p; do readlink -f "$p"; done | sort -u)
+  fi
 
   # One component per package (a package may own several loaded files); a file no package manager
   # knows becomes a component of its own.
@@ -156,7 +171,7 @@ for key in ${order[@]+"${order[@]}"}; do
   [ -n "$pver" ] && entry+="
       \"version\": \"$(esc "$pver")\","
   entry+="
-      \"description\": \"Loaded dynamically at run time\","
+      \"description\": \"$LIBDESC\","
   if [ "$kind" != file ]; then
     qual="arch=$parch"
     [ -n "$DISTRO_VER" ] && qual="$qual&distro=$DISTRO_ID-$DISTRO_VER"
@@ -205,6 +220,7 @@ cat <<EOF
       "hashes": [ { "alg": "SHA-256", "content": "$(sha "$BIN")" } ],
       "externalReferences": [ { "type": "vcs", "url": "$(esc "$REPO")" } ],
       "properties": [
+        $PROPS
         { "name": "platform", "value": "$PLATFORM" },
         { "name": "file-format", "value": "$(esc "$FORMAT")" },
         { "name": "source-commit", "value": "$COMMIT" },
