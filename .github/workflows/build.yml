@@ -190,6 +190,27 @@ jobs:
             build/ci/sillydes
             build/ci/test_e2e
 
+  # Big endian (PORTPLAN.md todo 11): s390x under QEMU user mode, cross-compiled. The unit tests run
+  # there, and the files made there and by the x86-64 build open on the other one: the format is bytes,
+  # not memory images. The end-to-end test is not run (QEMU does not limit the address space of a
+  # child, and the residue scan preloads a library into a native process).
+  big-endian:
+    runs-on: ubuntu-latest
+    env:
+      QEMU_LD_PREFIX: /usr/s390x-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y g++-s390x-linux-gnu qemu-user-static
+      - run: cmake --preset ci && cmake --build --preset ci --target sillydes test_e2e
+      - run: cmake -S . -B build-s390x -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=s390x -DCMAKE_CXX_COMPILER=s390x-linux-gnu-g++ -DSILLYDES_WERROR=ON
+      - run: cmake --build build-s390x --target sillydes test_primitives test_e2e
+      - run: file build-s390x/sillydes && build-s390x/test_primitives
+      - run: |
+          build-s390x/test_e2e build-s390x/sillydes . --interop-make interop s390x
+          build/ci/test_e2e build/ci/sillydes . --interop-make interop linux-x64
+          build/ci/test_e2e build/ci/sillydes . --interop-check interop s390x,linux-x64
+          build-s390x/test_e2e build-s390x/sillydes . --interop-check interop s390x,linux-x64
+
   # AddressSanitizer and UndefinedBehaviorSanitizer. The end-to-end test runs without its residue scan
   # (a preloaded scanner does not go with the sanitizer's allocator) and without the memory limit.
   sanitize:
