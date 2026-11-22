@@ -349,6 +349,7 @@ static int attach_to_child(bool hardened)
 {
   int ready[2];
   if (pipe(ready) != 0) return -1;
+  fprintf(stderr, "DIAG fork hardened=%d\n", hardened);
   pid_t pid = fork();
   if (pid < 0) {
     close(ready[0]);
@@ -365,10 +366,13 @@ static int attach_to_child(bool hardened)
   close(ready[1]);
   char c = 0;
   ssize_t got;
+  fprintf(stderr, "DIAG waiting for child %d\n", (int)pid);
   do got = read(ready[0], &c, 1); while (got < 0 && errno == EINTR);
   close(ready[0]);
+  fprintf(stderr, "DIAG child ready %d\n", (int)got);
   int result = -1;
   if (got == 1) result = ptrace(PT_ATTACHEXC, pid, nullptr, 0) == 0 ? 1 : 0;
+  fprintf(stderr, "DIAG attach result %d errno %d\n", result, errno);
   // A traced process does not die of SIGKILL until it is let go; and never wait for ever.
   if (result == 1) ptrace(PT_DETACH, pid, nullptr, 0);
   kill(pid, SIGCONT);
