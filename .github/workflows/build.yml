@@ -117,7 +117,9 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DSILLYDES_WERROR=ON
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure -V
+      # Outside the MSYS2 shell, whose search path has no PowerShell 7; the program is linked statically.
       - name: Files for the other systems (interop)
+        shell: pwsh
         run: build/test_e2e.exe build/sillydes.exe . --interop-make interop windows-mingw
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
