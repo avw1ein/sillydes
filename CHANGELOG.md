@@ -29,6 +29,12 @@ the section of the tag's version as the text of the GitHub Release.
   (`cmake --preset universal`, arm64 and x86_64) is built and tested on both runner types. The
   `hardening` test checks every slice for PIE and the stack protector and the signature for the
   runtime flag and the absence of `get-task-allow`. Notarization is not done.
+- Interchange is tested between all systems: the `build` workflow makes files with each build (Linux
+  x64 and arm64, macOS arm64 and Intel, Windows MSVC, MinGW and arm64), binary and armored, with a
+  key file, an ASCII phrase and a non-ASCII phrase, and every build opens the files of all the
+  others; on Windows also files made through PowerShell 5.1, PowerShell 7 and `cmd.exe`. The
+  workflow also builds and tests on Windows arm64, and runs the unit tests of an s390x build
+  (big endian) under QEMU and opens its files on x86-64.
 - Windows process hardening: the access control list of the process leaves the owner no right to
   read or write its memory (a debugger or dump tool of the same user is refused; an administrator
   with SeDebugPrivilege is not stopped), and the process allows no code generated at run time, no

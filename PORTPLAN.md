@@ -188,6 +188,14 @@ Not done from section 6: the interoperability job between the OSes (todo 11). Th
 - **`PT_DENY_ATTACH` could not be shown to work.** An experiment attached to a child that had called `harden_process` and, as a control, to one that had not: the control was refused as well (a debugger of the same user gets in nowhere on the runner), so the experiment proves nothing, and the attach to the hardened child did not return an answer (it first blocked the test itself, then ended its helper process abnormally). It was removed. Stays in the unverified list.
 - **Lessons:** `PT_ATTACH` is deprecated and an error under `-Werror` (`PT_ATTACHEXC`); a hung experiment costs a runner for as long as the job timeout, so every new experiment gets a `ctest --timeout` and diagnostics on stderr (stdout is lost when ctest kills the test).
 
+## 0k. Todo 11, done: the CI matrix, interop between systems, Windows arm64, big endian
+
+- **Interop** (`test_e2e --interop-make <dir> <label>` and `--interop-check <dir> <labels>`, job `interop` in `build.yml`): every build job (Linux x64, Linux arm64, macOS arm64, macOS Intel, Windows MSVC, MinGW, Windows arm64) makes files with its own binary and uploads them with the binaries; then one job per system downloads all files and opens them with its own binary. Cases: binary and armored with the key file `sample.key` (which a Windows checkout turns into CRLF: also a test), with an ASCII phrase, with the non-ASCII phrase, and armored with the same text typed another way (BOM, decomposed accents, no-break space, full-width and half-width forms: it must open with the NFC form). The text has all 256 byte values and all three line endings. Windows adds, through the shells: a key file written by Windows PowerShell 5.1 with `>` (UTF-16), the phrase piped by Windows PowerShell 5.1 with a UTF-8 `$OutputEncoding`, a key file written by PowerShell 7, the phrase piped by PowerShell 7 and by `cmd.exe` after `chcp 65001`. The check fails on a file that does not open, on a file name it does not know and on a missing file (a label that starts with `windows` must have the shell cases). **Result: all 7 x 7 combinations open, the first time they ran** (a missing PowerShell 7 in the MSYS2 shell was the only failure: the MinGW files are made in a `pwsh` step, since the program is linked statically).
+- **Windows arm64** (`windows-11-arm`, job `windows-arm64`, the MSVC build): green on the first push with `/Qspectre`, `/guard:cf`, the process hardening of 0i, ConPTY, the terminal tests, the residue scan, and the interop files. Not done: DIT on Windows arm64 (no feature bit that `IsProcessorFeaturePresent` reports; `harden_process` does not set it there), so the arm64 timing hardening of section 5 is Linux and macOS only.
+- **Big endian** (job `big-endian`): s390x, cross-compiled with `g++-s390x-linux-gnu` and run under QEMU user mode. `test_primitives` passes (all known answers, the Unicode table hash, the normaliser), and the files made on s390x open on x86-64 and the other way round. Run here first (qemu-s390x is registered on this machine), then in CI. The end-to-end test is not run there: QEMU does not limit the address space of a child (error 7), and the residue scan preloads a library.
+- **KDF time** is in the log of every interop step (`ok: <label> <case> (<ms> ms)`): a 2 GiB, t = 1, p = 4 derivation takes about 2.1 s on Linux arm64, 2.4 s on Linux x64 and macOS arm64, 3.0 s on MinGW, 3.2 s on MSVC, 4.8 s on Windows arm64 and 6.2 s on the macOS Intel runner (a three-core virtual machine). The "about 2 s" of section 4.4 holds for Linux and macOS arm64 only; the README may say "a few seconds".
+- **Not done:** pinning the runner labels (`windows-latest`, `macos-latest` still float; section 10), a nightly interop run, s390x in the interop matrix (it runs in its own job), and the end-to-end suite on s390x.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -366,7 +374,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - Keep m = 2 GiB, t = 1, p = 4 and the RFC 9106 vectors.
 - require_memory equivalent on all OSes; keep "fail with error 7, never overcommit and die".
 - No large/huge pages by default. No SIMD (small audit surface, identical behaviour).
-- Report KDF time on arm64 and Windows in CI logs (expect about 2 s).
+- Report KDF time on arm64 and Windows in CI logs (expect about 2 s). **Done (0k):** 2.1 to 6.2 s on the runners, see there.
 
 ## 5. Constant-time
 ### 5.1 Review
@@ -402,7 +410,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - **Done (step 0b; ported to test_e2e.cpp in 0g).** Text interchange, end to end: new fixture `test/format-5.2.0/hello-utf8-phrase.sdes` (Latin, Greek, CJK and one character outside the BMP) opened with NFC, NFD, full-width, CRLF and BOM input and with an invisible character inserted; a phrase that is not UTF-8 is refused without a KDF run; a 5.1.0 file is refused; a data file containing 0x0D 0x0A 0x1A; non-ASCII input, output and key file names; the residue scan with a non-ASCII phrase.
 - **Done (0i).** New, Windows only: a phrase typed into a console, including a surrogate pair (through ConPTY, and on POSIX through a pty); a piped CRLF phrase (0g); PowerShell and cmd pipes; a redirected message is UTF-8 (`messages_are_utf8`, every OS).
 - Error 7 without ulimit: **macOS: not possible (0j)**, the limits cannot be set below the mapped address space; Windows has the job object (0h). An injectable available_memory() in test builds would be a second test hook in the program and is not planned.
-- Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`. This runs only on the GitHub runners (section 7.1).
+- **Done (0k).** Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`. This runs only on the GitHub runners (section 7.1).
 - Windows and macOS tests exist only as runner results: write each test so that it also fails loudly when its precondition is missing (no console, `mlock` limit) instead of passing silently, and print the reason for every skip.
 
 ## 7. Build, CI, release
@@ -421,10 +429,10 @@ The Windows and macOS code is written here but never built or run here: no MinGW
 | Linux x64 (gcc, clang), sanitizers, valgrind ct test, the Makefile and CMake builds | This machine and CI | Both give a result; CI decides |
 | Linux arm64 | CI (arm64 runner) | Not needed locally |
 | Windows MSVC x64, MSYS2 mingw64 | CI only (`windows-latest`) | The MinGW flags and `-municode` are checked by the MSYS2 job, which is native |
-| Windows arm64 | CI only (arm64 runner, if available to the repository; otherwise a documented gap) | |
+| Windows arm64 | CI only (`windows-11-arm`) | Available to this public repository; done (0k) |
 | macOS arm64, macOS Intel | CI only (`macos-` runners) | codesign checked there; notarization needs the maintainer's Apple account and secrets and stays out of scope until chosen |
 | Cross-OS interop | CI only | Jobs upload files and the others download them |
-| Big-endian (s390x) | CI under QEMU user mode | optional, unchanged |
+| Big-endian (s390x) | This machine and CI, under QEMU user mode | Done (0k): unit tests and interop with x86-64; no end-to-end test |
 
 How the work proceeds, because there is no local test bench for the ports:
 - A branch `port/<todo>` per Windows or macOS todo, pushed early; the runner log is the feedback. Merge to `main` only when the whole matrix is green.
@@ -454,7 +462,7 @@ How the work proceeds, because there is no local test bench for the ports:
 8. ct-verification (after 7): **done** (section 0f)
 9. build-hardening (after 1): **done** (section 0e)
 10. tests-portable (after 3, 14): **done** (section 0g)
-11. ci-matrix (after 5, 6, 9, 10): completes the matrix (interop, arm64, extras); the early runner jobs of todo 15 already exist by then
+11. ci-matrix (after 5, 6, 9, 10): **done** (section 0k); interop, Windows arm64, big endian
 12. docs-update (after 8, 11)
 13. remove-makefile (after 11)
 14. text-interchange: **done** (section 0b), released as 5.2.0
