@@ -369,9 +369,12 @@ static int attach_to_child(bool hardened)
   close(ready[0]);
   int result = -1;
   if (got == 1) result = ptrace(PT_ATTACHEXC, pid, nullptr, 0) == 0 ? 1 : 0;
+  // A traced process does not die of SIGKILL until it is let go; and never wait for ever.
+  if (result == 1) ptrace(PT_DETACH, pid, nullptr, 0);
+  kill(pid, SIGCONT);
   kill(pid, SIGKILL);
   int status;
-  waitpid(pid, &status, 0);
+  for (int tries = 0; tries < 100 && waitpid(pid, &status, WNOHANG) == 0; tries++) usleep(50000);
   return result;
 }
 #endif
