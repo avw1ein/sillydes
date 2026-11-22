@@ -368,7 +368,7 @@ static int attach_to_child(bool hardened)
   do got = read(ready[0], &c, 1); while (got < 0 && errno == EINTR);
   close(ready[0]);
   int result = -1;
-  if (got == 1) result = ptrace(PT_ATTACH, pid, nullptr, 0) == 0 ? 1 : 0;
+  if (got == 1) result = ptrace(PT_ATTACHEXC, pid, nullptr, 0) == 0 ? 1 : 0;
   kill(pid, SIGKILL);
   int status;
   waitpid(pid, &status, 0);
