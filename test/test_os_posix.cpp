@@ -343,13 +343,14 @@ std::string find_program(const std::string &name)
 }
 
 #ifdef __APPLE__
-// Forks a child (that calls harden_process() first if `hardened`) and tries to attach to it as a
-// debugger: 1 if that worked, 0 if the system refused, -1 if the experiment did not run.
+// Forks a child (that calls harden_process() first if `hardened`) and has a second process try to
+// attach to it as a debugger, which on a process that denies it does not fail at once but blocks:
+// 1 if the attach worked, 0 if the system refused it, 2 if it was still blocked after 5 seconds,
+// -1 if the experiment did not run.
 static int attach_to_child(bool hardened)
 {
   int ready[2];
   if (pipe(ready) != 0) return -1;
-  fprintf(stderr, "DIAG fork hardened=%d\n", hardened);
   pid_t pid = fork();
   if (pid < 0) {
     close(ready[0]);
@@ -366,19 +367,28 @@ static int attach_to_child(bool hardened)
   close(ready[1]);
   char c = 0;
   ssize_t got;
-  fprintf(stderr, "DIAG waiting for child %d\n", (int)pid);
   do got = read(ready[0], &c, 1); while (got < 0 && errno == EINTR);
   close(ready[0]);
-  fprintf(stderr, "DIAG child ready %d\n", (int)got);
   int result = -1;
-  if (got == 1) result = ptrace(PT_ATTACHEXC, pid, nullptr, 0) == 0 ? 1 : 0;
-  fprintf(stderr, "DIAG attach result %d errno %d\n", result, errno);
-  // A traced process does not die of SIGKILL until it is let go; and never wait for ever.
-  if (result == 1) ptrace(PT_DETACH, pid, nullptr, 0);
+  pid_t debugger = got == 1 ? fork() : -1;
+  if (debugger == 0) {
+    const bool attached = ptrace(PT_ATTACHEXC, pid, nullptr, 0) == 0;
+    if (attached) ptrace(PT_DETACH, pid, nullptr, 0);
+    _exit(attached ? 0 : 1);
+  }
+  int status = 0;
+  if (debugger > 0) {
+    pid_t done = 0;
+    for (int tries = 0; tries < 100 && (done = waitpid(debugger, &status, WNOHANG)) == 0; tries++) usleep(50000);
+    if (done == debugger) result = WIFEXITED(status) ? (WEXITSTATUS(status) == 0 ? 1 : 0) : -1;
+    else result = 2;
+  }
+  // A traced process does not die of SIGKILL until it is let go.
   kill(pid, SIGCONT);
   kill(pid, SIGKILL);
-  int status;
-  for (int tries = 0; tries < 100 && waitpid(pid, &status, WNOHANG) == 0; tries++) usleep(50000);
+  if (debugger > 0) kill(debugger, SIGKILL);
+  for (pid_t p : { pid, debugger })
+    for (int tries = 0; p > 0 && tries < 100 && waitpid(p, &status, WNOHANG) == 0; tries++) usleep(50000);
   return result;
 }
 #endif
@@ -394,19 +404,20 @@ int check_hardening(std::string &detail)
   // PT_DENY_ATTACH cannot be read back, so try what it prevents: a debugger of the same user attaching
   // to a child that called harden_process, and, as a control, to one that did not.
   const int target = attach_to_child(true), control = attach_to_child(false);
-  if (target < 0 || control < 0) {
+  if (target < 0 || control < 0 || control == 2) {
     detail = "RLIMIT_CORE is 0; the attach experiment could not be run";
     return -1;
   }
-  if (target == 0) {
+  if (target == 1) {
     detail = "RLIMIT_CORE is 0, but a debugger of the same user could attach to a hardened process (PT_DENY_ATTACH)";
     return 1;
   }
-  if (control == 1) {
+  if (control == 0) {
     detail = "RLIMIT_CORE is 0; a debugger could not attach to an ordinary child either (taken from the signature or SIP), so PT_DENY_ATTACH is not shown";
     return -1;
   }
-  detail = "RLIMIT_CORE is 0, and a debugger could attach to an ordinary child but not to a hardened one (PT_DENY_ATTACH)";
+  detail = std::string("RLIMIT_CORE is 0, and a debugger could attach to an ordinary child but ") +
+           (target == 2 ? "its attach to a hardened one did not complete" : "not to a hardened one") + " (PT_DENY_ATTACH)";
   return 0;
 #else
   if (prctl(PR_GET_DUMPABLE) != 0) {
