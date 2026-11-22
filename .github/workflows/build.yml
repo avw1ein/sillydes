@@ -200,7 +200,7 @@ jobs:
       QEMU_LD_PREFIX: /usr/s390x-linux-gnu
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: sudo apt-get update && sudo apt-get install -y g++-s390x-linux-gnu qemu-user-static
+      - run: sudo apt-get update && sudo apt-get install -y g++-s390x-linux-gnu qemu-user-binfmt
       - run: cmake --preset ci && cmake --build --preset ci --target sillydes test_e2e
       - run: cmake -S . -B build-s390x -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=s390x -DCMAKE_CXX_COMPILER=s390x-linux-gnu-g++ -DSILLYDES_WERROR=ON
       - run: cmake --build build-s390x --target sillydes test_primitives test_e2e
