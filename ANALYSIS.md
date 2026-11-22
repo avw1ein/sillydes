@@ -406,7 +406,7 @@ AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With 
 
 | Check | Result |
 |---|---|
-| `make` and `make test` (unit tests and shell self-test) | pass |
+| `cmake --preset ci`, build and `ctest --preset ci` (unit tests and end-to-end tests) | pass |
 | $P_s$ involution and byte-lane preservation, $s = 16 \dots 256$, random blocks | true |
 | Stay set size per word per $P_s$, both halves | 32 bits in every case |
 | Forward and backward cones, 8 layers, all 2048 start bits | 1, 2, 4, 8, 16, 32, 32, 32 words, identical for every start bit |

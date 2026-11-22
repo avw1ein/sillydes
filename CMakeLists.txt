@@ -2,7 +2,6 @@
 # Copyright (c) 1993-1994, 2026 Andy van Wezel
 #
 # Build:  cmake --preset default && cmake --build --preset default && ctest --preset default
-# The Makefile still works and stays until CMake is the only build (PORTPLAN.md, todo 13).
 
 cmake_minimum_required(VERSION 3.16)
 project(SillyDES LANGUAGES CXX)
@@ -32,7 +31,7 @@ option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites 
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
     "Directory with the Unicode data files of the pinned version (tools/fetch_ucd.sh fills it); adds the targets regenerate_unicode and check_unicode and the test unicode_check")
 
-# The same -O2 as the Makefile (not -O3), and no -DNDEBUG.
+# -O2 (not -O3), and no -DNDEBUG.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   set(CMAKE_CXX_FLAGS_RELEASE "-O${SILLYDES_OPT_LEVEL}")
   add_compile_options(-Wall -Wextra)

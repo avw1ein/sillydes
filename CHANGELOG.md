@@ -12,8 +12,12 @@ the section of the tag's version as the text of the GitHub Release.
 
 ### Added
 
-- A CMake build next to the Makefile (`cmake --preset default`, see the README), tested with gcc
-  and clang by the `build` workflow. The program is unchanged by it.
+- A CMake build (`cmake --preset default`, see the README), tested with gcc and clang by the
+  `build` workflow. The program is unchanged by it. It replaces the Makefile, which is gone: the
+  tests, the SBOM, the regeneration of the S-box header and of the Unicode tables, and the release
+  workflow all use CMake now (the targets `sbom`, `regenerate_sbox`, `regenerate_unicode` and
+  `check_unicode`). The program built for a release now has the build hardening of the CMake build
+  (the same list the Makefile had).
 - First source for Windows (`src/platform_win32.cpp`, `wmain`) and macOS, built and tested by the
   `build` workflow on the Windows (MSVC, MinGW-w64) and macOS (arm64, Intel) runners. These
   builds are not released yet: the hardening and the console input of the Windows version, and

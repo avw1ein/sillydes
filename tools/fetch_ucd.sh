@@ -6,7 +6,7 @@
 # the conformance file that goes with them, into a directory, and checks their SHA-256:
 #
 #   tools/fetch_ucd.sh DIRECTORY
-#   make unicode-check UCD=DIRECTORY
+#   cmake -S . -B build -DSILLYDES_REGENERATE_UNICODE=DIRECTORY && cmake --build build --target check_unicode
 #
 # The version and the sums belong to the tables that are committed. For tables of another Unicode
 # version (which means a new file format, see src/version.h) change both here first.

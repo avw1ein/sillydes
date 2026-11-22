@@ -3,8 +3,7 @@
 #
 # Hardening flags (PORTPLAN.md 4.2), for the compilers and systems the project builds on. Every flag
 # is tried first and left out where the compiler does not know it. test/ has a check that the
-# result is in the binary (cmake/check_hardening.cmake); the Makefile carries the same list for the
-# Linux release build until it goes (todo 13).
+# result is in the binary (cmake/check_hardening.cmake).
 
 if(SILLYDES_SANITIZE)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

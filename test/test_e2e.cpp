@@ -500,7 +500,7 @@ void sources_are_ascii()
   // bytes (the labels in them are hashed into the keys).
   struct Dir { const char *dir; std::vector<std::string> suffixes; };
   const Dir dirs[] = { { "src", { ".cpp", ".h" } }, { "tools", { ".cpp", ".sh" } }, { "test", { ".cpp", ".h", ".sh" } }, { "cmake", { "" } } };
-  std::vector<std::string> files = { "Makefile", "CMakeLists.txt", "CMakePresets.json" };
+  std::vector<std::string> files = { "CMakeLists.txt", "CMakePresets.json" };
   for (const Dir &d : dirs) {
     std::vector<std::string> names;
     need(list_dir(R(d.dir), names), std::string("cannot read the directory ") + d.dir);

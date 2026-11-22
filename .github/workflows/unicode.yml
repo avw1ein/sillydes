@@ -19,7 +19,6 @@ on:
       - 'tools/fetch_ucd.sh'
       - 'test/unicode_conformance.cpp'
       - 'LICENSE.Unicode'
-      - 'Makefile'
       - 'CMakeLists.txt'
       - 'cmake/**'
       - '.github/workflows/unicode.yml'
@@ -32,7 +31,6 @@ on:
       - 'tools/fetch_ucd.sh'
       - 'test/unicode_conformance.cpp'
       - 'LICENSE.Unicode'
-      - 'Makefile'
       - 'CMakeLists.txt'
       - 'cmake/**'
       - '.github/workflows/unicode.yml'
@@ -47,7 +45,5 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash tools/fetch_ucd.sh "$RUNNER_TEMP/ucd"
-      - run: make unicode-check UCD="$RUNNER_TEMP/ucd" CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
-      # The same check through CMake; the Makefile goes when CMake is the only build.
       - run: cmake -S . -B "$RUNNER_TEMP/build" -DSILLYDES_WERROR=ON -DSILLYDES_REGENERATE_UNICODE="$RUNNER_TEMP/ucd"
       - run: cmake --build "$RUNNER_TEMP/build" --target check_unicode

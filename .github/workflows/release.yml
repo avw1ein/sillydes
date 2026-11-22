@@ -53,16 +53,17 @@ jobs:
           echo "" >> notes.md
           echo "Full changelog: https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/CHANGELOG.md" >> notes.md
 
-      - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
-      - run: make test
-      - run: make sbom
+      - run: cmake --preset ci
+      - run: cmake --build --preset ci
+      - run: ctest --preset ci
+      - run: cmake --build --preset ci --target sbom
 
       - name: Name the files after the release
         run: |
           mkdir dist
           name="sillydes-$VERSION-linux-x86_64"
-          cp sillydes "dist/$name"
-          cp sillydes.cdx.json "dist/$name.cdx.json"
+          cp build/ci/sillydes "dist/$name"
+          cp build/ci/sillydes.cdx.json "dist/$name.cdx.json"
           (cd dist && sha256sum "$name" "$name.cdx.json" > SHA256SUMS)
           echo "NAME=$name" >> "$GITHUB_ENV"
 

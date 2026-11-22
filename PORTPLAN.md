@@ -3,7 +3,7 @@
 ## Decisions
 | Topic | Decision |
 |---|---|
-| Build system | CMake only; Makefile removed once CMake builds, tests and regenerates the S-box header |
+| Build system | CMake only; the Makefile is removed (0l) |
 | Targets | Linux x64 + arm64 (gcc, clang); macOS arm64 + x86-64; Windows x64 (MSVC), x64 (MinGW/MSYS2), arm64. 64-bit only |
 | File format | Format 5.2.0, made in step 0b (section 0b) and introduced by release 5.2.0, before any Windows or macOS release. It replaced 5.1.0 because the phrase rules changed (section 3.4), and the ports must not change it: 5.2.0 is byte-identical on every platform, and `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere. Files of 5.1.0 are not read; release 5.1.1 converts them |
 | Text | UTF-8 inside the program (phrase, file names, messages). Windows uses only W functions, never the ANSI or OEM code page |
@@ -44,7 +44,7 @@ Done on Linux before the port, like step 0 (todo 14; no platform layer and no CM
 | Phrase | `canonical_phrase` in the new unit `src/text.cpp`, called by `getphrase` for encryption and decryption: the six steps of section 3.4. A refusal uses the old "Phrase too short" path (ask again on a terminal, error 10 otherwise) and comes before the KDF. |
 | Unicode | `tools/gen_unicode.cpp` writes `src/unicode_tables.h` from Unicode 18.0.0: 5982 decompositions, 422 ranges of combining classes, 961 composition pairs, 17 ignorable ranges; 220 KB of source. `LICENSE.Unicode` holds the notice and the SBOM lists the data. |
 | Key file, armor | `decode_text` (UTF-8 BOM; UTF-16 LE and BE with BOM), in place on pointer and length. CR ends a line in `readkeyfile` and in the tag search of `low2high`. The armor writer is unchanged. |
-| Repository | `.gitattributes`; `tools/fetch_ucd.sh` (data files with pinned SHA-256 sums); Makefile targets `unicode` and `unicode-check`; workflow `unicode.yml`. |
+| Repository | `.gitattributes`; `tools/fetch_ucd.sh` (data files with pinned SHA-256 sums); CMake targets `regenerate_unicode` and `check_unicode`; workflow `unicode.yml`. |
 | Documents | README 1, 5, 6, 7, 9, 10; STRUCTURE (units, 6.2, 6.3, 7.1, 9, 10); ANALYSIS 8 and its table of checks; CHANGELOG; the release skill. |
 
 Differences from the plan of section 3.4:
@@ -122,7 +122,7 @@ Findings that carry on:
 
 ## 0e. Todos 9 and 7, done: build hardening and constant-time helpers
 
-Build hardening (`cmake/harden.cmake`, the same list in the Makefile for the Linux release build until todo 13):
+Build hardening (`cmake/harden.cmake`; the Makefile that carried the same list is gone, 0l):
 - Linux, gcc and clang: `-fstack-protector-strong`, `-fstack-clash-protection`, `-fcf-protection=full` (x86-64) or `-mbranch-protection=standard` (arm64), `-D_FORTIFY_SOURCE=3` (not in Debug, not with the sanitizers), PIE, `-z relro -z now -z noexecstack`. macOS: stack protector and fortify level 2 (PIE is the default; clang reports the Linux-only flags as unused, which `-Werror` turns into errors, hence the Linux condition). MinGW: stack protector, `--dynamicbase --nxcompat --high-entropy-va`. MSVC: `/GS /sdl /guard:cf /Qspectre`, `/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF /CETCOMPAT`.
 - Every flag is tried first (`check_cxx_compiler_flag`); `SILLYDES_HARDEN=OFF` turns the block off.
 - `cmake/check_hardening.cmake` (CTest `hardening`) reads the finished binary: ELF (PIE, stack not executable, RELRO, BIND_NOW, `__stack_chk_fail`, IBT and SHSTK, or BTI and PAC instructions on arm64) and PE (the DllCharacteristics bits for ASLR, high-entropy ASLR, DEP and, with MSVC, CFG). `test.sh` carries the ELF part for the Makefile build. Verified on all runners.
@@ -196,6 +196,16 @@ Not done from section 6: the interoperability job between the OSes (todo 11). Th
 - **KDF time** is in the log of every interop step (`ok: <label> <case> (<ms> ms)`): a 2 GiB, t = 1, p = 4 derivation takes about 2.1 s on Linux arm64, 2.4 s on Linux x64 and macOS arm64, 3.0 s on MinGW, 3.2 s on MSVC, 4.8 s on Windows arm64 and 6.2 s on the macOS Intel runner (a three-core virtual machine). The "about 2 s" of section 4.4 holds for Linux and macOS arm64 only; the README may say "a few seconds".
 - **Not done:** pinning the runner labels (`windows-latest`, `macos-latest` still float; section 10), a nightly interop run, s390x in the interop matrix (it runs in its own job), and the end-to-end suite on s390x.
 
+## 0l. Todo 13, done: the Makefile is gone
+
+- **Removed:** `Makefile`. Everything it did is a CMake target or an option that was already there and is now checked against the Makefile's results: `regenerate_sbox` (`-DSILLYDES_REGENERATE_SBOX=ON`) rewrites `src/des_sbox_ct.h` to the committed bytes, `check_unicode` (`-DSILLYDES_REGENERATE_UNICODE=<dir>`) confirms the committed tables against the Unicode 18.0.0 files and the full conformance file, and `sbom` writes `sillydes.cdx.json` into the build directory (all three run here before the removal). The hardening check that only the Makefile ran is CTest's `hardening` on every build. `.gitignore` is `build/` alone.
+- **Workflows:** `release.yml` builds with `cmake --preset ci`, runs `ctest --preset ci`, makes the SBOM with the target and copies `build/ci/sillydes` and `build/ci/sillydes.cdx.json` into `dist/`. `build.yml` lost its `build` job (the Makefile build); the `cmake` job (g++ and clang++) makes the SBOM for both and keeps the `sillydes-sbom` artifact from g++. `unicode.yml` lost the `make unicode-check` step and the Makefile paths.
+- **The binary of a release changes in how it is built, not in what it is:** the `ci` preset is `Release` (`-O2`, no `-DNDEBUG`), `-Werror`, and the hardening flags of `cmake/harden.cmake`, which are the Makefile's list (`-fcf-protection=full`, stack protector strong, stack clash protection, fortify 3, PIE, relro, now, noexecstack); `ctest` checks them in the finished binary before the release step gets to run. Format 5.2.0 is untouched.
+- **Comments in generated files** that said `make gen` and `make unicode UCD=` now name the targets; the generators and the committed headers changed together (comment only; the Unicode table hash covers the data, and `check_unicode` passes).
+- **The release skill and STRUCTURE.md** use the CMake commands. The skill says how to build the previous release for the fixtures: v5.2.0 and older with `make` (they have a Makefile), later ones with CMake.
+- **README** section 1 names CMake only; the per-OS statements stay todo 12.
+- **Not done:** the release binary is still built on `ubuntu-latest`, which is now Ubuntu 26.04, so it needs that glibc or newer; building on an older image (or linking statically) is a decision for the release, not for this todo.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -212,7 +222,7 @@ Steps 1 to 3 (section 0c) moved the OS calls of `common.cpp`, `kdf.cpp`, `keys.c
 | src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() | done |
 | test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test's OS needs (temporary files, stderr, lock figures) are in `test/test_os_posix.cpp` and `test_os_win32.cpp` (section 0d) |
 | test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | done: `test/test_e2e.cpp` (section 0g) |
-| Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake, a `cmake` job (g++, clang++), `windows-msvc`, `windows-mingw` and `macos` jobs exist; the Makefile (Linux only) goes with todo 13 |
+| Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake, a `cmake` job (g++, clang++), `windows-msvc`, `windows-mingw` and `macos` jobs exist; the Makefile (Linux only) is gone (todo 13, 0l) |
 
 ### 1.2 Latent bugs a port would trigger
 Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; section 3.4 solves them. Step 0b fixed 2, 3, 7 and 11 to 16 (section 0b). Open for the Windows port: 4, 9, and of 10 the conversion at the console, since the phrase rules themselves are done. "Measured" means reproduced on Linux with the 5.1.1 binary, before step 0b. Those bugs are not Windows-only: a key file or a phrase file made on Windows fails on Linux today.
@@ -414,10 +424,10 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - Windows and macOS tests exist only as runner results: write each test so that it also fails loudly when its precondition is missing (no console, `mlock` limit) instead of passing silently, and print the reason for every skip.
 
 ## 7. Build, CI, release
-- **Done (step 1, section 0c), except for the per-compiler hardening flags (todo 9), `test_e2e` (todo 10) and deleting the Makefile (todo 13).** CMakeLists.txt: C++11, extensions off; targets sillydes, test_primitives, test_e2e, gen_des_sbox, gen_unicode; options SILLYDES_REGENERATE_SBOX and SILLYDES_REGENERATE_UNICODE (the latter takes a directory with the Unicode data files); per-compiler flags from 4.2; install rule; presets. Delete Makefile; update README section 1, STRUCTURE.md, and the "Linux command line port" comment in main.cpp.
+- **Done (step 1, section 0c), except for the per-compiler hardening flags (todo 9), `test_e2e` (todo 10) and deleting the Makefile (todo 13, done in 0l).** CMakeLists.txt: C++11, extensions off; targets sillydes, test_primitives, test_e2e, gen_des_sbox, gen_unicode; options SILLYDES_REGENERATE_SBOX and SILLYDES_REGENERATE_UNICODE (the latter takes a directory with the Unicode data files); per-compiler flags from 4.2; install rule; presets. Delete Makefile; update README section 1, STRUCTURE.md, and the "Linux command line port" comment in main.cpp.
 - CI matrix: ubuntu (gcc, clang), Linux arm64, macOS arm64 and Intel, windows-latest (MSVC x64), Windows arm64, MSYS2 mingw64. Extras: sanitizers, valgrind ct test, interop, optionally s390x under QEMU for big-endian. Pick runner labels at implementation time.
 - Keep the "no dependencies" claim: CI installs only compilers and CMake. The Unicode tables are generated data in the source tree, like the S-box header.
-- **Done (step 0b)** as the workflow `unicode.yml` with the Makefile targets `unicode` and `unicode-check`: download the Unicode data files of the pinned version (checked against stored SHA-256 sums), confirm that the generator reproduces the committed `src/unicode_tables.h`, and run the complete `NormalizationTest.txt`. Port the two targets to CMake.
+- **Done (step 0b)** as the workflow `unicode.yml` with the CMake targets `regenerate_unicode` and `check_unicode` (they were Makefile targets until 0l): download the Unicode data files of the pinned version (checked against stored SHA-256 sums), confirm that the generator reproduces the committed `src/unicode_tables.h`, and run the complete `NormalizationTest.txt`. Ported to CMake (done).
 - Optional release: Authenticode, macOS codesign + notarization, SHA-256 sums, SBOM, reproducible-build check.
 - SECURITY.md: threat model and known limits (swap, Argon2 cache timing, same-user admin on Windows).
 
@@ -426,7 +436,7 @@ The Windows and macOS code is written here but never built or run here: no MinGW
 
 | Part | Where | Notes |
 |---|---|---|
-| Linux x64 (gcc, clang), sanitizers, valgrind ct test, the Makefile and CMake builds | This machine and CI | Both give a result; CI decides |
+| Linux x64 (gcc, clang), sanitizers, valgrind ct test and the CMake build | This machine and CI | Both give a result; CI decides |
 | Linux arm64 | CI (arm64 runner) | Not needed locally |
 | Windows MSVC x64, MSYS2 mingw64 | CI only (`windows-latest`) | The MinGW flags and `-municode` are checked by the MSYS2 job, which is native |
 | Windows arm64 | CI only (`windows-11-arm`) | Available to this public repository; done (0k) |
@@ -464,7 +474,7 @@ How the work proceeds, because there is no local test bench for the ports:
 10. tests-portable (after 3, 14): **done** (section 0g)
 11. ci-matrix (after 5, 6, 9, 10): **done** (section 0k); interop, Windows arm64, big endian
 12. docs-update (after 8, 11)
-13. remove-makefile (after 11)
+13. remove-makefile (after 11): **done** (section 0l)
 14. text-interchange: **done** (section 0b), released as 5.2.0
 15. ci-runners-early (after 1, 2): **done** (section 0d); a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them. It needs a first `platform_win32.cpp` (and the macOS branches of `platform_posix.cpp`) that compile and do the minimum, and the OS headers of `test_primitives.cpp` guarded or moved (todo 10 in part); start with those and let the runner log lead from there
 

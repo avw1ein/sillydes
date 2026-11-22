@@ -3,7 +3,7 @@
 #
 # Builds and tests on a bare runner without installing anything first,
 # which is the proof that the program has no dependencies beyond a C++
-# compiler, make or CMake and the Linux system headers.
+# compiler, CMake and the system headers.
 
 name: build
 
@@ -15,20 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
-      - run: make test
-      # The SBOM describes the binary built above, so it is generated here and kept as an artifact.
-      - run: make sbom
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sillydes-sbom
-          path: sillydes.cdx.json
-
-  # The same build and tests through CMake (PORTPLAN.md todo 1); the Makefile goes when this covers everything.
+  # Linux, gcc and clang (PORTPLAN.md todos 1 and 13: CMake is the only build).
   cmake:
     strategy:
       fail-fast: false
@@ -42,7 +29,13 @@ jobs:
       - run: cmake --preset ci
       - run: cmake --build --preset ci
       - run: ctest --preset ci
+      # The SBOM describes the binary built above, so it is generated here and kept as an artifact.
       - run: cmake --build --preset ci --target sbom
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.cxx == 'g++'
+        with:
+          name: sillydes-sbom
+          path: build/ci/sillydes.cdx.json
       - name: Files for the other systems (interop)
         if: matrix.cxx == 'g++'
         run: build/ci/test_e2e build/ci/sillydes . --interop-make interop linux-x64

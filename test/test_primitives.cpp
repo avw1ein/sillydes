@@ -714,7 +714,7 @@ int main()
   }
 
   // Normalisation (NFKC) on cases whose answers come from the Unicode conformance file and from
-  // Python's unicodedata; the complete file is run by `make unicode-check`.
+  // Python's unicodedata; the complete file is run by the CMake target check_unicode.
   {
     typedef std::initializer_list<uint32_t> L;
     const struct { const char *name; L in, want; } cases[] = {

@@ -4,7 +4,7 @@
 // SillyDES - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
-// Build: make, or cmake --preset default && cmake --build --preset default
+// Build: cmake --preset default && cmake --build --preset default
 //
 // The file format differs from the MS DOS original and is not compatible with it.
 

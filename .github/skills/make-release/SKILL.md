@@ -39,13 +39,13 @@ Facts that follow from this:
 - `FORMAT_NAME` is hashed into the keys. Changing it makes every existing file unreadable.
 - The canonical form of a phrase (`canonical_phrase` in `src/text.cpp`) and the Unicode tables in
   `src/unicode_tables.h` decide which keys a phrase gives, so they belong to the format. Never run
-  `make unicode` (it regenerates the tables) in a release that keeps the format; `test_primitives`
+  the target `regenerate_unicode` (it regenerates the tables) in a release that keeps the format; `test_primitives`
   fails on changed tables, and that failure means the same as a failing fixture.
 - `MAGIC[3]` is `minor*16+patch`, so minor and patch of a format number must each be 0-15.
 - A format change can be prepared ahead of its release. Compare `FORMAT_NAME` in the tree with the
   last release (`git show vPREV:src/version.h`): if they differ, the release you are making
   introduces that format. Its version must then equal the format's number, the work of the appendix
-  is already done (check it: fixtures in `test/format-N/`, no stale `SillyDES OLD`, `make test`), and
+  is already done (check it: fixtures in `test/format-N/`, no stale `SillyDES OLD`, `ctest --preset ci`), and
   what is left is section 3, with release notes that start by saying the format is new and which
   release converts older files. Format 5.2.0 was prepared this way, before release 5.2.0.
 
@@ -118,13 +118,15 @@ gh run list --branch main --limit 1 --json headSha,conclusion --jq '.[0]'   # HE
 5. Nothing else carries the version: the usage banner and the SBOM read `PACKAGE_VERSION`.
 6. Verify exactly as CI does, from a clean tree (the 2 GiB phrase tests need the memory):
    ```sh
-   make clean
-   make CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
-   make test CXXFLAGS="-O2 -Wall -Wextra -Werror -std=c++11"
-   make sbom
+   rm -rf build
+   cmake --preset ci
+   cmake --build --preset ci
+   ctest --preset ci
+   cmake --build --preset ci --target sbom
    ```
-   `./sillydes` with no arguments must print the new version. Check the SBOM's
-   `metadata.component.version`. `sillydes.cdx.json` is generated and git-ignored; never commit it.
+   `build/ci/sillydes` with no arguments must print the new version. Check the SBOM's
+   `metadata.component.version` in `build/ci/sillydes.cdx.json`. The build directory is git-ignored;
+   never commit anything from it.
 7. Commit only the intended files with a message such as `Release X.Y.Z` (add the co-author trailer
    if the rules you work under require it). The commit must contain no unrelated changes.
 
@@ -153,7 +155,7 @@ gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId -
 ```
 
 The tag must point at the commit that passed CI. The workflow then: checks tag against
-`PACKAGE_VERSION`, builds with the CI flags, runs the tests, generates the SBOM, names the files
+`PACKAGE_VERSION`, builds with `cmake --preset ci`, runs the tests, generates the SBOM, names the files
 after the release, attests the build provenance of the binary and the SBOM to the binary
 (`actions/attest`, without and with `sbom-path`), and runs
 `gh release create --verify-tag --notes-file` with the changelog section.
@@ -204,18 +206,20 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
 1. `src/version.h`: set `PACKAGE_VERSION`, `FORMAT_NAME "SillyDES N"` and
    `MAGIC = { 'S', 'D', major, (minor << 4) | patch }` together (5.2.0 is `{ 'S','D', 5, 0x20 }`).
 2. Build the **previous release's** binary to be able to read the old fixtures:
-   `git worktree add /tmp/sillydes-old vPREV && make -C /tmp/sillydes-old` (remove the worktree after).
+   `git worktree add /tmp/sillydes-old vPREV`, then build it the way that release is built: `make -C /tmp/sillydes-old` and the binary is `/tmp/sillydes-old/sillydes` for releases up to 5.2.0 (they have a Makefile), `(cd /tmp/sillydes-old && cmake --preset ci && cmake --build --preset ci)` and the binary is `/tmp/sillydes-old/build/ci/sillydes` for later ones. Remove the worktree after.
 3. Regenerate the fixtures with the new build, from the same plaintext (`test_e2e` expects it to start with
    `Hello,`):
    ```sh
    P="The quick brown fox jumps over the lazy dog, again and again."
-   /tmp/sillydes-old/sillydes act=dm in=hello.sdes out=/tmp/hello.txt key=sample.key
-   ./sillydes act=em in=/tmp/hello.txt out=hello.sdes key=sample.key
+   S=build/ci/sillydes   # the new build
+   OLD=/tmp/sillydes-old/sillydes   # or /tmp/sillydes-old/build/ci/sillydes, see above
+   $OLD act=dm in=hello.sdes out=/tmp/hello.txt key=sample.key
+   $S act=em in=/tmp/hello.txt out=hello.sdes key=sample.key
    mkdir test/format-N
-   ./sillydes act=e  in=/tmp/hello.txt out=test/format-N/hello.bin key=sample.key
-   echo "$P" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-phrase.sdes phrase
-   make test/test_e2e && U_NFC=$(./test/test_e2e --nfc-phrase)   # the non-ASCII phrase of the tests
-   printf '%s\n' "$U_NFC" | ./sillydes act=em in=/tmp/hello.txt out=test/format-N/hello-utf8-phrase.sdes phrase
+   $S act=e  in=/tmp/hello.txt out=test/format-N/hello.bin key=sample.key
+   echo "$P" | $S act=em in=/tmp/hello.txt out=test/format-N/hello-phrase.sdes phrase
+   U_NFC=$(build/ci/test_e2e --nfc-phrase)   # the non-ASCII phrase of the tests
+   printf '%s\n' "$U_NFC" | $S act=em in=/tmp/hello.txt out=test/format-N/hello-utf8-phrase.sdes phrase
    chmod 644 test/format-N/*
    git rm -r test/format-OLD
    ```
@@ -223,8 +227,8 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    (they name the format), and change the "another version is rejected" step so that the magic byte
    and the substituted name are those of the previous format.
 5. Only if the new format is to follow a newer Unicode version: set the version and the SHA-256
-   sums of its data files in `tools/fetch_ucd.sh`, run it, and run `make unicode UCD=<directory>`,
-   which regenerates `src/unicode_tables.h` and checks it against the conformance file. The table
+   sums of its data files in `tools/fetch_ucd.sh`, run it, configure with `-DSILLYDES_REGENERATE_UNICODE=<directory>` and build the target
+   `regenerate_unicode`, which regenerates `src/unicode_tables.h` and checks it against the conformance file. The table
    hash in `test/test_primitives.cpp` then changes too (next item). Without this the tables stay
    as they are, which is fine: a format does not have to follow the newest Unicode.
 6. `test/test_primitives.cpp`: the `encrypt_block known answer` is derived from the labels and changes

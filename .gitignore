@@ -1,11 +1,1 @@
-obj/
-sillydes
-test/test_primitives
-tools/gen_des_sbox
-test/residue_scan.so
-sillydes.cdx.json
-sillydes.cdx.json.tmp
-test/unicode_conformance
-tools/gen_unicode
-src/unicode_tables.h.tmp
 build/

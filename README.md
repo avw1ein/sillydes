@@ -65,20 +65,15 @@ If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, the key length puts SillyDE
 
 ## 1. Quick start
 
-SillyDES has no dependencies. It needs only a C++11 compiler and `make` or CMake; it uses nothing beyond the C++ standard library and the Linux system headers, which is why GitHub's dependency graph finds no manifest file. Build and test with:
-
-```sh
-make
-make test
-```
-
-or with CMake (3.21 or newer), which also builds with clang:
+SillyDES has no dependencies. It needs only a C++11 compiler and CMake (3.21 or newer for the presets); it uses nothing beyond the C++ standard library and the system headers, which is why GitHub's dependency graph finds no manifest file. Build and test with:
 
 ```sh
 cmake --preset default
 cmake --build --preset default
 ctest --preset default
 ```
+
+The program is `build/default/sillydes`. gcc and clang both work.
 
 For a quick e-mail-style demonstration:
 

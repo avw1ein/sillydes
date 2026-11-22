@@ -7,13 +7,13 @@
 # and SHA-256 where dpkg or rpm knows them), the Unicode data that is compiled in, and the compiler
 # that built it. Linux only.
 #
-#   tools/gen_sbom.sh ./sillydes > sillydes.cdx.json        (or: make sbom)
+#   tools/gen_sbom.sh ./sillydes > sillydes.cdx.json        (or: cmake --build <dir> --target sbom)
 #
 # SOURCE_DATE_EPOCH, if set, fixes the timestamp.
 set -eu
 BIN=${1:-./sillydes}
 cd "$(dirname "$0")/.."
-[ -x "$BIN" ] || { echo "gen_sbom: $BIN is not built; run make first" >&2; exit 1; }
+[ -x "$BIN" ] || { echo "gen_sbom: $BIN is not built; build it first" >&2; exit 1; }
 
 esc() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '%s' "$s"; }
 sha() { sha256sum "$1" | cut -d' ' -f1; }

@@ -4,9 +4,9 @@
 // Checks the normalisation in src/text.cpp and the tables in src/unicode_tables.h against the
 // conformance file of the Unicode Character Database:
 //
-//   test/unicode_conformance DIRECTORY/NormalizationTest.txt      (or: make unicode-check UCD=DIRECTORY)
+//   test/unicode_conformance DIRECTORY/NormalizationTest.txt      (or: the CMake target check_unicode)
 //
-// The file is not part of the repository, so this is not part of `make test`; run it whenever the
+// The file is not part of the repository, so this is not part of the CTest tests; run it whenever the
 // tables or the normalisation change. It checks that
 //   - every line of the file gives its NFKC column, from each of its five columns;
 //   - every code point that part 1 of the file does not list is left alone by NFKC;
