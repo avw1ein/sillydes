@@ -73,7 +73,9 @@ cmake --build --preset default
 ctest --preset default
 ```
 
-The program is `build/default/sillydes`. gcc and clang both work.
+The program is `build/default/sillydes` (`build\default\Release\sillydes.exe` on Windows with Visual Studio). gcc, clang, Apple clang, MSVC and MinGW-w64 all work.
+
+**Systems.** SillyDES is for 64-bit systems: Linux (x86-64 and arm64), macOS (arm64 and Intel; `cmake --preset universal` makes one file for both) and Windows 10 or later (x86-64 and arm64). Every push is built and tested on all of them by the [build workflow](.github/workflows/build.yml), on GitHub's own runners: the unit tests, the end-to-end tests with the real program (a phrase typed into a terminal included), a search of the exited process's memory for secrets, and a check that files made on every system open on every other. A runner is a server image, not your computer, so what depends on your setup (your terminal, your shell profile, a machine with less than 2 GiB free) is not covered. The released program (see the [releases](https://github.com/avw1ein/sillydes/releases)) is so far a Linux x86-64 binary only; on macOS and Windows you build it yourself. On macOS the build is signed ad hoc with the hardened runtime; it is not notarized, which matters only to a copy that was downloaded. The examples in this file use a Unix shell; on Windows read `sillydes.exe` for `./sillydes` and `type` for `cat`, and see the notes on PowerShell and `cmd` in section 7.
 
 For a quick e-mail-style demonstration:
 
@@ -105,7 +107,7 @@ To get help:
 
 The file format has its own version, which changes less often than the program's. A format is named after the release that introduced it: the current format is 5.2.0, and every later release reads and writes it until the format itself changes (the [changelog](CHANGELOG.md) says for each release whether it did). That is why an e-mail message starts with `*BEGIN SillyDES 5.2.0 message` whichever release made it.
 
-Format 5.2.0 differs from 5.1.0 in one thing: the rules that turn a typed phrase into keys (section 7). They make a phrase give the same keys on every system, and they are meant to stay as they are when the program comes to other systems than Linux.
+Format 5.2.0 differs from 5.1.0 in one thing: the rules that turn a typed phrase into keys (section 7). They make a phrase give the same keys on every system, so that a file made on Linux opens on macOS and Windows and the other way round, and they are meant to stay as they are.
 
 Files in older formats cannot be read, and releases before 5.2.0 cannot read this one. To keep a file of format 5.1.0, decrypt it with release 5.1.1 and encrypt it again; key files stay valid. Files made by the program under its former name, Odette, up to and including Odette 5.1.0, cannot be read either.
 
@@ -194,13 +196,13 @@ The salt and the IV come from the system random generator on every encryption; t
 
 Encrypt whatever you like to transmit, using the `act=em` option. Copy the result into a message, and send the message. The recipient must export the message into a file, and decrypt that file using the `act=dm` option. SillyDES can search for the code in the file, since the code is encapsulated by identification lines.
 
-SillyDES always writes the message with LF line endings. It reads it back however a mail program or an editor on another system saved it: with CR LF or CR line endings, with a byte order mark, as UTF-16 (with its byte order mark), and with other text before and after it.
+SillyDES always writes the message with LF line endings, on every system. It reads it back however a mail program or an editor on another system saved it: with CR LF or CR line endings, with a byte order mark, as UTF-16 (with its byte order mark; this is what Windows PowerShell 5.1 writes with `>`), and with other text before and after it.
 
 ---
 
 ## 6. How to use SillyDES normal style
 
-Encrypt using the `act=e` option, and decrypt using the `act=d` option. The output file now contains High-ASCII and should be treated as binary data. Your own data is never translated either: a text file with CR LF line endings decrypts to exactly that file on every system.
+Encrypt using the `act=e` option, and decrypt using the `act=d` option. The output file now contains High-ASCII and should be treated as binary data. Your own data is never translated either: a text file with CR LF line endings decrypts to exactly that file on every system, Windows included (the program opens files as bytes there, not as text). File names are given to the system as they are, never normalised; a name may hold any character the system allows.
 
 ---
 
@@ -214,13 +216,15 @@ There are two sorts of keys: a key file with eight random keys, or a phrase from
 key=sample.key
 ```
 
-Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Its lines may end in LF, CR LF or CR, and it may start with a byte order mark or be UTF-16 with one, as some editors and shells on other systems write it. Fill it with random values, for example from `/dev/urandom` or a password manager; eight random keys give the cipher its full 512 bits.
+Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Its lines may end in LF, CR LF or CR, and it may start with a byte order mark or be UTF-16 with one, as some editors and shells on other systems write it. Fill it with random values, for example from `/dev/urandom` (Linux, macOS) or a password manager; eight random keys give the cipher its full 512 bits. A key file written by Windows PowerShell 5.1 with `>` is UTF-16 with a byte order mark, which the program reads; so is one from PowerShell 7 (UTF-8) or a Windows editor.
 
 **NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only.
 
 ### Phrase
 
-Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less.
+Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less (section 9 says how each system decides that). Deriving the keys takes about 2 seconds on Linux and on a Mac with Apple silicon and 3 to 6 seconds on the other systems that have been measured (Windows, an Intel Mac); the same time passes again when a file is opened.
+
+On a terminal the phrase is read with the echo off and, when encrypting, asked twice; from a pipe or a file it is read as it comes, and in a Windows console as Unicode text.
 
 Before the keys are derived, the phrase is brought into one canonical form, so that the same phrase gives the same keys whatever system, keyboard, terminal or pipe it comes from:
 
@@ -231,6 +235,16 @@ Before the keys are derived, the phrase is brought into one canonical form, so t
 - The 20 characters are counted after all this, as characters and not as bytes.
 
 What stays different: upper and lower case, and characters that only look alike, such as straight and curly quotes, a hyphen and a dash, or a Latin and a Cyrillic letter. When a phrase is piped in, the pipe must carry UTF-8; a shell that converts the phrase to another character set before SillyDES sees it gives another phrase, and SillyDES cannot tell. A phrase of random printable ASCII characters avoids all of this.
+
+Where a phrase is piped in, the pipe decides whether it arrives intact:
+
+- **Linux and macOS:** a UTF-8 terminal and shell pipe UTF-8, which is what the program wants.
+- **Windows PowerShell 5.1** (`powershell.exe`) pipes ASCII to a program by default, so every other character becomes a `?` and the program derives the keys of another phrase, with no error. Such a file does not open with the real phrase. Set `$OutputEncoding = New-Object System.Text.UTF8Encoding $false` first, or use PowerShell 7 (`pwsh`), which pipes UTF-8. Typing the phrase at the prompt avoids the problem, and so does a phrase of ASCII only.
+- **Windows `cmd.exe`** pipes in the code page of the console: run `chcp 65001` first. Under another code page the bytes are not valid UTF-8 and the program refuses the phrase with error 10, so there is no wrong key, only an error.
+- **Windows terminals:** the console is supported (tested through a pseudo-console, which Windows Terminal uses as well). A terminal that presents standard input as a plain pipe (for example mintty without a pseudo-console) shows the phrase as it is typed and does not ask twice; the keys are still right.
+- In a Windows console, Ctrl+Z at the start of a line ends the input, as Ctrl+D does in a Unix terminal; either gives error 10 when no phrase was typed.
+
+Characters assigned in Unicode after version 18.0.0 are not folded, and the folding stays as it is for the whole of format 5.2.0.
 
 **The phrase is the weak point of the system, because a person chooses it.** The cipher cannot be stronger than the phrase, and a phrase a person can remember follows the patterns of a language, which is exactly what a guessing program tries first: ordinary text carries only 1 to 1.5 bits per character, so a 20-character sentence is worth 20 to 30 bits and even a long one stays far below the cipher. Typing errors, reuse of a phrase from elsewhere, and writing it down where it can be found are the other usual ways a phrase fails, and no cipher fixes them.
 
@@ -255,7 +269,19 @@ Against a quantum computer the effective strength of a phrase halves (Grover's a
 
 ## 8. Intramural security
 
-This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. SillyDES disables core dumps, blocks debugger attachment by other processes of your user, keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, also when it stops with an error. It reads the phrase and the key file without stdio, so no library buffer keeps a copy. It asks the system to keep the keys, the phrase and the working variables of the cipher in RAM, and the 2 GiB of the phrase derivation as well when the limit allows it (`ulimit -l`; the default is often too low for 2 GiB). Your data is not locked, because it can be as large as the file, and without enough locked memory the system can still swap any of this to disk; encrypted swap is the remedy. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the Argon2id phrase derivation reads memory at data-dependent addresses after its first half pass, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
+This kind of security is not trivial because, for example, original files won't be destroyed. If you work on a computer connected to a LAN or WAN, it's also possible for someone else to peek at your computer. SillyDES keeps your data in a single buffer that is encrypted or decrypted in place and wiped after writing, and erases keys and the phrase from memory when it is done with them, also when it stops with an error. It reads the phrase and the key file without stdio, so no library buffer keeps a copy. It asks the system to keep the keys, the phrase and the working variables of the cipher in RAM, and the 2 GiB of the phrase derivation as well when the system allows it. Your data is not locked, because it can be as large as the file, and without enough locked memory the system can still swap any of this to disk; encrypted swap is the remedy, and hibernation (suspend to disk) writes all of RAM to disk whatever a program locked, so do not hibernate while you work with secrets, or encrypt the disk. The DES layers are bitsliced, so their running time and memory access pattern do not depend on the key or the data; the Argon2id phrase derivation reads memory at data-dependent addresses after its first half pass, see the remark in [ANALYSIS.md](ANALYSIS.md), section 8.
+
+What the program does about crash dumps and other processes differs per system. All of it is best effort: a failing call is ignored and the program carries on, and none of it is a boundary against an administrator or root, who can read any process.
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Core and crash dumps | `RLIMIT_CORE` is 0; the process is marked non-dumpable; blocks of 64 KiB and more are excluded from dumps | `RLIMIT_CORE` is 0 | the error dialog of a crash is switched off; the 2 GiB table, the locked pages and the stack window are registered with Windows Error Reporting as excluded from dumps (not verified: no call reads that back) |
+| A debugger of the same user | refused (non-dumpable) | refused (`PT_DENY_ATTACH`; not verified, see below), and the build is signed with the hardened runtime and without `get-task-allow` | refused: the access list of the process gives its owner only the right to query, wait for and end it, none to read or write its memory; an administrator, and any process that has the debug privilege enabled, still gets in |
+| Code from outside | - | the hardened runtime refuses injected libraries and code that is not signed in | the process allows no code generated at run time, no extension points (hooks, AppInit DLLs), no images from network shares and no child process |
+| Keys and phrase kept in RAM | `mlock`, as far as `RLIMIT_MEMLOCK` (`ulimit -l`) allows | `mlock`, as far as the system allows | `VirtualLock`, after raising the working set when needed |
+| Files written | mode 0600 for a new file; a symbolic link as output is refused | the same | a new file inherits the access list of its folder; a link as output is refused |
+
+The tests read the access list and the mitigation policies back from the running Windows process, and the limits and the hardened-runtime signature on Linux and macOS. That a debugger cannot attach on macOS is not verified: the test machines refuse every debugger, so there is nothing to compare with. Security software may slow the 2 GiB derivation. Nothing here protects against malware that runs as you.
 
 ---
 
@@ -272,14 +298,16 @@ The program can generate fourteen error levels. You can use these in a shell scr
 | 4 | Wrong option. |
 | 5 | Faulty key file. |
 | 6 | Input file and output file must differ. |
-| 7 | Not enough memory; phrase mode needs 2 GiB free. |
+| 7 | Not enough memory; phrase mode needs 2 GiB free (see below). |
 | 8 | Can't find beginning of code. |
 | 9 | Duplicate argument on command line. |
-| 10 | Argument missing on command line, or no usable phrase (too short, not valid UTF-8, or with a control character). |
+| 10 | Argument missing on command line, or no usable phrase (too short, not valid UTF-8, or with a control character; also when the input ends before a phrase was typed). |
 | 11 | Can't find end of code. |
 | 12 | CRC error, e-mail style only. |
 | 13 | Authentication failed: wrong key, or data damaged or altered. |
 | 14 | System random generator failed. |
+
+**Level 7** is decided before the memory is taken, from what is free and from the limits set on the process: on Linux the `MemAvailable` of the kernel and the `ulimit -v` and `-d` limits; on Windows the smaller of the free physical memory, the free commit limit and the memory limit of a job object the program runs in; on macOS the free, inactive and purgeable pages, which is an estimate (a heavily loaded Mac may report too little although macOS would have swapped; then error 7 is a false alarm, and closing something helps). The program never runs with less and never lets the system kill it for lack of memory. Level 4 on Windows also covers an argument that is not valid UTF-16.
 
 ---
 

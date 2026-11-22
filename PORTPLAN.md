@@ -14,7 +14,7 @@
 CMake fails on non-64-bit targets and `static_assert(sizeof(void*) == 8)`.
 
 ## 0. Step 0, done: memory hygiene on the current Linux platform
-Done first and independent of the port (no platform layer, no CMake needed); the format is unchanged and every existing test still passes. Findings M1-M8 of section 4.3 are fixed on Linux; only M9 (Windows) is open. What changed:
+Done first and independent of the port (no platform layer, no CMake needed); the format is unchanged and every existing test still passes. Findings M1-M8 of section 4.3 are fixed on Linux; M9 (Windows) was closed in 0h. What changed:
 
 | Area | Change |
 |---|---|
@@ -157,7 +157,7 @@ Findings:
 - Where a part cannot run it prints `skipped:` and why, and CI runs the tests with `-V` so that these lines are in the log. On the runners: Windows and macOS skipped the residue scan and error 7 (no way to limit the address space of a child there; 0h did both, except error 7 on macOS); symbolic links, hard links and the case-insensitive spelling ran on Windows and macOS; Linux skips only the case-insensitive spelling.
 - The sanitizer jobs now run the whole end-to-end test (ASan and UBSan, ubuntu and macOS), which found nothing.
 
-Not done from section 6: the interoperability job between the OSes (todo 11). The in-process residue scanner and the error 7 test came with 0h (todo 4), the latter on Windows through a job object instead of an injected `available_memory()`; on macOS error 7 stays untested.
+Done since: the interoperability job between the OSes (0k). The in-process residue scanner and the error 7 test came with 0h (todo 4), the latter on Windows through a job object instead of an injected `available_memory()`; on macOS error 7 stays untested.
 
 ## 0h. Todo 4, done: memory hygiene on Windows and macOS, one residue scanner
 
@@ -206,6 +206,23 @@ Not done from section 6: the interoperability job between the OSes (todo 11). Th
 - **README** section 1 names CMake only; the per-OS statements stay todo 12.
 - **Not done:** the release binary is still built on `ubuntu-latest`, which is now Ubuntu 26.04, so it needs that glibc or newer; building on an older image (or linking statically) is a decision for the release, not for this todo.
 
+## 0m. Todo 12, done: the documents say what each system does; review of the whole plan
+
+- **README:** section 1 names the supported systems (Linux and macOS 64-bit on arm64 and x86-64, Windows 10 or later on x86-64 and arm64), how they are tested (GitHub runners only, and what that does not cover), that the release is a Linux x86-64 binary so far and the macOS build is ad hoc signed and not notarized, and how to read the Unix examples on Windows; the format paragraph no longer says the phrase rules wait for other systems. Section 5: LF out, PowerShell UTF-16 in. Section 6: data is bytes on Windows, file names are not normalised. Section 7: key files from PowerShell, the key derivation time per system, the prompt (echo off, asked twice), and a list of what each pipe hands over (Unix shells, Windows PowerShell 5.1 and its `?`, PowerShell 7, `cmd.exe` and `chcp 65001`, terminals without ConPTY, Ctrl+Z), plus the limits that are not solved. Section 8: hibernation, and a table of dumps, debuggers, injected code, locked memory and file permissions per system, with what is not verified. Section 9: how error 7 is decided per system, error 4 on Windows, error 10 at the end of input.
+- **ANALYSIS.md 8 and 12:** the memory hygiene row and the resource check per system, with the decision that macOS stays strict; new rows in the table of experiments (the build matrix, the 7 x 7 interop, big endian, the terminal tests, the hardening read back, the time of the derivation per system). **STRUCTURE.md:** the top-level flow and phrase input per system. **CHANGELOG.md:** the stale "first source" entry rewritten, a Documentation entry.
+- **Statuses in this file** that had gone stale were brought up to date (sections 0, 1.1, 1.2, 2, 3.4, 5.2 and the todo list).
+
+### Review of the plan: what is still open
+
+Nothing is blocking. In order of value:
+
+1. **No SECURITY.md.** Section 7 lists it (threat model and known limits: swap and hibernation, the Argon2 timing leak, the same-user administrator on Windows, the unverified items below). The README section 8 table now holds most of the text; the file and the reporting address are missing.
+2. **Releases for the other systems.** `release.yml` builds Linux x86-64 on `ubuntu-latest` (now 26.04: the binary needs that glibc). The plan's rule (a Windows or macOS binary only when the matrix is green on the release commit) is met; what is missing is the release matrix itself (Linux arm64, macOS universal, Windows x64 and arm64), per-binary SBOM and attestation, `SHA256SUMS` over all of them, and the choice about Authenticode, notarization (needs the maintainer's Apple account) and the glibc floor. The release skill and STRUCTURE.md section 10 would change with it.
+3. **Unverified behaviour** (cannot be shown on a runner; named in the release notes when it ships): that the WER exclusion keeps a block out of a dump, that `PT_DENY_ATTACH` stops a debugger, `VirtualLock` of the 2 GiB arena on a small machine, error 7 on macOS (no limit can be set) and the strict macOS memory estimate on a loaded Mac, real Windows 10 and older builds, a user's own terminal emulator and PowerShell profile, Gatekeeper on a downloaded macOS binary.
+4. **Constant-time gaps** (0f, 5.2): DIT on Windows arm64 (no feature bit reported; not set), BlaMka's multiply covered only by a timing test that does not run Argon2id, no Valgrind-like tool on macOS and Windows, MSVC AddressSanitizer dropped (missing runtime library on the image). 5.3 item 4 (wrong-key against right-key decrypt time depending on where the MAC differs) has no test of its own; `ct_equal` has.
+5. **CI hygiene:** pin `windows-latest` and `macos-latest` (they float; section 10 says to do it once the matrix works, which it does now), a nightly interop run, s390x in the interop matrix and the end-to-end suite there, a runner-label update procedure.
+6. **Small leftovers:** M7's `memfd_secret` investigation (a swappable 2 GiB arena stays the largest residual risk without a locking limit), item 17 of 1.2 (a quoted armor tag line gives error 8; not a character-set problem), a user-only DACL for output files on Windows (decided against), `cmake_minimum_required` 3.16 against the presets' 3.21.
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -215,27 +232,27 @@ Steps 1 to 3 (section 0c) moved the OS calls of `common.cpp`, `kdf.cpp`, `keys.c
 
 | Where | Linux-ism | Now |
 |---|---|---|
-| src/common.cpp | open/read/write/fstat, O_NOFOLLOW, O_CLOEXEC, mode 0600, getrandom, prctl, setrlimit, explicit_bzero, no O_BINARY | in `platform_posix.cpp`; the Windows and macOS versions are open |
-| src/kdf.cpp `require_memory` | /proc/meminfo, sysconf(_SC_AVPHYS_PAGES), RLIMIT_AS/DATA | `available_memory()`; the other OSes are open |
+| src/common.cpp | open/read/write/fstat, O_NOFOLLOW, O_CLOEXEC, mode 0600, getrandom, prctl, setrlimit, explicit_bzero, no O_BINARY | in `platform_posix.cpp` and `platform_win32.cpp`; done on all three (0d, 0h, 0i, 0j) |
+| src/kdf.cpp `require_memory` | /proc/meminfo, sysconf(_SC_AVPHYS_PAGES), RLIMIT_AS/DATA | `available_memory()`; done on all three (0h) |
 | src/keys.cpp | termios, isatty, STDIN_FILENO, fopen(name,"r") | `read_secret_line`, `stdin_is_terminal`; the key file already goes through `readfile` |
-| src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes | `same_file()`; argv is a vector of UTF-8 strings, `wmain` is open |
+| src/main.cpp | stat() st_dev/st_ino same-file test; argv as bytes | `same_file()`; argv is a vector of UTF-8 strings, `wmain` on Windows; done |
 | src/sha512.cpp, src/blake2b.cpp | call explicit_bzero directly instead of wipe() | done |
 | test/test_primitives.cpp, tools/gen_des_sbox.cpp | __builtin_popcount, __builtin_ctz | done; the test's OS needs (temporary files, stderr, lock figures) are in `test/test_os_posix.cpp` and `test_os_win32.cpp` (section 0d) |
 | test/test.sh | bash, stat -c, head -c -N, od, md5sum, ulimit -v, /dev/urandom | done: `test/test_e2e.cpp` (section 0g) |
 | Makefile, .github/workflows/build.yml | GNU make; ubuntu only | CMake, a `cmake` job (g++, clang++), `windows-msvc`, `windows-mingw` and `macos` jobs exist; the Makefile (Linux only) is gone (todo 13, 0l) |
 
 ### 1.2 Latent bugs a port would trigger
-Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; section 3.4 solves them. Step 0b fixed 2, 3, 7 and 11 to 16 (section 0b). Open for the Windows port: 4, 9, and of 10 the conversion at the console, since the phrase rules themselves are done. "Measured" means reproduced on Linux with the 5.1.1 binary, before step 0b. Those bugs are not Windows-only: a key file or a phrase file made on Windows fails on Linux today.
+Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; section 3.4 solves them. Step 0b fixed 2, 3, 7 and 11 to 16 (section 0b). All done now (0d, 0i): 4, 9, and of 10 the conversion at the console. "Measured" means reproduced on Linux with the 5.1.1 binary, before step 0b. Those bugs are not Windows-only: a key file or a phrase file made on Windows fails on Linux today.
 
-1. Same-file check: on Windows st_ino is 0, so every run fails with error 6. **Done (step 3):** `same_file()` in the platform layer; the Windows version uses `GetFileInformationByHandle` and is open.
+1. Same-file check: on Windows st_ino is 0, so every run fails with error 6. **Done (step 3):** `same_file()` in the platform layer; the Windows version uses `GetFileInformationByHandle` (done, 0d).
 2. CRLF key files: `\r` is not treated as whitespace, giving error 5 (measured).
 3. CRLF phrase: a piped phrase keeps a trailing `\r` and derives different keys, so decryption ends in error 13 (measured, also for a `\r` at the end of input and for spaces followed by CRLF, where the trimming of trailing spaces stops at the `\r`).
 4. Binary mode: Windows text mode translates CRLF and treats 0x1A as EOF; use `CreateFileW`, so that no text mode exists. On Linux, data with 0D 0A 1A 00 round-trips byte-exact (measured).
 5. `unsigned long`/`%lu`/`strtoul` in armor.cpp is 32-bit on Windows x64; breaks above about 4 Gi characters. **Done (step 3, at the user's request):** `uint64_t`, `PRIu64`, `strtoull`; the END line's CRC is read with `strtoll`.
 6. Unchecked size arithmetic in container.cpp and readfile; add overflow checks. **Done (step 3):** `checked_add` and `checked_mul` in `readfile`, `seal`, `pad256` and the armor header.
 7. No `.gitattributes`: a checkout with `core.autocrlf=true` gives `sample.key`, `hello.sdes` and `test/format-5.1.0/hello-phrase.sdes` CRLF line endings (measured). The two armored files still decrypt, `sample.key` is then error 5 (item 2). `test/format-5.1.0/hello.bin` is detected as binary and stays intact, but only by git's guess; nothing guarantees it for the next fixture.
-8. Error-7 test relies on `ulimit -v`, unavailable on macOS/Windows.
-9. Windows argv is in the ANSI code page; non-ASCII file names fail.
+8. Error-7 test relies on `ulimit -v`, unavailable on macOS/Windows. **Done (0h, 0j):** Windows uses a job object; macOS cannot set a limit and skips.
+9. Windows argv is in the ANSI code page; non-ASCII file names fail. **Done (0d):** `wmain`.
 10. Phrase bytes come from the OEM/ANSI code page on Windows but are UTF-8 on Linux/macOS: same phrase, different keys (measured on Linux with CP1252 and CP850 input). A piped phrase has no defined encoding on Windows at all: cmd writes the OEM code page, Windows PowerShell 5.1 writes ASCII and turns every other character into `?`, PowerShell 7 writes UTF-8, and a redirected file holds whatever the editor saved.
 11. Byte order mark: a UTF-8 BOM gives error 5 in a key file, error 8 in armored text when it stands directly before `*BEGIN` (before the leading blank line it is harmless), and different keys at the start of a piped phrase (measured).
 12. UTF-16: Windows PowerShell 5.1 `>` and the UTF-16 options of Notepad write UTF-16 with a BOM. Error 5 for a key file, error 8 for armored text, different keys for a phrase (measured).
@@ -285,7 +302,7 @@ Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; 
 - Memory policy: refuse if hw.memsize minus headroom is below 2 GiB or free+inactive+speculative is clearly insufficient.
 
 ### 3.4 Same bytes everywhere
-Solves items 2, 3, 4, 7, 9, 10 and 11 to 16 of section 1.2. Everything here except the Windows calls is platform-independent and is done (step 0b, section 0b); headings marked "done" describe what is in the tree. The Windows calls remain for the port.
+Solves items 2, 3, 4, 7, 9, 10 and 11 to 16 of section 1.2. Everything here except the Windows calls is platform-independent and is done (step 0b, section 0b); headings marked "done" describe what is in the tree. The Windows calls are done too (0d, 0i).
 
 #### Principles
 - Inside the program every text is UTF-8: phrase, file names, messages. The platform layer converts at the edge.
@@ -334,7 +351,7 @@ The platform layer delivers one raw line of bytes (`read_secret_line`, section 2
 - Armor reader: the tag lines are found after LF or CR. The body already ignores every byte outside the alphabet.
 - Armor writer: unchanged, LF on every OS, so equal containers give equal text. The alphabet `0-9 : ; A-Z a-z` is ASCII and survives every ASCII-based character set.
 
-#### Data files, file names and messages (Windows: open)
+#### Data files, file names and messages (done: Windows in 0d and 0i)
 - Data files on Windows: `CreateFileW`, so no text mode exists; no CRT file descriptor is used for data.
 - Arguments on Windows: `wmain` (MinGW: `-municode`) to UTF-8. An argument that is not valid UTF-16 is error 4.
 - File names are never normalised: Linux passes the bytes, macOS and Windows pass the name to the OS as given.
@@ -345,7 +362,7 @@ The platform layer delivers one raw line of bytes (`read_secret_line`, section 2
 - `.gitattributes`: `* text=auto eol=lf`, `*.bin binary`, `*.sdes -text`, `*.key text eol=lf`, `test/format-*/** -text`.
 - No tracked file contains a CR or a BOM today and `src/`, `test/` and `tools/` are pure ASCII, so adding the file renormalises nothing. A test keeps the sources ASCII with LF.
 
-#### Limits that remain (README section 7 has those that apply to Linux)
+#### Limits that remain (README section 7 has them, per system, since 0m)
 - Windows PowerShell 5.1 replaces non-ASCII characters by `?` before the program sees them, which cannot be detected. Advice: set `$OutputEncoding` to UTF-8, or use PowerShell 7; in cmd use `chcp 65001`.
 - Look-alikes that Unicode keeps apart stay different: straight and curly quotes, hyphen and dashes, Latin and Cyrillic letters, upper and lower case.
 - Characters assigned after the pinned Unicode version are not folded.
@@ -455,7 +472,7 @@ How the work proceeds, because there is no local test bench for the ports:
 - A release stays a Linux release until the Windows and macOS jobs, interop included, are green on the release commit; the release workflow then adds their binaries.
 
 ## 8. Documentation
-- README (the format, key file, armor and phrase parts are done in step 0b; the OS-specific parts remain): sections 1 (CMake, supported OS, format 5.2.0 and that 5.1.1 converts older files), 5 (line endings and encodings accepted in armored text), 7 (Windows quoting; key file line endings and encodings; the phrase rules: what is folded, what is refused, the PowerShell 5.1 advice and the other limits of 3.4; "every character your computer accepts is allowed" no longer holds), 8 (exact per-OS hardening), 9 (error 7 per OS).
+- **Done (0m).** README (the format, key file, armor and phrase parts were done in step 0b; the OS-specific parts in 0m): sections 1 (CMake, supported OS, format 5.2.0 and that 5.1.1 converts older files), 5 (line endings and encodings accepted in armored text), 7 (Windows quoting; key file line endings and encodings; the phrase rules: what is folded, what is refused, the PowerShell 5.1 advice and the other limits of 3.4; "every character your computer accepts is allowed" no longer holds), 8 (exact per-OS hardening), 9 (error 7 per OS).
 - ANALYSIS.md section 8: per-OS wording and verification results; the phrase canonical form (folding and entropy, not constant-time).
 - STRUCTURE.md: platform layer, units table (`text.cpp`, the generator, the generated header), build, 5.1 (phrase rules), 6.2 (armor reader), 7 (phrase input diagram).
 - CHANGELOG.md and the release notes: "File format: new (5.2.0)", the reason, and that 5.1.1 decrypts older files (done, release 5.2.0). The renaming of the labels in the other documents follows the format-change appendix of the release skill, whose own examples name 5.1.0 too.
@@ -473,7 +490,7 @@ How the work proceeds, because there is no local test bench for the ports:
 9. build-hardening (after 1): **done** (section 0e)
 10. tests-portable (after 3, 14): **done** (section 0g)
 11. ci-matrix (after 5, 6, 9, 10): **done** (section 0k); interop, Windows arm64, big endian
-12. docs-update (after 8, 11)
+12. docs-update (after 8, 11): **done** (section 0m)
 13. remove-makefile (after 11): **done** (section 0l)
 14. text-interchange: **done** (section 0b), released as 5.2.0
 15. ci-runners-early (after 1, 2): **done** (section 0d); a workflow that builds with CMake and runs `test_primitives` on the Windows and macOS runners (section 7.1), the only test bench the ports have; 4, 5 and 6 start after it, and it grows with them. It needs a first `platform_win32.cpp` (and the macOS branches of `platform_posix.cpp`) that compile and do the minimum, and the OS headers of `test_primitives.cpp` guarded or moved (todo 10 in part); start with those and let the runner log lead from there

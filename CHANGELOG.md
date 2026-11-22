@@ -18,11 +18,12 @@ the section of the tag's version as the text of the GitHub Release.
   workflow all use CMake now (the targets `sbom`, `regenerate_sbox`, `regenerate_unicode` and
   `check_unicode`). The program built for a release now has the build hardening of the CMake build
   (the same list the Makefile had).
-- First source for Windows (`src/platform_win32.cpp`, `wmain`) and macOS, built and tested by the
-  `build` workflow on the Windows (MSVC, MinGW-w64) and macOS (arm64, Intel) runners. These
-  builds are not released yet: the hardening and the console input of the Windows version, and
-  the macOS version's packaging, are still to come (PORTPLAN.md). The workflow also runs on a
-  native arm64 Linux runner and with AddressSanitizer and UndefinedBehaviorSanitizer.
+- Windows (`src/platform_win32.cpp`, `wmain`; x86-64 and arm64, MSVC and MinGW-w64) and macOS
+  (arm64 and Intel), built and tested by the `build` workflow on GitHub's runners, together with a
+  native arm64 Linux runner and AddressSanitizer and UndefinedBehaviorSanitizer runs. Files are
+  opened as bytes on Windows, arguments and file names are Unicode, and a phrase is read from the
+  console as Unicode. No Windows or macOS binary is released yet: the release workflow still
+  builds Linux x86-64 only.
 - Memory hygiene on Windows and macOS, as on Linux: pages that hold keys, phrase and plaintext are
   locked in RAM (on Windows the working set is raised first, which `VirtualLock` needs), the
   stack window is locked, secret blocks are kept out of Windows Error Reporting dumps, and on macOS
@@ -90,6 +91,14 @@ the section of the tag's version as the text of the GitHub Release.
   and the character count is read as a 64-bit number everywhere. Texts the program wrote are
   read as before.
 - Sizes computed from the size of a file are checked for overflow.
+
+### Documentation
+
+- The README says per system what is supported and how it is tested, what the program does about
+  dumps, debuggers and locked memory on Linux, macOS and Windows (a table in section 8, with what
+  is not verified), how error 7 is decided on each system, and what PowerShell 5.1, PowerShell 7
+  and `cmd.exe` hand to the program as a phrase. ANALYSIS.md and STRUCTURE.md follow, and
+  ANALYSIS.md lists the cross-system results and the time of the key derivation per system.
 
 ## [5.2.0] - 2026-11-21
 
