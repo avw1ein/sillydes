@@ -178,6 +178,16 @@ Not done from section 6: the interoperability job between the OSes (todo 11). Th
 - **Not done, by decision:** a user-only DACL on output files stays as documented in 3.2 (they inherit the directory's list, as every program's files do; README section 8 says so); Windows arm64 (no runner label tried yet; todo 11).
 - **mintty without ConPTY** presents stdin as a pipe: the phrase is echoed and not confirmed. Not testable on a runner; stays in the list of limits (3.4).
 
+## 0j. Todo 6, done: the macOS port
+
+- **Signature and hardened runtime** (CMake, `SILLYDES_CODESIGN`, on by default on macOS): after the link, `codesign --force --options runtime --sign <identity>` signs `sillydes`; the identity is `-` (ad hoc) unless `SILLYDES_CODESIGN_IDENTITY` names one, which also adds the secure timestamp that notarization asks for. No entitlements are given, so there is no `get-task-allow` (the entitlement that lets any debugger attach) and nothing else relaxes the runtime. The signature is what makes the hardened runtime refuse a debugger, `DYLD_*` injection and unsigned code in the process, in addition to `PT_DENY_ATTACH`. The test binaries are not signed beyond what the linker does.
+- **Checked by ctest on every macOS job** (`cmake/check_hardening.cmake`, Mach-O branch): `lipo -archs` equals `CMAKE_OSX_ARCHITECTURES` when that is set; every architecture has the PIE flag and the stack protector (`otool -arch all -hv`, `nm -arch all -u`: without `-arch all` both tools look at the host's slice only); `codesign --verify --strict` passes; every architecture's code directory has the `runtime` flag (`flags=0x10002(adhoc,runtime)` seen on the runners); and `get-task-allow` is not among the entitlements. The workflow also prints `lipo`, `codesign -dvv` and the entitlements.
+- **Universal binary:** preset `universal` (`CMAKE_OSX_ARCHITECTURES=arm64;x86_64`, deployment target 11.0). The `macos` job runs it besides `ci` on both runner types, so the arm64 slice is tested on the arm64 runner and the x86_64 slice on the Intel runner, natively (no Rosetta needed): primitives, hardening and the whole end-to-end suite pass on both. Notarization and the distribution (a signed identity, a zip or pkg) stay out of scope; they need an Apple developer account.
+- **Memory policy, decided:** unchanged and strict: `available_memory()` is free, inactive and purgeable pages (the plan's `hw.memsize` rule would only refuse on machines under 3 GiB and was not taken). Measured on the runners: about 3 GiB on arm64 and 10 GiB on Intel. A loaded Mac can get a spurious error 7 although macOS would have swapped; README must say so.
+- **Error 7 stays untested on macOS.** Tried on the runners: `setrlimit` of `RLIMIT_AS` and of `RLIMIT_DATA` fails with `EINVAL` for a limit below the address space that is already mapped (which is well above 1.5 GiB), so no child can be limited. The program reads both limits and would refuse, but the test cannot set one. The skip is printed.
+- **`PT_DENY_ATTACH` could not be shown to work.** An experiment attached to a child that had called `harden_process` and, as a control, to one that had not: the control was refused as well (a debugger of the same user gets in nowhere on the runner), so the experiment proves nothing, and the attach to the hardened child did not return an answer (it first blocked the test itself, then ended its helper process abnormally). It was removed. Stays in the unverified list.
+- **Lessons:** `PT_ATTACH` is deprecated and an error under `-Werror` (`PT_ATTACHEXC`); a hung experiment costs a runner for as long as the job timeout, so every new experiment gets a `ctest --timeout` and diagnostics on stderr (stdout is lost when ctest kills the test).
+
 ## 1. State of the code
 The crypto core is portable C++11: byte-wise (de)serialisation, no asm, intrinsics, `__int128` or libraries.
 Non-portable code is in the OS layer.
@@ -251,9 +261,9 @@ Items 2, 3, 4, 7, 9, 10 and 11 to 16 are about character sets and line endings; 
 - Replace O_NOFOLLOW with FILE_FLAG_OPEN_REPARSE_POINT and refuse reparse points on output.
 
 ### 3.3 macOS
-- Universal binary via CMAKE_OSX_ARCHITECTURES.
+- Universal binary via CMAKE_OSX_ARCHITECTURES: **done (0j)**, preset `universal`.
 - No getrandom, /proc, explicit_bzero; RLIMIT_AS not enforced (error-7 test needs another trigger).
-- Hardened runtime + codesign (no get-task-allow); notarization optional.
+- Hardened runtime + codesign (no get-task-allow): **done (0j)**; notarization optional, not done.
 - Memory policy: refuse if hw.memsize minus headroom is below 2 GiB or free+inactive+speculative is clearly insufficient.
 
 ### 3.4 Same bytes everywhere
@@ -328,14 +338,14 @@ The platform layer delivers one raw line of bytes (`read_secret_line`, section 2
 | Goal | Linux | macOS | Windows |
 |---|---|---|---|
 | No dumps | RLIMIT_CORE=0, PR_SET_DUMPABLE=0 | RLIMIT_CORE=0 | **Done (0h):** SetErrorMode(SEM_NOGPFAULTERRORBOX); WerRegisterExcludedMemoryBlock for arena, locked pages and stack window; the exclusion is not verified (no read-back) |
-| Block same-user debugger | PR_SET_DUMPABLE=0 | **PT_DENY_ATTACH done (0h)**; hardened runtime at signing (todo 6) **Done (0i):** restrictive DACL on own process (owner keeps query-limited, terminate, synchronize); admin/SeDebug still bypasses: mitigation, not a boundary |
-| Code injection | n/a | hardened runtime | **Done (0i):** SetProcessMitigationPolicy: dynamic code prohibited, extension points disabled, remote images refused, no child process; strict handle checks left out on purpose |
+| Block same-user debugger | PR_SET_DUMPABLE=0 | **PT_DENY_ATTACH done (0h)**; **hardened runtime signature done (0j)**; the attach itself is not shown to be refused **Done (0i):** restrictive DACL on own process (owner keeps query-limited, terminate, synchronize); admin/SeDebug still bypasses: mitigation, not a boundary |
+| Code injection | n/a | **hardened runtime done (0j)** | **Done (0i):** SetProcessMitigationPolicy: dynamic code prohibited, extension points disabled, remote images refused, no child process; strict handle checks left out on purpose |
 
 All best-effort, never fatal. README section 8 must state exactly what each OS does.
 
 ### 4.2 Build hardening (keep -Wall -Wextra -Werror in CI)
 - GCC/Clang Linux: -fstack-protector-strong, -D_FORTIFY_SOURCE=3 (2 on old toolchains), -fstack-clash-protection, -fcf-protection (x86), -mbranch-protection=standard (arm64), PIE, -z relro -z now -z noexecstack. **`-z relro -z now` is already in place (section 0c); it does not by itself keep secrets out of the stack, see the lessons there (`exit_process`).**
-- macOS: PIE, stack protector, hardened runtime at signing.
+- macOS: PIE, stack protector, hardened runtime at signing (done, 0j; checked by ctest).
 - MSVC: /GS /sdl /guard:cf /Qspectre, /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /CETCOMPAT. MinGW: -fstack-protector-strong -Wl,--dynamicbase,--nxcompat,--high-entropy-va.
 - CI jobs with ASan+UBSan (Linux, macOS) and MSVC /fsanitize=address.
 
@@ -391,7 +401,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 - **Done (step 0b), in test_primitives.cpp; runs on every OS once ported.** Text interchange (section 3.4), unit tests: `decode_text`; one key file as LF, CRLF, CR, with a UTF-8 BOM and as UTF-16 LE and BE gives the same keys; the armored fixture in the same variants decrypts; an armor known answer without CR; the canonical phrase table (every step, accepted and refused); the normalisation subset and the hash of the tables.
 - **Done (step 0b; ported to test_e2e.cpp in 0g).** Text interchange, end to end: new fixture `test/format-5.2.0/hello-utf8-phrase.sdes` (Latin, Greek, CJK and one character outside the BMP) opened with NFC, NFD, full-width, CRLF and BOM input and with an invisible character inserted; a phrase that is not UTF-8 is refused without a KDF run; a 5.1.0 file is refused; a data file containing 0x0D 0x0A 0x1A; non-ASCII input, output and key file names; the residue scan with a non-ASCII phrase.
 - **Done (0i).** New, Windows only: a phrase typed into a console, including a surrogate pair (through ConPTY, and on POSIX through a pty); a piped CRLF phrase (0g); PowerShell and cmd pipes; a redirected message is UTF-8 (`messages_are_utf8`, every OS).
-- Error 7 without ulimit: injectable available_memory() in test builds; keep ulimit test on Linux.
+- Error 7 without ulimit: **macOS: not possible (0j)**, the limits cannot be set below the mapped address space; Windows has the job object (0h). An injectable available_memory() in test builds would be a second test hook in the program and is not planned.
 - Cross-OS interop: CI uploads files encrypted on one OS (binary and armored; with a key file, an ASCII phrase and a non-ASCII phrase) and decrypts them on the others. The Windows job also writes a key file with PowerShell `>`. This runs only on the GitHub runners (section 7.1).
 - Windows and macOS tests exist only as runner results: write each test so that it also fails loudly when its precondition is missing (no console, `mlock` limit) instead of passing silently, and print the reason for every skip.
 
@@ -439,7 +449,7 @@ How the work proceeds, because there is no local test bench for the ports:
 3. portable-fixes (after 2): **done** (section 0c)
 4. memory-hygiene (after 2, 15): **done** (section 0h). `ReadConsoleW` into a locked buffer was already part of 0d; the DACL and mitigation policies moved to todo 5
 5. windows-port (after 3, 4, 14, 15): **done** (section 0i); includes the Windows calls of section 3.4 (wmain, CreateFileW, ReadConsoleW, WriteConsoleW); written here, built and tested only on the Windows runners (section 7.1)
-6. macos-port (after 3, 4, 14, 15); written here, built and tested only on the macOS runners (section 7.1)
+6. macos-port (after 3, 4, 14, 15): **done** (section 0j); written here, built and tested only on the macOS runners (section 7.1)
 7. ct-hardening (after 2): **done** (section 0e); the verification is todo 8
 8. ct-verification (after 7): **done** (section 0f)
 9. build-hardening (after 1): **done** (section 0e)

@@ -24,6 +24,11 @@ the section of the tag's version as the text of the GitHub Release.
   stack window is locked, secret blocks are kept out of Windows Error Reporting dumps, and on macOS
   a debugger cannot attach (`PT_DENY_ATTACH`). Error 7 (not enough memory) also honours the memory
   limit of a Windows job object.
+- macOS: the program is signed with the hardened runtime and without entitlements (ad hoc by
+  default; `SILLYDES_CODESIGN_IDENTITY` takes a real identity), and a universal build
+  (`cmake --preset universal`, arm64 and x86_64) is built and tested on both runner types. The
+  `hardening` test checks every slice for PIE and the stack protector and the signature for the
+  runtime flag and the absence of `get-task-allow`. Notarization is not done.
 - Windows process hardening: the access control list of the process leaves the owner no right to
   read or write its memory (a debugger or dump tool of the same user is refused; an administrator
   with SeDebugPrivilege is not stopped), and the process allows no code generated at run time, no
