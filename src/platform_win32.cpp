@@ -21,6 +21,10 @@
 #endif
 #include <windows.h>
 
+#if defined(_M_ARM64) && defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #include <aclapi.h>
 #include <bcrypt.h>
 #include <malloc.h>
@@ -297,6 +301,24 @@ void restrict_process_access()
   CloseHandle(token);
 }
 
+#if defined(_M_ARM64) && defined(_MSC_VER)
+// arm64: the data-independent timing mode, as on Linux and macOS (platform_posix.cpp). Windows has no
+// feature bit for it (IsProcessorFeaturePresent) and does not let a program read the ID register, and the
+// virtual machine of the runner reports the feature as absent in the registry copy of that register
+// while the CPU has it, so the only way to ask is to try. A CPU without DIT raises an illegal-instruction
+// exception, which is caught and ignored. The mode is a bit of the state of the thread and the program has
+// one thread; it survives a context switch (measured on a windows-11-arm runner).
+void enable_dit()
+{
+  __try {
+    __emit(0xd503415f);  // msr dit, #1
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+  }
+}
+#else
+void enable_dit() {}
+#endif
+
 }  // namespace
 
 void harden_process()
@@ -304,6 +326,7 @@ void harden_process()
   // No dialog boxes: a crash ends the process instead of waiting for a person.
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
   restrict_process_access();
+  enable_dit();
   // No code generated at run time, no extension points (AppInit DLLs, global hooks, legacy IMEs), no
   // images from network shares, no child process. The program needs none of them, and each is a way
   // to get code into it. The strict handle check (an exception for an invalid handle) is left out on

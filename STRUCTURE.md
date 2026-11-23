@@ -481,7 +481,7 @@ flowchart LR
 | Files | POSIX, `O_NOFOLLOW`, `O_CLOEXEC`, mode 0600 | the same | `CreateFileW`, binary; a link is refused by looking at the handle before the file is truncated (`FILE_FLAG_OPEN_REPARSE_POINT`); a new file inherits the access list of its folder |
 | `same_file` | `st_dev` and `st_ino` | the same | `GetFileInformationByHandle` (volume serial and file index); `st_ino` is 0 on Windows |
 | `available_memory` | `MemAvailable`, and the `RLIMIT_AS` and `RLIMIT_DATA` limits | free, inactive and purgeable pages from `host_statistics64` (an estimate), and the limits | the smaller of free physical memory, the free commit limit and the memory limit of the job object the process is in |
-| `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog (section 12) |
+| `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog, DIT on arm64 by trying the instruction (section 12) |
 | Secret memory | `mmap`, `mlock`, `MADV_DONTDUMP` | `mmap`, `mlock` (no `MADV_DONTDUMP`; core dumps being off covers it) | `VirtualAlloc`, `VirtualLock` after raising the working set, `WerRegisterExcludedMemoryBlock` |
 | `secret_map`, `lock_required` | `memfd_secret` (5.14 and later) when `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows the size; a SIGBUS handler around the first touch of every page; null otherwise. `SILLYDES_REQUIRE_LOCK` | null (no such mapping) | null; `SILLYDES_REQUIRE_LOCK` through `GetEnvironmentVariableW` |
 | `lock_stack`, `scrub_stack` | `alloca` window of 256 KiB (halved under a small limit) | the same | `_alloca`, the same window |
@@ -518,8 +518,12 @@ is `strtoll`, and counts are `uint64_t` with `PRIu64`). Sizes computed from the 
 - MSVC `/W4` reports conversions (`int` to `char`, `uint32_t` to `uint8_t`) that gcc and clang do not;
   `sscanf` and `getenv` need `_CRT_SECURE_NO_WARNINGS` in the test code.
 - MSYS2's MINGW64 is deprecated: use UCRT64.
-- DIT is not set on Windows arm64 (no feature bit is reported); timing hardening is Linux and macOS only
-  there.
+- DIT on Windows arm64: no feature bit (`IsProcessorFeaturePresent`), the ID register cannot be read from user
+  mode and its copy in the registry (`CP 4020`) said "absent" on the runner's virtual machine while the CPU has
+  it, so `enable_dit` in `platform_win32.cpp` tries `msr dit, #1` (`__emit`, MSVC arm64 only) under SEH and
+  ignores an illegal-instruction exception. The bit is read back in `check_hardening` (`_ReadStatusReg`).
+  Measured on `windows-11-arm`: set, and still set after sleeps and with every core busy; a new thread starts
+  with it clear, which does not matter in a program with one thread.
 - Windows PowerShell 5.1 and `cmd.exe` change a piped phrase before the program sees it (README section 7,
   [TESTING.md](TESTING.md) section 4).
 
@@ -604,7 +608,7 @@ macOS: stack protector, fortify 2, PIE by default, the signature. MinGW: stack p
 compiler from turning masks into branches in `Des::setkey`, `ct_equal` (the MAC compare) and the key file's
 hexadecimal decoding (`hex_digit`, branch-free, tested for every byte value). On arm64 CPUs that have it,
 the data-independent timing mode (DIT) is switched on once in `harden_process` (the program has no threads):
-`getauxval` on Linux, `sysctl hw.optional.arm.FEAT_DIT` on macOS. The DES layers are bitsliced, with no
+`getauxval` on Linux, `sysctl hw.optional.arm.FEAT_DIT` on macOS, and on Windows arm64 (which has no way to ask) by trying the instruction under SEH. The DES layers are bitsliced, with no
 secret-dependent address or branch. Argon2id and the normalisation of a phrase outside ASCII are not
 constant-time, by design ([ANALYSIS.md](ANALYSIS.md) section 8). Verified with Valgrind, a branch report and
 a timing test ([TESTING.md](TESTING.md) section 5): measured, not proved.

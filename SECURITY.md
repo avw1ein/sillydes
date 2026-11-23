@@ -69,7 +69,9 @@ Named, because a test machine cannot show them (details in [TESTING.md](TESTING.
 - error 7 on macOS under a memory limit, and the macOS free-memory estimate on a loaded Mac;
 - real older Windows 10 builds, your own terminal emulator and PowerShell profile, Gatekeeper on a
   downloaded macOS binary;
-- the data-independent timing mode on Windows on arm64, which is not switched on.
+- the data-independent timing mode on Windows on arm64: it is switched on by trying the instruction (Windows reports no
+  feature bit) and the runner's CPU, which has it, shows the bit set; a Windows arm64 CPU without the feature has not been
+  seen, where the program is meant to skip the mode silently.
 
 ## Verifying a download
 

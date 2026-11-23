@@ -252,5 +252,7 @@ Named in the release notes when it ships; none of it can be shown on a runner:
 - the macOS free-memory estimate (free, inactive and purgeable pages) on a loaded Mac;
 - real older Windows 10 builds, a user's terminal emulator, mintty, real PowerShell profiles, macOS
   Gatekeeper and notarization on a user's machine;
-- the data-independent timing mode (DIT) on Windows arm64, which is not set (no feature bit that
-  `IsProcessorFeaturePresent` reports).
+- the data-independent timing mode (DIT) on a Windows arm64 CPU that does not have it: the program tries
+  the instruction under SEH and should get an illegal-instruction exception that it ignores, but the only
+  runner (Cobalt 100) has the feature. Where it has it, `check_hardening` reads the bit back, and
+  `SILLYDES_EXPECT_DIT=1` (set in the `windows-arm64` job) makes a missing bit a failure.

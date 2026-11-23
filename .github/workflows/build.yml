@@ -82,6 +82,8 @@ jobs:
       - run: cmake -S . -B build -DSILLYDES_WERROR=ON
       - run: cmake --build build --config Release
       - run: ctest --test-dir build -C Release --output-on-failure -V
+        env:
+          SILLYDES_EXPECT_DIT: '1'  # the Cobalt 100 of this runner has DIT; the hardening test then insists that it is set
       - name: Files for the other systems (interop)
         run: build/Release/test_e2e.exe build/Release/sillydes.exe . --interop-make interop windows-arm64
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -13,6 +13,10 @@
 #endif
 #include <windows.h>
 
+#if defined(_M_ARM64) && defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #include <aclapi.h>
 #include <psapi.h>
 #include <sddl.h>
@@ -481,6 +485,25 @@ std::string describe_access()
   return text;
 }
 
+#if defined(_M_ARM64) && defined(_MSC_VER)
+// The DIT bit of this thread: 1 or 0, or -1 if the register cannot be read. A function of its own,
+// because __try cannot share a function with objects that need unwinding.
+int read_dit()
+{
+  __try {
+    return (int)((_ReadStatusReg(ARM64_SYSREG(3, 3, 4, 2, 5)) >> 24) & 1);
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    return -1;
+  }
+}
+
+bool dit_expected()
+{
+  wchar_t v[2] = {};
+  return GetEnvironmentVariableW(L"SILLYDES_EXPECT_DIT", v, 2) == 1 && v[0] == L'1';
+}
+#endif
+
 }  // namespace
 
 // An administrator's token usually has SeDebugPrivilege enabled, and with it a process opens any other
@@ -541,5 +564,18 @@ int check_hardening(std::string &detail)
       detail += std::string("; ") + e.name;
     }
   }
+#if defined(_M_ARM64) && defined(_MSC_VER)
+  // DIT cannot be told from a CPU without it by asking the OS, so the runner says (SILLYDES_EXPECT_DIT=1 in
+  // the job of a CPU that has it) and a bit that is not set then fails; elsewhere it is only reported.
+  const int dit = read_dit();
+  if (dit == 1) {
+    detail += "; data-independent timing (DIT) on";
+  } else if (dit_expected()) {
+    detail = std::string("DIT is not set, and SILLYDES_EXPECT_DIT=1 says this CPU has it") + (dit < 0 ? " (the register cannot be read)" : "");
+    return 1;
+  } else {
+    detail += "; DIT not set (the CPU may not have it)";
+  }
+#endif
   return 0;
 }

@@ -30,6 +30,9 @@ the section of the tag's version as the text of the GitHub Release.
   variable: the variant is header byte 7, which was reserved and zero, so no file changes. A key file
   has no Argon2i: the word is error 10 with `key=` when encrypting, the variable is ignored. The command
   line may now have a seventh word. A release before this one stops with error 13 on an Argon2i file.
+- Windows on arm64: the data-independent timing mode (DIT) is switched on in the process, as on Linux and
+  macOS. Windows has no way to ask whether the CPU has it, so the program tries the instruction and ignores
+  a refusal. The hardening test reads the bit back on the runner.
 
 ## [5.2.1] - 2026-11-22
 
