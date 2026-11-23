@@ -42,7 +42,7 @@ Features:
 - A 2048-bit tweak per block, so every block is encrypted by its own instance of the cipher.
 - HMAC-SHA-512 authentication (512-bit key and tag), checked before decryption.
 - CRC-32 check on e-mail output.
-- Key phrase (Argon2id, 2 GiB of memory, salted) or key file.
+- Key phrase (Argon2id, or Argon2i on request, 2 GiB of memory, salted) or key file.
 - One phrase gives the same keys on every system, however it was typed (Unicode NFKC).
 - Constant-time DES: no key- or data-dependent memory access or branch during encryption.
 - Linux, macOS and Windows (x86-64 and arm64), one file format: files made on one system open on every other.
@@ -234,7 +234,7 @@ Step 16: Whitening 8, DES encryption with key8, then a final
 
 Each whitening is 2048 bits and is made from all eight keys and the salt with HMAC-SHA-512, so every bit of every key matters, including the bits that DES itself ignores, and two files made with the same key file share no whitening. The tweak of step 0 is made the same way from the keys, the salt and the block number. [VISUALIZATION.md](VISUALIZATION.md) draws these sixteen steps byte by byte.
 
-The output consists of: a 4-byte header (S, D, 5, 16: the file format's major version, then minor times 16 plus patch), the phrase hashing parameters (4 bytes), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
+The output consists of: a 4-byte header (S, D, 5, 16: the file format's major version, then minor times 16 plus patch), the phrase hashing parameters (4 bytes: log2 of the memory in KiB, the passes, the lanes, and which Argon2 variant, 0 for Argon2id and 1 for Argon2i), the salt (16 bytes), the IV (256 bytes), the encrypted blocks, and a 64-byte HMAC-SHA-512 tag over all of it. The MAC key is 512 bits, taken from the same keys or phrase as the DES keys. Decryption checks the tag first and stops with error 13 if it does not match.
 
 The salt and the IV come from the system random generator on every encryption; there is no option to choose or repeat them, and the program stops with error 14 if the generator fails. Encrypting the same file twice therefore gives two unrelated outputs. This is deliberate: it is what guarantees that no two blocks, in one file or across files, are ever encrypted by the same cipher instance.
 
@@ -271,6 +271,8 @@ Examine the file `sample.key` to see how to construct a key file. It's an ASCII 
 ### Phrase
 
 Put `phrase` on the command line instead of `key=` (and, if you want the program to refuse to run when the 2 GiB table could be swapped out, `requirelock` after it; section 8). The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less (section 9 says how each system decides that). Deriving the keys takes about 2 seconds on Linux and on a Mac with Apple silicon and 3 to 6 seconds on the other systems that have been measured (Windows, an Intel Mac); the same time passes again when a file is opened.
+
+**Argon2i.** The default is Argon2id, which is what RFC 9106 recommends. Put the word `argon2i` on the command line when you encrypt (or set `SILLYDES_ARGON2I=1` in the environment; either one is enough) to use Argon2i instead: the same 2 GiB, but 6 passes. Argon2id reads memory at places that depend on the phrase during most of its run, and on a machine where other, untrusted code runs at the same time on the same processor (a shared server, a virtual machine on shared hardware, a CI runner, a workstation with other users) such a program can watch the processor cache and use what it sees to test guesses of the phrase. Argon2i addresses memory independently of the phrase from beginning to end, so there is nothing to watch; the price is a run about four times as long (7.5 seconds against 1.8 on a recent Linux PC, and again when the file is opened), and a somewhat weaker defence against attacks that trade time for memory, which the extra passes make up for (RFC 9106 section 7). On a machine that only you use, keep Argon2id. Argon2i does not help against whoever controls the machine itself (the administrator, the hypervisor), who can read the phrase and the table from memory, and the normalisation of a phrase with characters outside ASCII is not constant-time either, so use an ASCII phrase if this is your concern ([ANALYSIS.md](ANALYSIS.md) section 8). Which variant a file uses is written in its header and is checked with the rest of it, so opening a file takes no word and no variable (a word or a variable given when decrypting is ignored), and files made by 5.2.0 and 5.2.1 still open. Argon2i needs a program that has this feature: older releases stop with error 13 on such a file. With `key=` there is no Argon2i: the word is error 10 when encrypting, the variable is ignored.
 
 On a terminal the phrase is read with the echo off and, when encrypting, asked twice; from a pipe or a file it is read as it comes, and in a Windows console as Unicode text.
 
@@ -352,7 +354,7 @@ The program can generate fifteen error levels. You can use these in a shell scri
 | 7 | Not enough memory; phrase mode needs 2 GiB free (see below). |
 | 8 | Can't find beginning of code. |
 | 9 | Duplicate argument on command line. |
-| 10 | Argument missing on command line, or no usable phrase (too short, not valid UTF-8, or with a control character; also when the input ends before a phrase was typed). |
+| 10 | Argument missing on command line (also `argon2i` when encrypting with `key=`, where there is no phrase), or no usable phrase (too short, not valid UTF-8, or with a control character; also when the input ends before a phrase was typed). |
 | 11 | Can't find end of code. |
 | 12 | CRC error, e-mail style only. |
 | 13 | Authentication failed: wrong key, or data damaged or altered. |

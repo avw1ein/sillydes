@@ -47,7 +47,11 @@ library.
   disassembly report and a timing test; measured, not proved). Argon2id reads memory at
   data-dependent addresses in its second half, by design (RFC 9106), and the normalisation of a
   phrase outside ASCII is not constant-time either. A local observer on the same machine could use
-  both to test phrase guesses offline.
+  both to test phrase guesses offline. If other, untrusted code runs on the processor you encrypt
+  on (a shared server, a virtual machine on shared hardware, a CI runner), encrypt with `argon2i`
+  on the command line or `SILLYDES_ARGON2I=1` and an ASCII phrase: Argon2i addresses memory
+  independently of the phrase. It takes about four times as long, and it is no defence against a
+  host that can read the process's memory. Opening a file needs no option.
 - **Look-alike phrases.** Different characters that look alike (straight and curly quotes, a Latin
   and a Cyrillic letter) give different keys, and a shell that changes the encoding of a phrase
   before the program sees it (Windows PowerShell 5.1 turns every non-ASCII character into `?`)

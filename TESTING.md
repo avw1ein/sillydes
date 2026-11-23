@@ -176,8 +176,9 @@ What is checked and how is in the table in section 1; the design is in STRUCTURE
 results in ANALYSIS.md section 8. Things to know:
 
 - Valgrind marks the return value of the program as undefined if it is derived from a secret (the
-  control); results are declassified before use. Out of scope by design: Argon2id (data-dependent
-  addressing), the phrase normalisation, and `unseal` as a whole (its tag branch and `unpad256` depend on
+  control); results are declassified before use. Argon2i with a secret phrase (a 1 MiB table) is
+  covered; the same test with Argon2id was reported by Valgrind when tried by hand. Out of scope by
+  design: Argon2id (data-dependent addressing), the phrase normalisation, and `unseal` as a whole (its tag branch and `unpad256` depend on
   public outcomes), so its pieces are run instead.
 - The branch report cannot tell a loop over a public length from a branch on a secret, so only
   `hex_digit` is enforced. Read the report when a compiler changes.

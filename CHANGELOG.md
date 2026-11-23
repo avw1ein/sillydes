@@ -21,6 +21,15 @@ the section of the tag's version as the text of the GitHub Release.
 - The command-line word `requirelock` (or `SILLYDES_REQUIRE_LOCK=1` in the environment): the program
   stops with the new error level 15, before it writes anything, if the 2 GiB table could not be locked
   in RAM. The command line may now have a sixth word; five words work as before.
+- Argon2i for the phrase, for a machine that shares its processor with code you do not trust: the
+  command-line word `argon2i` (or `SILLYDES_ARGON2I=1`, exactly `1`) when encrypting with `phrase`.
+  Argon2i addresses the 2 GiB table independently of the phrase, so a cache observer learns nothing
+  from the key derivation, where Argon2id reads memory at phrase-dependent places (README section 7,
+  ANALYSIS section 8). It uses 6 passes, 2 GiB and 4 lanes and takes about four times as long (7.5 s
+  against 1.8 s on one Linux PC). Argon2id stays the default. Decryption needs neither word nor
+  variable: the variant is header byte 7, which was reserved and zero, so no file changes. A key file
+  has no Argon2i: the word is error 10 with `key=` when encrypting, the variable is ignored. The command
+  line may now have a seventh word. A release before this one stops with error 13 on an Argon2i file.
 
 ## [5.2.1] - 2026-11-22
 

@@ -12,7 +12,7 @@
 
 namespace {
 
-enum { BLOCK_WORDS = 128, SYNC_POINTS = 4, ARGON2_VERSION = 0x13, ARGON2_ID = 2 };
+enum { BLOCK_WORDS = 128, SYNC_POINTS = 4, ARGON2_VERSION = 0x13, ARGON2_TYPE_I = 1, ARGON2_TYPE_ID = 2 };
 
 struct Block { uint64_t v[BLOCK_WORDS]; };
 
@@ -103,6 +103,7 @@ struct Arena {
 
 struct Argon2 {
   uint32_t passes, lanes, mblocks, lane_len, seg_len;
+  uint32_t type = ARGON2_TYPE_ID;  // the y of RFC 9106: 1 = Argon2i, 2 = Argon2id
   Block *mem = nullptr;
 
   Block &at(uint32_t lane, uint32_t idx) { return mem[(size_t)lane * lane_len + idx]; }
@@ -126,11 +127,11 @@ struct Argon2 {
 
   void fill_segment(uint32_t pass, uint32_t lane, uint32_t slice)
   {
-    const bool independent = pass == 0 && slice < SYNC_POINTS / 2;
+    const bool independent = type == ARGON2_TYPE_I || (pass == 0 && slice < SYNC_POINTS / 2);
     Block zero{}, input{}, addr{};
     if (independent) {
       input.v[0] = pass; input.v[1] = lane; input.v[2] = slice;
-      input.v[3] = mblocks; input.v[4] = passes; input.v[5] = ARGON2_ID;
+      input.v[3] = mblocks; input.v[4] = passes; input.v[5] = type;
     }
     auto next_addresses = [&]() {
       input.v[6]++;
@@ -165,10 +166,11 @@ struct Argon2 {
 
 }  // namespace
 
-SecretBuf argon2id(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p,
-                   size_t outlen, const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen, bool require_lock)
+SecretBuf argon2(uint32_t variant, const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p,
+                 size_t outlen, const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen, bool require_lock)
 {
   Argon2 a;
+  a.type = variant == KDF_ARGON2I ? ARGON2_TYPE_I : ARGON2_TYPE_ID;
   a.passes = t;
   a.lanes = p;
   a.seg_len = m_kib / (SYNC_POINTS * p);
@@ -179,7 +181,7 @@ SecretBuf argon2id(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t 
   SecretBuf h0in;
   h0in.reserve(10 * 4 + pwlen + slen + seclen + adlen);  // exact, so the password is never copied on growth
   store32(h0in, p); store32(h0in, (uint32_t)outlen); store32(h0in, m_kib); store32(h0in, t);
-  store32(h0in, ARGON2_VERSION); store32(h0in, ARGON2_ID);
+  store32(h0in, ARGON2_VERSION); store32(h0in, a.type);
   store32(h0in, (uint32_t)pwlen); h0in.insert(h0in.end(), pw, pw + pwlen);
   store32(h0in, (uint32_t)slen); h0in.insert(h0in.end(), salt, salt + slen);
   store32(h0in, (uint32_t)seclen); if (seclen) h0in.insert(h0in.end(), secret, secret + seclen);

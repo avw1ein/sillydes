@@ -66,10 +66,14 @@ template <class T, class U> bool operator!=(const LockedAllocator<T> &, const Lo
 typedef std::vector<uint8_t, SecureAllocator<uint8_t>> Buf;
 typedef std::vector<uint8_t, LockedAllocator<uint8_t>> SecretBuf;
 
-// Container: MAGIC | log2(memory in KiB), passes, lanes, 0 | salt | IV | ciphertext | HMAC-SHA-512 tag.
+// Container: MAGIC | log2(memory in KiB), passes, lanes, variant | salt | IV | ciphertext | HMAC-SHA-512 tag.
 enum { SALT_LEN = 16, IV_LEN = 256, HDR_LEN = 4 + 4 + SALT_LEN + IV_LEN, TAG_LEN = 64, NL = 8 };
-struct KdfParams { uint32_t logm, t, p; };
-static const KdfParams DEFAULT_KDF = { 21, 1, 4 };  // Argon2id, 2 GiB of memory per guess (RFC 9106 first recommendation)
+enum { KDF_ARGON2ID = 0, KDF_ARGON2I = 1 };  // the variant byte of the header
+struct KdfParams { uint32_t logm, t, p, variant; };
+static const KdfParams DEFAULT_KDF = { 21, 1, 4, KDF_ARGON2ID };  // 2 GiB of memory per guess (RFC 9106 first recommendation)
+// Data-independent memory addressing for hosts that share a CPU with untrusted code; it needs more passes
+// to hold the same ground against time-memory trade-offs (RFC 9106 section 7.2).
+static const KdfParams ARGON2I_KDF = { 21, 6, 4, KDF_ARGON2I };
 static const uint64_t MAX_KDF_BYTES = 1ull << 31;
 
 // Names the file or argument that the next errorexit message refers to.

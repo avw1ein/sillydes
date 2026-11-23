@@ -7,7 +7,7 @@ This document describes how the program is built and how data moves through it. 
 SillyDES is a single-process command line tool written in C++11 for Linux, macOS and Windows (64-bit, x86-64 and arm64), with no third-party dependencies. Everything that differs between the systems is in one platform layer (sections 2 and 11). It reads one input file completely into memory, transforms it, and writes one output file. There is no daemon, network access, or persistent state.
 
 ```
-sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase [requirelock]
+sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase [requirelock] [argon2i]
 ```
 
 | `act=` | Meaning | Steps |
@@ -62,7 +62,7 @@ flowchart TD
     keys["keys<br/>readkeyfile, getphrase,<br/>derive_keys, kdf_ok"]
     cipher["sillydes_cipher<br/>SillyDesCipher, pad256"]
     des["des<br/>Des"]
-    kdf["kdf<br/>argon2id"]
+    kdf["kdf<br/>argon2 (id, i)"]
     blake2b["blake2b<br/>Blake2b, blake2b_long"]
     sha512["sha512<br/>Sha512, Hmac512"]
     text["text<br/>canonical_phrase, decode_text"]
@@ -93,7 +93,7 @@ flowchart TD
 
 Most units are free functions; the stateful parts are small classes and structs.
 
-In words: `SillyDesCipher` is the central class. At construction it expands the eight DES keys (one `Des` each), computes nine 256-byte whitening blocks and stores an `Hmac512` object keyed with all key bytes, which is later used to compute the per-block tweak. `KeyInput` carries what the user supplied (a phrase or eight raw keys); `KeyMaterial` is what is left after derivation (cipher keys, MAC key and a length mask). `KdfParams` are the Argon2id parameters, stored in the file header.
+In words: `SillyDesCipher` is the central class. At construction it expands the eight DES keys (one `Des` each), computes nine 256-byte whitening blocks and stores an `Hmac512` object keyed with all key bytes, which is later used to compute the per-block tweak. `KeyInput` carries what the user supplied (a phrase or eight raw keys); `KeyMaterial` is what is left after derivation (cipher keys, MAC key and a length mask). `KdfParams` are the Argon2 parameters and the variant (Argon2id or Argon2i), stored in the file header.
 
 ```mermaid
 classDiagram
@@ -152,6 +152,7 @@ classDiagram
         +uint32 logm
         +uint32 t
         +uint32 p
+        +uint32 variant
     }
 
     SillyDesCipher *-- "8" Des
@@ -171,7 +172,7 @@ Free functions by unit:
 | keys | `readkeyfile`, `getphrase(confirm)`, `kdf_ok`, `derive_keys` |
 | container | `seal`, `unseal` |
 | sillydes_cipher | `pad256`, `unpad256` |
-| kdf | `argon2id` |
+| kdf | `argon2` (`argon2id` is the same with the variant fixed) |
 | blake2b | `blake2b_long` |
 | armor | `high2low`, `low2high` |
 
@@ -209,7 +210,7 @@ flowchart TD
     write --> done(["exit 0"])
 ```
 
-Out-of-memory (`std::bad_alloc`) anywhere between reading and writing is caught in `main` and reported as error 7. In phrase mode `argon2id` checks beforehand, with `available_memory()` of the platform layer, that the machine has the 2 GiB and exits with error 7 itself, because Linux would otherwise grant the allocation and kill the process later; Windows commits the arena at once, and macOS only estimates what is free.
+Out-of-memory (`std::bad_alloc`) anywhere between reading and writing is caught in `main` and reported as error 7. In phrase mode `argon2` checks beforehand, with `available_memory()` of the platform layer, that the machine has the 2 GiB and exits with error 7 itself, because Linux would otherwise grant the allocation and kill the process later; Windows commits the arena at once, and macOS only estimates what is free.
 
 ### 4.2 Encryption sequence
 
@@ -285,7 +286,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    in{"KeyInput"} -- phrase --> sc["argon2id(phrase, salt, m, t, p)<br/>output 128 bytes"]
+    in{"KeyInput"} -- phrase --> sc["argon2(variant, phrase, salt, m, t, p)<br/>output 128 bytes"]
     in -- key file --> kf["8 keys, 64 bytes, from the file"]
     sc --> k1["first 64 bytes: key"]
     sc --> k2["last 64 bytes: mackey"]
@@ -330,7 +331,7 @@ For block *i*: `work = plain[i] XOR previous_ciphertext XOR tweak(i)`, then `enc
 
 ```mermaid
 flowchart LR
-    A["magic<br/>4 bytes<br/>S D 5 0x10"] --> B["KDF params<br/>4 bytes<br/>logm t p 0"] --> C["salt<br/>16 bytes"] --> D["IV<br/>256 bytes"] --> E["ciphertext<br/>n x 256 bytes"] --> F["HMAC tag<br/>64 bytes"]
+    A["magic<br/>4 bytes<br/>S D 5 0x10"] --> B["KDF params<br/>4 bytes<br/>logm t p variant"] --> C["salt<br/>16 bytes"] --> D["IV<br/>256 bytes"] --> E["ciphertext<br/>n x 256 bytes"] --> F["HMAC tag<br/>64 bytes"]
 ```
 
 | Part | Size | Notes |
@@ -339,7 +340,7 @@ flowchart LR
 | Ciphertext | multiple of 256, at least 256 | CBC output |
 | Tag | 64 bytes | HMAC-SHA-512 over header and ciphertext |
 
-The smallest possible container is 600 bytes. The KDF parameters are validated by `kdf_ok` before use: `logm` (log2 of the Argon2id memory in KiB) 10 to 21, passes `t` 1 to 4, lanes `p` 1 to 8, so at most 2 GiB of memory. The default written by `seal` is `logm=21, t=1, p=4` (2 GiB, one pass, four lanes; RFC 9106's first recommendation).
+The smallest possible container is 600 bytes. The KDF parameters are validated by `kdf_ok` before use: `logm` (log2 of the Argon2 memory in KiB) 10 to 21, lanes `p` 1 to 8, so at most 2 GiB of memory, and the variant byte (header byte 7): 0 is Argon2id with passes `t` 1 to 4, 1 is Argon2i with `t` 3 to 8, anything else is rejected. The default written by `seal` is `logm=21, t=1, p=4, variant=0` (2 GiB, one pass, four lanes; RFC 9106's first recommendation). `main` passes `ARGON2I_KDF` (`logm=21, t=6, p=4, variant=1`) instead when encrypting with a phrase and the word `argon2i` or `SILLYDES_ARGON2I=1` (`argon2i_requested` of the platform layer) asks for it; decryption reads the variant from the header and needs neither. `argon2` in `kdf.cpp` is one implementation for both: Argon2i is the data-independent addressing of the first half pass applied to every pass, with the type 1 in the address blocks and in the initial hash.
 
 ### 6.2 E-mail (armored) format
 
@@ -398,11 +399,11 @@ All failures end in `errorexit(code)`, which prints a message to stderr and thro
 | 3, 4, 9, 10 | `parse_args`, `getphrase` | wrong count, invalid, duplicate or missing argument |
 | 5 | `readkeyfile` | faulty key file |
 | 6 | `main` | input and output are the same file |
-| 7 | `argon2id`, `main` | out of memory: the machine has less than 2 GiB available for the KDF, or an allocation failed |
+| 7 | `argon2`, `main` | out of memory: the machine has less than 2 GiB available for the KDF, or an allocation failed |
 | 8, 11, 12 | `low2high` | no BEGIN line, no END line or short body, CRC mismatch |
 | 13 | `unseal` | authentication failed, bad header, wrong key or altered data |
 | 14 | `randbytes`, `seal` | system random generator failed or returned an all-zero salt or IV |
-| 15 | `argon2id` | the table could not be locked in RAM and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (`KeyInput::require_lock`) |
+| 15 | `argon2` | the table could not be locked in RAM and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (`KeyInput::require_lock`) |
 
 ## 9. Build and test structure
 
@@ -469,7 +470,7 @@ flowchart LR
 | Phrase | One canonical form, part of the file format (section 7.1). Anything that changes the bytes of a phrase is a format change |
 | File format | 5.2.0, byte-identical on every system. `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere |
 | Where it is verified | Everything that is not Linux runs only on GitHub's runners, real Windows and macOS ([TESTING.md](TESTING.md)); nothing counts until a runner has produced it |
-| KDF side channel | Argon2id's data-dependent addressing is documented only ([ANALYSIS.md](ANALYSIS.md) section 8); there is no Argon2i mode |
+| KDF side channel | Argon2id's data-dependent addressing is documented ([ANALYSIS.md](ANALYSIS.md) section 8); the `argon2i` mode removes it, at about four times the running time |
 
 ### 11.2 What the platform layer does per system
 

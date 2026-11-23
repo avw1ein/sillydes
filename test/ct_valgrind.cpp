@@ -195,7 +195,31 @@ int main(int argc, char **argv)
     expect(d.size() == HDR_LEN + 1024 + TAG_LEN, "sealed size");
   }
 
+  // Argon2i in phrase mode (a small table, so that Valgrind stays quick): with a secret phrase no branch and no
+  // memory address depends on it, which is the reason for the mode. The result is compared with a run that
+  // has no secrets. Argon2id is not in this test: its second half pass is data-dependent by design.
+  {
+    const uint8_t phrase[] = "a secret phrase of twenty+ characters";
+    uint8_t salt[SALT_LEN];
+    fill(salt, sizeof salt, 55);
+    const KdfParams small = { 10, 3, 2, KDF_ARGON2I };
+    KeyInput open;
+    open.usephrase = true;
+    open.phrase.assign(phrase, phrase + sizeof phrase - 1);
+    KeyMaterial want = derive_keys(open, salt, small);
+
+    KeyInput in;
+    in.usephrase = true;
+    in.phrase.assign(phrase, phrase + sizeof phrase - 1);
+    secret(in.phrase.data(), in.phrase.size());
+    KeyMaterial km = derive_keys(in, salt, small);
+    declassify(km.key, sizeof km.key);
+    declassify(km.mackey, sizeof km.mackey);
+    declassify(in.phrase.data(), in.phrase.size());
+    expect(memcmp(km.key, want.key, sizeof km.key) == 0 && memcmp(km.mackey, want.mackey, sizeof km.mackey) == 0, "Argon2i key derivation");
+  }
+
   if (fails) return 1;
-  puts("ok: no branch or address depends on a secret in DES, SHA-512, HMAC, BLAKE2b, ct_equal, the hex decoder, key derivation, the cipher and seal");
+  puts("ok: no branch or address depends on a secret in DES, SHA-512, HMAC, BLAKE2b, ct_equal, the hex decoder, key derivation (key file, and a phrase through Argon2i), the cipher and seal");
   return 0;
 }

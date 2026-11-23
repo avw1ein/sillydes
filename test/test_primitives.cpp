@@ -167,9 +167,9 @@ static std::string sha512(const std::string &m)
   return hex(o, 64);
 }
 
-static std::string a2(const char *pw, const char *salt, uint32_t m, uint32_t t, uint32_t p)
+static std::string a2(const char *pw, const char *salt, uint32_t m, uint32_t t, uint32_t p, uint32_t variant = KDF_ARGON2ID)
 {
-  SecretBuf b = argon2id((const uint8_t *)pw, strlen(pw), (const uint8_t *)salt, strlen(salt), m, t, p, 32);
+  SecretBuf b = argon2(variant, (const uint8_t *)pw, strlen(pw), (const uint8_t *)salt, strlen(salt), m, t, p, 32);
   return hex(b.data(), b.size());
 }
 
@@ -343,15 +343,34 @@ int main()
   check("argon2id other password", a2("differentpassword", "somesalt", 65536, 2, 1), "0b84d652cf6b0c4beaef0dfe278ba6a80df6696281d7e0d2891b817d8c458fde");
   check("argon2id other salt", a2("password", "diffsalt", 65536, 2, 1), "bdf32b05ccc42eb15d58fd19b1f856b113da1e9a5874fdcc544308565aa8141c");
 
+  // Argon2i: the RFC 9106 section 5.2 vector, the reference implementation's m=64 MiB t=2 vector and two
+  // more computed with argon2-cffi (the reference C library), one of them with the passes and lanes
+  // shape of our mode. The same input under the other variant must give another result.
+  {
+    std::string pw(32, '\x01');
+    uint8_t salt[16], sec[8], ad[12];
+    memset(salt, 2, sizeof salt); memset(sec, 3, sizeof sec); memset(ad, 4, sizeof ad);
+    SecretBuf o = argon2(KDF_ARGON2I, (const uint8_t *)pw.data(), pw.size(), salt, sizeof salt, 32, 3, 4, 32, sec, sizeof sec, ad, sizeof ad);
+    check("argon2i rfc9106", hex(o.data(), o.size()), "c814d9d1dc7f37aa13f0d77f2494bda1c8de6b016dd388d29952a4c4672b6ce8");
+  }
+  check("argon2i m=256 t=2 p=1", a2("password", "somesalt", 256, 2, 1, KDF_ARGON2I), "89e9029f4637b295beb027056a7336c414fadd43f6b208645281cb214a56452f");
+  check("argon2i m=64 MiB t=2 p=1", a2("password", "somesalt", 65536, 2, 1, KDF_ARGON2I), "c1628832147d9720c5bd1cfd61367078729f6dfb6f8fea9ff98158e0d7816ed0");
+  check("argon2i m=1024 t=3 p=4", a2("password", "somesalt", 1024, 3, 4, KDF_ARGON2I), "3380af9ea4088a6568f235dd5ae23afbfff0ac7ad166df91186d50ddc244e200");
+  check("argon2i m=1024 t=6 p=2", a2("differentpassword", "somesalt", 1024, 6, 2, KDF_ARGON2I), "d0af9446f1bc8628ddbb3102b01068cc305ec600489fab446ee65bff3c969ad9");
+  if (a2("password", "somesalt", 256, 2, 1, KDF_ARGON2I) == a2("password", "somesalt", 256, 2, 1)) { puts("FAIL: argon2i equals argon2id"); fails++; }
+
   // Header bounds: the default passes, and each limit is enforced on its own.
   {
     if (!kdf_ok(DEFAULT_KDF)) { puts("FAIL: default KDF parameters rejected"); fails++; }
-    KdfParams bad[] = { { 9, 1, 1 }, { 22, 1, 1 }, { 21, 0, 1 }, { 21, 5, 1 }, { 21, 1, 0 }, { 21, 1, 9 } };
+    if (!kdf_ok(ARGON2I_KDF)) { puts("FAIL: Argon2i KDF parameters rejected"); fails++; }
+    KdfParams bad[] = { { 9, 1, 1, 0 }, { 22, 1, 1, 0 }, { 21, 0, 1, 0 }, { 21, 5, 1, 0 }, { 21, 1, 0, 0 }, { 21, 1, 9, 0 },
+                        { 21, 2, 4, 1 }, { 21, 9, 4, 1 }, { 9, 6, 4, 1 }, { 22, 6, 4, 1 }, { 21, 6, 0, 1 }, { 21, 6, 9, 1 },  // Argon2i
+                        { 21, 1, 4, 2 }, { 21, 6, 4, 255 } };                                                                  // unknown variant
     for (auto &k : bad)
-      if (kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u accepted\n", k.logm, k.t, k.p); fails++; }
-    KdfParams good[] = { { 10, 1, 1 }, { 11, 4, 8 }, { 21, 4, 8 } };
+      if (kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u %u accepted\n", k.logm, k.t, k.p, k.variant); fails++; }
+    KdfParams good[] = { { 10, 1, 1, 0 }, { 11, 4, 8, 0 }, { 21, 4, 8, 0 }, { 10, 3, 1, 1 }, { 11, 8, 8, 1 }, { 21, 8, 8, 1 } };
     for (auto &k : good)
-      if (!kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u rejected\n", k.logm, k.t, k.p); fails++; }
+      if (!kdf_ok(k)) { printf("FAIL: KDF parameters %u %u %u %u rejected\n", k.logm, k.t, k.p, k.variant); fails++; }
   }
 
   // CRC-32 (IEEE 802.3, as in zlib): the standard check value for "123456789" is 0xCBF43926 after the
@@ -551,11 +570,26 @@ int main()
     Buf msg(100);
     randbytes(msg.data(), msg.size());
     Buf f = msg;
-    KdfParams small = { 10, 1, 1 };
+    KdfParams small = { 10, 1, 1, KDF_ARGON2ID };
     seal(f, ki, small);
-    if (f[4] != 10 || f[5] != 1 || f[6] != 1) { puts("FAIL: KDF parameters not in header"); fails++; }
+    if (f[4] != 10 || f[5] != 1 || f[6] != 1 || f[7] != 0) { puts("FAIL: KDF parameters not in header"); fails++; }
     unseal(f, ki);
     if (f != msg) { puts("FAIL: phrase seal/unseal round trip"); fails++; }
+
+    // Argon2i: the variant is in the header, unseal needs nothing else, and flipping the byte (to the
+    // other variant, or to an unknown one) is error 13 and never a decryption.
+    Buf fi = msg;
+    KdfParams small_i = { 10, 3, 1, KDF_ARGON2I };
+    seal(fi, ki, small_i);
+    if (fi[4] != 10 || fi[5] != 3 || fi[6] != 1 || fi[7] != 1) { puts("FAIL: Argon2i parameters not in header"); fails++; }
+    Buf tampered = fi;
+    for (uint8_t v : { (uint8_t)0, (uint8_t)2 }) {
+      tampered[7] = v;
+      Buf t = tampered;
+      if (exit_code([&] { unseal(t, ki); }) != 13) { printf("FAIL: variant byte %u accepted\n", v); fails++; }
+    }
+    unseal(fi, ki);
+    if (fi != msg) { puts("FAIL: Argon2i seal/unseal round trip"); fails++; }
   }
 
 

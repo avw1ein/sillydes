@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 1993-1994, 2026 Andy van Wezel
 //
-// SillyDES - Linux command line port of the DOS program Odette by Andy van Wezel (1993 - 1994),
+// SillyDES - Linux command line port of the DOS program GPG by Andy van Wezel (1993 - 1994),
 // ported and updated 2026.
 //
 // Build: cmake --preset default && cmake --build --preset default
@@ -26,6 +26,7 @@ struct Args {
   bool binary = true;  // false: e-mail (armored) text
   bool usephrase = false;
   bool requirelock = false;
+  bool argon2i = false;
   std::string in, out, keyfile;
 };
 
@@ -33,7 +34,7 @@ void usage()
 {
   write_message(MSG_OUT,
     "SillyDES " PACKAGE_VERSION " Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n\n"
-    "Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile [requirelock]\n"
+    "Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile [requirelock] [argon2i]\n"
     " e            Encryption.\n"
     " d            Decryption.\n"
     " em           Encryption to e-mail message.\n"
@@ -42,7 +43,10 @@ void usage()
     " outfile      Result of en/decryption.\n"
     " keyfile      Contains the eight keys.\n"
     " phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n"
-    " requirelock  Optional, with phrase: stop (error 15) if the 2 GiB cannot be locked in RAM.\n\n"
+    " requirelock  Optional, with phrase: stop (error 15) if the 2 GiB cannot be locked in RAM.\n"
+    " argon2i      Optional, when encrypting with phrase (or SILLYDES_ARGON2I=1): Argon2i instead of\n"
+    "              Argon2id, for a machine shared with untrusted code; about four times slower.\n"
+    "              Decryption needs no word.\n\n"
     "*SillyDES performs a DES8 encryption with 2048-bit whitening on textfiles or\n"
     " executables. The block size grows to 2048 bits. Eight 64-bit keys feed\n"
     " every layer. Output is authenticated (HMAC-SHA-512).\n"
@@ -57,7 +61,7 @@ Args parse_args(const std::vector<std::string> &argv)
   Args a;
   int bewerking = -1;  // 1 = encrypt, 2 = decrypt, 0 = invalid
 
-  if (argv.size() != 5 && argv.size() != 6) errorexit(3);
+  if (argv.size() < 5 || argv.size() > 7) errorexit(3);
 
   for (size_t i = 1; i < argv.size(); i++) {
     const std::string &arg = argv[i];
@@ -86,6 +90,9 @@ Args parse_args(const std::vector<std::string> &argv)
     } else if (name == "requirelock") {
       if (a.requirelock) { errarg = "requirelock"; errorexit(9); }
       a.requirelock = true;
+    } else if (name == "argon2i") {
+      if (a.argon2i) { errarg = "argon2i"; errorexit(9); }
+      a.argon2i = true;
     } else if (name == "phrase") {
       if (a.usephrase) { errarg = "phrase"; errorexit(9); }
       a.usephrase = true;
@@ -101,6 +108,8 @@ Args parse_args(const std::vector<std::string> &argv)
   if (a.out.empty())   { errarg = "out="; errorexit(10); }
   if (a.keyfile.empty() && !a.usephrase) { errarg = "phrase;key="; errorexit(10); }
   a.encrypt = bewerking == 1;
+  // Argon2i is a way to derive keys from a phrase; asked for on encryption without one it is a mistake, not a no-op.
+  if (a.encrypt && a.argon2i && !a.usephrase) { errarg = "phrase"; errorexit(10); }
   return a;
 }
 
@@ -122,7 +131,8 @@ SILLYDES_NOINLINE int run(const std::vector<std::string> &argv)
 
   Buf d = readfile(args.in);
   if (args.encrypt) {
-    seal(d, keys, DEFAULT_KDF);
+    // The variant is written in the header, so decryption needs neither the word nor the variable.
+    seal(d, keys, args.usephrase && (args.argon2i || argon2i_requested()) ? ARGON2I_KDF : DEFAULT_KDF);
     if (!args.binary) d = high2low(d);
   } else {
     if (!args.binary) d = low2high(d, args.in);

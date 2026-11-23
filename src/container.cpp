@@ -37,7 +37,7 @@ void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
 
   uint8_t hdr[HDR_LEN] = {};
   memcpy(hdr, MAGIC, 4);
-  hdr[4] = (uint8_t)kdf.logm; hdr[5] = (uint8_t)kdf.t; hdr[6] = (uint8_t)kdf.p;
+  hdr[4] = (uint8_t)kdf.logm; hdr[5] = (uint8_t)kdf.t; hdr[6] = (uint8_t)kdf.p; hdr[7] = (uint8_t)kdf.variant;
   memcpy(hdr + 8, salt, SALT_LEN);
   memcpy(hdr + 8 + SALT_LEN, iv, IV_LEN);
   data.insert(data.begin(), hdr, hdr + HDR_LEN);
@@ -50,8 +50,8 @@ void unseal(Buf &d, const KeyInput &keys)
 {
   size_t body = d.size() >= HDR_LEN + TAG_LEN ? d.size() - HDR_LEN - TAG_LEN : 0;
   if (body < 256 || body % 256 != 0 || memcmp(d.data(), MAGIC, 4) != 0) errorexit(13);
-  KdfParams kdf = { d[4], d[5], d[6] };
-  if (d[7] != 0 || !kdf_ok(kdf)) errorexit(13);
+  KdfParams kdf = { d[4], d[5], d[6], d[7] };
+  if (!kdf_ok(kdf)) errorexit(13);
   uint8_t iv[IV_LEN], salt[SALT_LEN];
   memcpy(salt, &d[8], SALT_LEN);
   memcpy(iv, &d[8 + SALT_LEN], IV_LEN);

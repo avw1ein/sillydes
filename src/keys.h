@@ -5,7 +5,7 @@
 
 #include "common.h"
 
-// Where the keys come from: eight 64-bit keys from a key file, or a phrase run through Argon2id.
+// Where the keys come from: eight 64-bit keys from a key file, or a phrase run through Argon2id (or Argon2i).
 struct KeyInput {
   bool usephrase = false;
   bool require_lock = false;  // error 15 if the table of the phrase KDF cannot be locked in RAM

@@ -234,6 +234,7 @@ Let `N` be the new format name's number (normally the release version, e.g. `5.2
    echo "$P" | $S act=em in=/tmp/hello.txt out=test/format-N/hello-phrase.sdes phrase
    U_NFC=$(build/ci/test_e2e --nfc-phrase)   # the non-ASCII phrase of the tests
    printf '%s\n' "$U_NFC" | $S act=em in=/tmp/hello.txt out=test/format-N/hello-utf8-phrase.sdes phrase
+   echo "$P" | $S act=em in=/tmp/hello.txt out=test/format-N/hello-argon2i-phrase.sdes phrase argon2i
    chmod 644 test/format-N/*
    git rm -r test/format-OLD
    ```

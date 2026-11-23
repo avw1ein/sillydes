@@ -241,6 +241,13 @@ void golden_files(const std::string &phrase, const std::string &utf8_phrase)
         with_stdin(utf8_phrase + "\n"));
   need(get(T("f3.txt")) == hello_txt, "format 5.2.0 non-ASCII phrase fixture decrypts to something else");
   passed("files of format 5.2.0 decrypt (binary, and e-mail style with an ASCII and a non-ASCII phrase)");
+
+  // Added with the Argon2i mode, which reuses the reserved header byte and so did not change the format:
+  // decryption needs neither the word nor the variable, the header says which variant to run.
+  sd_ok(act("dm", R("test/format-5.2.0/hello-argon2i-phrase.sdes"), T("f4.txt"), "phrase"), "Argon2i phrase fixture does not decrypt",
+        with_stdin(phrase + "\n"));
+  need(get(T("f4.txt")) == hello_txt, "Argon2i phrase fixture decrypts to something else");
+  passed("an Argon2i file decrypts without a word or a variable");
 }
 
 void round_trips()
@@ -309,14 +316,86 @@ void phrases(const std::string &phrase)
     std::vector<std::string> twice = act("e", R("hello.sdes"), T("strict2"), "phrase");
     twice.push_back("requirelock");
     twice.push_back("requirelock");
-    sd_rc(3, twice, with_stdin(phrase + "\n"), "seven arguments");
+    sd_rc(9, twice, with_stdin(phrase + "\n"), "second requirelock");
+    twice.push_back("requirelock");
+    sd_rc(3, twice, with_stdin(phrase + "\n"), "eight arguments");
     std::vector<std::string> dup = act("e", R("hello.sdes"), T("strict2"), "phrase");
     dup[2] = "requirelock";  // in the place of out=
     dup.push_back("requirelock");
     sd_rc(9, dup, with_stdin(phrase + "\n"), "requirelock in the place of out= and again at the end");
     need(!file_exists(T("strict2")), "a refused command line left an output file");
-    passed("requirelock: a seventh argument is error 3, a second requirelock is error 9");
+    passed("requirelock: a second requirelock is error 9, an eighth argument is error 3");
   }
+}
+
+// The Argon2i mode: chosen when encrypting, by the word or by SILLYDES_ARGON2I=1, and recorded in header byte 7.
+void argon2i_mode(const std::string &phrase)
+{
+  const std::string hello = get(R("hello.sdes"));
+  put(T("a2.in"), hello);
+
+  // Binary output, so that byte 7 can be looked at. Default: Argon2id. The word: Argon2i. The variable alone: Argon2i.
+  sd_ok(act("e", T("a2.in"), T("a2.id"), "phrase"), "default encryption", with_stdin(phrase + "\n"));
+  need(get(T("a2.id")).size() > 7 && get(T("a2.id"))[7] == 0, "the default is not Argon2id");
+
+  std::vector<std::string> word = act("e", T("a2.in"), T("a2.word"), "phrase");
+  word.push_back("argon2i");
+  sd_ok(word, "encryption with the word argon2i", with_stdin(phrase + "\n"));
+  const std::string by_word = get(T("a2.word"));
+  need(by_word.size() > 7 && by_word[4] == 21 && by_word[5] == 6 && by_word[6] == 4 && by_word[7] == 1, "the word argon2i did not write 2^21 KiB, 6 passes, 4 lanes, variant 1");
+
+  RunOptions env = with_stdin(phrase + "\n");
+  env.env.push_back("SILLYDES_ARGON2I=1");
+  sd_ok(act("e", T("a2.in"), T("a2.env"), "phrase"), "encryption with SILLYDES_ARGON2I=1", env);
+  need(get(T("a2.env"))[7] == 1, "SILLYDES_ARGON2I=1 did not give Argon2i");
+
+  // Only exactly "1" counts, as for SILLYDES_REQUIRE_LOCK.
+  RunOptions not_one = with_stdin(phrase + "\n");
+  not_one.env.push_back("SILLYDES_ARGON2I=yes");
+  sd_ok(act("e", T("a2.in"), T("a2.no"), "phrase"), "encryption with SILLYDES_ARGON2I=yes", not_one);
+  need(get(T("a2.no"))[7] == 0, "SILLYDES_ARGON2I=yes gave Argon2i");
+
+  // Decryption needs neither. With the word or the variable present it still follows the header.
+  sd_ok(act("d", T("a2.word"), T("a2.out"), "phrase"), "decryption of an Argon2i file", with_stdin(phrase + "\n"));
+  need(get(T("a2.out")) == hello, "Argon2i round trip mismatch");
+  std::vector<std::string> dword = act("d", T("a2.id"), T("a2.out2"), "phrase");
+  dword.push_back("argon2i");
+  RunOptions denv = with_stdin(phrase + "\n");
+  denv.env.push_back("SILLYDES_ARGON2I=1");
+  sd_ok(dword, "decryption of an Argon2id file with the word argon2i", denv);
+  need(get(T("a2.out2")) == hello, "an Argon2id file did not decrypt when Argon2i was named");
+  passed("Argon2i by word and by variable, and decryption of both variants without either");
+
+  // Header byte 7 is authenticated: the keys of the other variant differ, so the flip is error 13.
+  std::string flipped = by_word;
+  flipped[7] = 0;
+  put(T("a2.flip"), flipped);
+  sd_rc(13, act("d", T("a2.flip"), T("x"), "phrase"), with_stdin(phrase + "\n"), "an Argon2i file with byte 7 set to Argon2id was accepted");
+  need(!file_exists(T("x")), "a refused file left an output file");
+
+  // A key file has no Argon2i: the word is an error when encrypting (before anything is asked or written), the variable is ignored.
+  std::vector<std::string> keyword = act("e", T("a2.in"), T("a2.k"), R("sample.key"));
+  keyword.push_back("argon2i");
+  sd_rc(10, keyword, RunOptions(), "the word argon2i with a key file was accepted");
+  need(!file_exists(T("a2.k")), "the word argon2i with a key file left an output file");
+  RunOptions kenv;
+  kenv.env.push_back("SILLYDES_ARGON2I=1");
+  sd_ok(act("e", T("a2.in"), T("a2.k"), R("sample.key")), "key file encryption with SILLYDES_ARGON2I=1", kenv);
+  need(get(T("a2.k"))[7] == 0, "SILLYDES_ARGON2I=1 changed a key file container");
+  std::vector<std::string> kdec = act("d", T("a2.k"), T("a2.kout"), R("sample.key"));
+  kdec.push_back("argon2i");
+  sd_ok(kdec, "key file decryption with the word argon2i", kenv);
+  need(get(T("a2.kout")) == hello, "key file round trip with the word argon2i mismatch");
+
+  // The word is like requirelock: at most once, and it counts toward the seven arguments.
+  std::vector<std::string> two = act("e", T("a2.in"), T("a2.two"), "phrase");
+  two.push_back("argon2i");
+  two.push_back("argon2i");
+  sd_rc(9, two, with_stdin(phrase + "\n"), "argon2i twice");
+  two.push_back("requirelock");
+  sd_rc(3, two, with_stdin(phrase + "\n"), "eight arguments");
+  need(!file_exists(T("a2.two")), "a refused command line left an output file");
+  passed("argon2i: a key file refuses it when encrypting and ignores it otherwise, a second word is error 9, an eighth argument error 3");
 }
 
 void wrong_keys()
@@ -386,6 +465,7 @@ void block_tests()
   // value -1: truncate by 256 bytes; -2: flip bits (the byte may happen to have the value, so a flip, not an assignment)
   struct Tamper { const char *name; size_t at; int value; };
   const Tamper tampers[] = { { "bit flip in a block", HDR + 300, -2 }, { "truncation", 0, -1 }, { "header byte 7", 7, 0x01 },
+                             { "unknown KDF variant", 7, 0x02 },
                              { "KDF memory parameter too large", 4, 0x1e }, { "KDF time parameter zero", 5, 0x00 } };
   for (const Tamper &t : tampers) {
     std::string bad = enc;
@@ -1012,6 +1092,7 @@ int main(int argc, char **argv)
   golden_files(phrase, nfc);
   round_trips();
   phrases(phrase);
+  argon2i_mode(phrase);
   wrong_keys();
   block_tests();
   wrong_phrase();

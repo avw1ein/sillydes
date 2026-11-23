@@ -373,6 +373,12 @@ bool lock_required()
   return v && v[0] == '1' && v[1] == '\0';
 }
 
+bool argon2i_requested()
+{
+  const char *v = getenv("SILLYDES_ARGON2I");
+  return v && v[0] == '1' && v[1] == '\0';
+}
+
 void lock_stack()
 {
   size_t page = page_size();

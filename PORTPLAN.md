@@ -16,7 +16,7 @@
 | File format | Format 5.2.0, made in step 0b (section 0b) and introduced by release 5.2.0, before any Windows or macOS release. It replaced 5.1.0 because the phrase rules changed (section 3.4), and the ports must not change it: 5.2.0 is byte-identical on every platform, and `test/format-5.2.0/*` and `hello.sdes` must decrypt everywhere. Files of 5.1.0 are not read; release 5.1.1 converts them |
 | Text | UTF-8 inside the program (phrase, file names, messages). Windows uses only W functions, never the ANSI or OEM code page |
 | Phrase | One canonical form, part of format 5.2.0 and the same for encryption and decryption: well-formed UTF-8, no control characters, NFKC without invisible characters. The Unicode tables are frozen per format |
-| KDF side channel | Argon2id data-dependent addressing is documented only (ANALYSIS.md section 8); no Argon2i mode |
+| KDF side channel | Argon2id data-dependent addressing is documented (ANALYSIS.md section 8); the optional Argon2i mode (`argon2i` or `SILLYDES_ARGON2I=1`, header byte 7) removes it |
 | Where things run | Everything that is not Linux is built, run and verified only on GitHub Actions runners (real Windows and macOS, section 7.1). No cross-compiler, Wine or osxcross is used, on this machine or in CI. This machine writes and tests the Linux side; a Windows or macOS result counts only when a runner has produced it |
 
 CMake fails on non-64-bit targets and `static_assert(sizeof(void*) == 8)`.
@@ -437,7 +437,7 @@ All best-effort, never fatal. README section 8 must state exactly what each OS d
 | readkeyfile / htoa | **Done (0e).** Branches per key character | branch-free `hex_digit`; an invalid digit is reported after the whole key is read |
 | getphrase length check | Branches on length | leave |
 | Phrase canonical form (text.cpp) | Not constant-time: table lookups and branches depend on the phrase | leave; same class as the Argon2id addressing, and an ASCII phrase touches no table |
-| Argon2id | Data-dependent addressing in 2nd half of pass 0 | documented only; note same on all OSes, shared hosts/VMs are the exposure |
+| Argon2id | Data-dependent addressing in 2nd half of pass 0 | documented; same on all OSes, shared hosts/VMs are the exposure; the optional Argon2i mode (header byte 7) removes it |
 
 ### 5.2 Compiler/arch risk
 - **Done (0e).** `value_barrier()` (empty asm on GCC/Clang, volatile read on MSVC) around mask creation in setkey, `ct_equal` and the hex decode.

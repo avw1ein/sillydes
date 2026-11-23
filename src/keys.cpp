@@ -121,7 +121,11 @@ SecretBuf getphrase(bool confirm)
 
 bool kdf_ok(const KdfParams &k)
 {
-  if (k.logm < 10 || k.logm > 21 || k.t < 1 || k.t > 4 || k.p < 1 || k.p > 8) return false;
+  if (k.logm < 10 || k.logm > 21 || k.p < 1 || k.p > 8) return false;
+  // Argon2i needs more passes than Argon2id for the same resistance, so a header cannot ask it for fewer than 3.
+  if (k.variant == KDF_ARGON2ID) { if (k.t < 1 || k.t > 4) return false; }
+  else if (k.variant == KDF_ARGON2I) { if (k.t < 3 || k.t > 8) return false; }
+  else return false;
   return (1024ull << k.logm) <= MAX_KDF_BYTES;
 }
 
@@ -129,7 +133,7 @@ KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams
 {
   KeyMaterial km;
   if (in.usephrase) {
-    SecretBuf dk = argon2id(in.phrase.data(), in.phrase.size(), salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey,
+    SecretBuf dk = argon2(kdf.variant, in.phrase.data(), in.phrase.size(), salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey,
                           nullptr, 0, nullptr, 0, in.require_lock);
     memcpy(km.key, dk.data(), NL * 8);
     memcpy(km.mackey, dk.data() + NL * 8, sizeof km.mackey);

@@ -382,6 +382,12 @@ bool lock_required()
   return GetEnvironmentVariableW(L"SILLYDES_REQUIRE_LOCK", v, 2) == 1 && v[0] == L'1';
 }
 
+bool argon2i_requested()
+{
+  wchar_t v[2] = {};
+  return GetEnvironmentVariableW(L"SILLYDES_ARGON2I", v, 2) == 1 && v[0] == L'1';
+}
+
 void lock_stack()
 {
   size_t page = page_size();
