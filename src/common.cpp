@@ -26,6 +26,7 @@ void report_error(int numer)
     case 12: m = "ERROR#12: CRC error in: " + a + "\n"; break;
     case 13: m = "ERROR#13: Authentication failed (wrong key, or data damaged or not in the " FORMAT_NAME " format).\n"; break;
     case 14: m = "ERROR#14: System random generator failed.\n"; break;
+    case 15: m = "ERROR#15: Can't lock the 2 GiB in RAM (requirelock or SILLYDES_REQUIRE_LOCK=1 is set).\n"; break;
     default: return;
   }
   write_message(MSG_ERR, m);

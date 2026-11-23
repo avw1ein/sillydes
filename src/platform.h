@@ -59,6 +59,14 @@ void residue_scan_at_exit();
 #endif
 // Locks the pages of [p, p + n) in RAM; false (and nothing locked) if the limit does not allow it.
 bool lock_memory(void *p, size_t n);
+// A zero-filled mapping of n bytes that the OS keeps out of swap, hibernation images and its own
+// view of memory, for a very large secret; release it with secure_free(p, n). Null if the OS has no
+// such thing (Linux 5.14 and later: memfd_secret) or the lock limit of the process does not allow n
+// bytes. Nothing is thrown and nothing is partly mapped.
+void *secret_map(size_t n);
+// True if the environment says that a secret that cannot be locked in RAM is an error
+// (SILLYDES_REQUIRE_LOCK=1).
+bool lock_required();
 // Faults in and locks a window of stack below the caller, so that keys, key schedules and hash
 // intermediates held in local variables cannot be swapped out. Call once, early in main; best effort.
 void lock_stack();

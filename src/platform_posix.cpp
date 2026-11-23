@@ -11,6 +11,8 @@
 
 #include <alloca.h>
 #include <cerrno>
+#include <csetjmp>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -27,8 +29,10 @@
 #include <sys/ptrace.h>
 #include <sys/sysctl.h>
 #else
+#include <linux/capability.h>
 #include <sys/auxv.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #endif
 
 namespace {
@@ -213,6 +217,55 @@ void *map_pages(size_t n)
   return p;
 }
 
+#ifdef __linux__
+#ifndef SYS_memfd_secret
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+#define SYS_memfd_secret 447
+#endif
+#endif
+
+const size_t SECRET_MIN = 1 << 20;  // a smaller secret is not worth taking pages out of the kernel's direct map
+
+bool has_ipc_lock()
+{
+  __user_cap_header_struct head = { _LINUX_CAPABILITY_VERSION_3, 0 };
+  __user_cap_data_struct data[2] = {};
+  return syscall(SYS_capget, &head, data) == 0 && (data[CAP_IPC_LOCK / 32].effective >> (CAP_IPC_LOCK % 32) & 1);
+}
+
+// The kernel counts a secret mapping against RLIMIT_MEMLOCK like mlock, and past it the first touch of
+// a page is a SIGBUS rather than an error.
+bool may_lock(size_t len)
+{
+  rlimit rl;
+  if (getrlimit(RLIMIT_MEMLOCK, &rl) == 0 && (rl.rlim_cur == RLIM_INFINITY || rl.rlim_cur >= len)) return true;
+  return has_ipc_lock();
+}
+
+sigjmp_buf bus_jump;
+
+void on_bus(int) { siglongjmp(bus_jump, 1); }
+
+// Touches every page of the mapping, so that a refusal by the kernel shows here instead of in the
+// middle of the key derivation; false if one page was refused.
+bool touch_pages(void *p, size_t len, size_t page)
+{
+  struct sigaction sa, old;
+  memset(&sa, 0, sizeof sa);
+  sa.sa_handler = on_bus;
+  sigemptyset(&sa.sa_mask);
+  if (sigaction(SIGBUS, &sa, &old) != 0) return false;
+  volatile bool ok = true;
+  if (sigsetjmp(bus_jump, 1) == 0) {
+    for (size_t off = 0; off < len; off += page) ((volatile uint8_t *)p)[off] = 0;
+  } else {
+    ok = false;
+  }
+  sigaction(SIGBUS, &old, nullptr);
+  return ok;
+}
+#endif
+
 // Faults in `window` bytes of stack below this frame, then locks them together with the page that
 // holds this frame; the caller's frame, which holds the long-lived secrets, is above it.
 __attribute__((noinline)) bool lock_stack_window(size_t window, size_t page)
@@ -289,6 +342,35 @@ bool lock_memory(void *p, size_t n)
   if (mlock((void *)lo, hi - lo) == 0) return true;
   munlock((void *)lo, hi - lo);
   return false;
+}
+
+void *secret_map(size_t n)
+{
+#if defined(__linux__) && defined(SYS_memfd_secret)
+  if (n < SECRET_MIN) return nullptr;
+  const size_t page = page_size(), len = round_up(n, page);
+  if (!may_lock(len)) return nullptr;
+  int fd = (int)syscall(SYS_memfd_secret, (unsigned)O_CLOEXEC);  // ENOSYS before Linux 5.14, EPERM under some seccomp filters
+  if (fd < 0) return nullptr;
+  void *p = MAP_FAILED;
+  if (ftruncate(fd, (off_t)len) == 0) p = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  close(fd);  // the mapping keeps the pages
+  if (p == MAP_FAILED) return nullptr;
+  if (!touch_pages(p, len, page)) {
+    munmap(p, len);
+    return nullptr;
+  }
+  return p;
+#else
+  (void)n;
+  return nullptr;
+#endif
+}
+
+bool lock_required()
+{
+  const char *v = getenv("SILLYDES_REQUIRE_LOCK");
+  return v && v[0] == '1' && v[1] == '\0';
 }
 
 void lock_stack()

@@ -8,6 +8,7 @@
 // Where the keys come from: eight 64-bit keys from a key file, or a phrase run through Argon2id.
 struct KeyInput {
   bool usephrase = false;
+  bool require_lock = false;  // error 15 if the table of the phrase KDF cannot be locked in RAM
   SecretBuf phrase;  // wiped by its allocator, also when it grows
   uint8_t key[NL][8] = {};  // only meaningful when !usephrase
 

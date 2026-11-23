@@ -371,6 +371,17 @@ bool lock_memory(void *p, size_t n)
   return lock_pages((void *)lo, hi - lo);
 }
 
+void *secret_map(size_t)
+{
+  return nullptr;  // Windows has nothing like memfd_secret
+}
+
+bool lock_required()
+{
+  wchar_t v[2] = {};
+  return GetEnvironmentVariableW(L"SILLYDES_REQUIRE_LOCK", v, 2) == 1 && v[0] == L'1';
+}
+
 void lock_stack()
 {
   size_t page = page_size();

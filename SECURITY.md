@@ -38,7 +38,10 @@ library.
   Windows an administrator, and any process with the debug privilege enabled, still gets in.
 - **Swap and hibernation.** Keys and the phrase are locked in RAM as far as the system allows, but
   the 2 GiB table and your data usually cannot be, and a hibernation file holds all of RAM. Use
-  encrypted swap or an encrypted disk, and do not hibernate while you work with secrets.
+  encrypted swap or an encrypted disk, and do not hibernate while you work with secrets. Where the
+  limit allows 2 GiB on Linux the table is a `memfd_secret` mapping, which is never swapped and
+  blocks hibernation while it exists; `requirelock` on the command line, or `SILLYDES_REQUIRE_LOCK=1`, makes the program stop (error 15)
+  when it cannot lock the table.
 - **Timing and cache observation on a shared machine.** The DES layers, the MAC compare and the key
   file decoding are free of secret-dependent branches and addresses (checked with Valgrind, a
   disassembly report and a timing test; measured, not proved). Argon2id reads memory at
@@ -58,6 +61,7 @@ Named, because a test machine cannot show them (details in [TESTING.md](TESTING.
 - that the Windows Error Reporting exclusion keeps a block out of a crash dump;
 - that `PT_DENY_ATTACH` stops a debugger on macOS (the test machines refuse every debugger);
 - that `VirtualLock` of the 2 GiB table succeeds on a small machine (it fails silently);
+- the `memfd_secret` mapping of the 2 GiB table itself: the test machines have a lock limit far below 2 GiB, so only the fallback and a 2 MiB mapping are exercised there;
 - error 7 on macOS under a memory limit, and the macOS free-memory estimate on a loaded Mac;
 - real older Windows 10 builds, your own terminal emulator and PowerShell profile, Gatekeeper on a
   downloaded macOS binary;

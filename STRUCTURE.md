@@ -7,7 +7,7 @@ This document describes how the program is built and how data moves through it. 
 SillyDES is a single-process command line tool written in C++11 for Linux, macOS and Windows (64-bit, x86-64 and arm64), with no third-party dependencies. Everything that differs between the systems is in one platform layer (sections 2 and 11). It reads one input file completely into memory, transforms it, and writes one output file. There is no daemon, network access, or persistent state.
 
 ```
-sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase
+sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase [requirelock]
 ```
 
 | `act=` | Meaning | Steps |
@@ -402,6 +402,7 @@ All failures end in `errorexit(code)`, which prints a message to stderr and thro
 | 8, 11, 12 | `low2high` | no BEGIN line, no END line or short body, CRC mismatch |
 | 13 | `unseal` | authentication failed, bad header, wrong key or altered data |
 | 14 | `randbytes`, `seal` | system random generator failed or returned an all-zero salt or IV |
+| 15 | `argon2id` | the table could not be locked in RAM and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (`KeyInput::require_lock`) |
 
 ## 9. Build and test structure
 
@@ -481,6 +482,7 @@ flowchart LR
 | `available_memory` | `MemAvailable`, and the `RLIMIT_AS` and `RLIMIT_DATA` limits | free, inactive and purgeable pages from `host_statistics64` (an estimate), and the limits | the smaller of free physical memory, the free commit limit and the memory limit of the job object the process is in |
 | `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog (section 12) |
 | Secret memory | `mmap`, `mlock`, `MADV_DONTDUMP` | `mmap`, `mlock` (no `MADV_DONTDUMP`; core dumps being off covers it) | `VirtualAlloc`, `VirtualLock` after raising the working set, `WerRegisterExcludedMemoryBlock` |
+| `secret_map`, `lock_required` | `memfd_secret` (5.14 and later) when `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows the size; a SIGBUS handler around the first touch of every page; null otherwise. `SILLYDES_REQUIRE_LOCK` | null (no such mapping) | null; `SILLYDES_REQUIRE_LOCK` through `GetEnvironmentVariableW` |
 | `lock_stack`, `scrub_stack` | `alloca` window of 256 KiB (halved under a small limit) | the same | `_alloca`, the same window |
 | `read_secret_line` | `termios` without echo (restored by a destructor), `read(2)` to LF or end of input | the same | console: no echo, `ReadConsoleW` into a locked, wiped buffer, strict UTF-16 to UTF-8 (an unpaired surrogate is refused), a line that starts with Ctrl+Z is the end of the input; pipe or file: `ReadFile`, bytes as they are |
 | Arguments | the bytes | the bytes | `wmain` (MinGW: `-municode`), converted to UTF-8; an unpaired surrogate is error 4. Not `CommandLineToArgvW`, which pulls in shell32 |
@@ -574,7 +576,7 @@ finding). A change near `scrub_stack` is followed by the residue test, several t
 **Best effort, silent.** Locking limits differ by system and distribution (macOS and Windows have small
 defaults; Windows needs a larger working set first). Every hardening call may fail and is then ignored; the
 tests skip below a limit. What cannot be locked (the data buffer, the 2 GiB table without a large limit)
-can be swapped: encrypted swap is the remedy, and hibernation writes all of RAM whatever was locked.
+can be swapped (`requirelock` or `SILLYDES_REQUIRE_LOCK=1` makes the table an error, level 15): encrypted swap is the remedy, and hibernation writes all of RAM whatever was locked.
 
 **Process hardening** ([README](README.md) section 8 has the table): Linux and macOS set `RLIMIT_CORE` to 0;
 Linux clears the dumpable flag, macOS calls `PT_DENY_ATTACH` and is signed with the hardened runtime. Windows

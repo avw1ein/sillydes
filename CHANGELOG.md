@@ -10,6 +10,18 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+**File format: unchanged (5.2.0).**
+
+### Added
+
+- Linux: the 2 GiB Argon2id table is a `memfd_secret` mapping when the kernel has one (5.14 and later)
+  and `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows its size: it is never swapped, blocks hibernation while
+  it exists and is out of the kernel's own view of memory. Otherwise nothing changes (`mlock` as far as
+  the limit allows).
+- The command-line word `requirelock` (or `SILLYDES_REQUIRE_LOCK=1` in the environment): the program
+  stops with the new error level 15, before it writes anything, if the 2 GiB table could not be locked
+  in RAM. The command line may now have a sixth word; five words work as before.
+
 ## [5.2.1] - 2026-11-22
 
 **File format: unchanged (5.2.0).** Files written by 5.2.0 and by 5.2.1 open in each other, with a

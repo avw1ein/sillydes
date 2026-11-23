@@ -915,6 +915,31 @@ int main()
     }
   }
 
+  // A secret mapping exists only where the OS has one (Linux with memfd_secret) and is limited by
+  // RLIMIT_MEMLOCK like mlock; it must be zero-filled and writable, and must refuse, not crash, past the limit.
+  {
+    const size_t n = 2 << 20;
+    uint8_t *p = (uint8_t *)secret_map(n);
+    if (!p) {
+      puts("skipped: secret_map (this OS has no memfd_secret, the kernel or a filter refuses it, or the lock limit is below 2 MiB)");
+    } else {
+      bool zero = true;
+      for (size_t i = 0; i < n; i += 4096) zero = zero && p[i] == 0;
+      if (!zero) { puts("FAIL: secret_map is not zero-filled"); fails++; }
+      memset(p, 0xA5, n);
+      secure_free(p, n);
+      puts("ok: secret_map gave a zero-filled mapping");
+    }
+    long limit_kb = memlock_limit_kb();
+    if (limit_kb < (1L << 20)) {
+      // The caller may hold CAP_IPC_LOCK, so a mapping past the limit is not wrong; a crash is.
+      size_t big = (size_t)(limit_kb + (64 << 10)) * 1024;
+      void *q = secret_map(big);
+      if (q) secure_free(q, big);
+      puts("ok: secret_map past the lock limit did not crash");
+    }
+  }
+
   // What the OS says is free decides error 7. It must be a real figure on every OS (UINT64_MAX is
   // "unknown", which the other systems must not need), and below what any machine has.
   {

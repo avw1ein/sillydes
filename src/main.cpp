@@ -25,6 +25,7 @@ struct Args {
   bool encrypt = true;
   bool binary = true;  // false: e-mail (armored) text
   bool usephrase = false;
+  bool requirelock = false;
   std::string in, out, keyfile;
 };
 
@@ -32,7 +33,7 @@ void usage()
 {
   write_message(MSG_OUT,
     "SillyDES " PACKAGE_VERSION " Copyright (C) by Andy van Wezel 1993 - 1994, 2026\n\n"
-    "Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile\n"
+    "Usage: sillydes act=e|d|em|dm in=infile out=outfile phrase|key=keyfile [requirelock]\n"
     " e            Encryption.\n"
     " d            Decryption.\n"
     " em           Encryption to e-mail message.\n"
@@ -40,7 +41,8 @@ void usage()
     " infile       Data to be en/decrypted.\n"
     " outfile      Result of en/decryption.\n"
     " keyfile      Contains the eight keys.\n"
-    " phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n\n"
+    " phrase       Prompt for a phrase (min. 20 characters, 2 GiB of memory).\n"
+    " requirelock  Optional, with phrase: stop (error 15) if the 2 GiB cannot be locked in RAM.\n\n"
     "*SillyDES performs a DES8 encryption with 2048-bit whitening on textfiles or\n"
     " executables. The block size grows to 2048 bits. Eight 64-bit keys feed\n"
     " every layer. Output is authenticated (HMAC-SHA-512).\n"
@@ -55,9 +57,9 @@ Args parse_args(const std::vector<std::string> &argv)
   Args a;
   int bewerking = -1;  // 1 = encrypt, 2 = decrypt, 0 = invalid
 
-  if (argv.size() != 5) errorexit(3);
+  if (argv.size() != 5 && argv.size() != 6) errorexit(3);
 
-  for (size_t i = 1; i <= 4; i++) {
+  for (size_t i = 1; i < argv.size(); i++) {
     const std::string &arg = argv[i];
     size_t eq = arg.find('=');
     std::string name = arg.substr(0, eq == std::string::npos ? arg.size() : eq + 1);
@@ -81,6 +83,9 @@ Args parse_args(const std::vector<std::string> &argv)
     } else if (name == "key=") {
       if (!a.keyfile.empty()) { errarg = "key="; errorexit(9); }
       a.keyfile = val;
+    } else if (name == "requirelock") {
+      if (a.requirelock) { errarg = "requirelock"; errorexit(9); }
+      a.requirelock = true;
     } else if (name == "phrase") {
       if (a.usephrase) { errarg = "phrase"; errorexit(9); }
       a.usephrase = true;
@@ -108,6 +113,7 @@ SILLYDES_NOINLINE int run(const std::vector<std::string> &argv)
 
   KeyInput keys;
   keys.usephrase = args.usephrase;
+  keys.require_lock = args.requirelock || lock_required();
   if (args.usephrase) keys.phrase = getphrase(args.encrypt);
 
   if (args.in == args.out || same_file(args.in, args.out)) errorexit(6);

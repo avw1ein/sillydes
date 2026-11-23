@@ -4,6 +4,7 @@
 #include "kdf.h"
 
 #include <cstring>
+#include <memory>
 #include <new>
 
 #include "blake2b.h"
@@ -77,9 +78,32 @@ void require_memory(uint64_t need)
   if (need + (64ull << 20) > available_memory()) errorexit(7);  // 64 MiB headroom for the rest of the process
 }
 
+// The table: a secret mapping where the OS has one, otherwise an ordinary private mapping that is
+// locked in RAM when the limit allows it. Wiped and unmapped when it goes out of scope, on every path.
+struct Arena {
+  Block *p = nullptr;
+  size_t bytes = 0;
+  bool locked = false;
+
+  explicit Arena(size_t blocks) : bytes(blocks * sizeof(Block))
+  {
+    // Every block derives from the phrase, so a swapped-out page is as good as a key.
+    if ((p = (Block *)secret_map(bytes))) {
+      locked = true;
+    } else {
+      p = (Block *)secure_alloc(bytes);  // throws bad_alloc
+      locked = lock_memory(p, bytes);    // before it is first touched
+      memset(p, 0, bytes);
+    }
+  }
+  ~Arena() { secure_free(p, bytes); }
+  Arena(const Arena &) = delete;
+  Arena &operator=(const Arena &) = delete;
+};
+
 struct Argon2 {
   uint32_t passes, lanes, mblocks, lane_len, seg_len;
-  std::vector<Block, SecureAllocator<Block>> mem;  // wiped by the allocator on every path out
+  Block *mem = nullptr;
 
   Block &at(uint32_t lane, uint32_t idx) { return mem[(size_t)lane * lane_len + idx]; }
 
@@ -142,7 +166,7 @@ struct Argon2 {
 }  // namespace
 
 SecretBuf argon2id(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t slen, uint32_t m_kib, uint32_t t, uint32_t p,
-                   size_t outlen, const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen)
+                   size_t outlen, const uint8_t *secret, size_t seclen, const uint8_t *ad, size_t adlen, bool require_lock)
 {
   Argon2 a;
   a.passes = t;
@@ -165,13 +189,12 @@ SecretBuf argon2id(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t 
   wipe(h0in.data(), h0in.size());
 
   require_memory((uint64_t)a.mblocks * sizeof(Block));
+  std::unique_ptr<Arena> arena;
   try {
-    a.mem.reserve(a.mblocks);
-    // Every block derives from the phrase, so a swapped-out page is as good as a key. Locked before
-    // it is first touched; without the privilege or limit for 2 GiB this fails and is skipped.
-    lock_memory(a.mem.data(), a.mblocks * sizeof(Block));
-    a.mem.resize(a.mblocks);
+    arena.reset(new Arena(a.mblocks));
   } catch (const std::bad_alloc &) { errorexit(7); }
+  if (!arena->locked && require_lock) errorexit(15);
+  a.mem = arena->p;
 
   uint8_t blk[sizeof(Block)];
   for (uint32_t l = 0; l < p; l++) {

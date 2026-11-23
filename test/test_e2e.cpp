@@ -282,6 +282,41 @@ void phrases(const std::string &phrase)
     passed("short phrase is refused");
     skipped("error 7 with too little memory (the address space of a child cannot be limited on this OS or under a sanitizer)");
   }
+
+  // requirelock and SILLYDES_REQUIRE_LOCK=1: the 2 GiB must be locked or the program stops with
+  // error 15 before it writes anything. Whether the lock succeeds depends on the machine (limit,
+  // CAP_IPC_LOCK, OS), so both outcomes are allowed, but each must be a whole one.
+  for (int by_option = 0; by_option < 2; by_option++) {
+    const std::string tag = by_option ? "strict_o" : "strict";
+    const std::string what = by_option ? "requirelock" : "SILLYDES_REQUIRE_LOCK";
+    RunOptions o = with_stdin(phrase + "\n");
+    std::vector<std::string> args = act("e", R("hello.sdes"), T(tag), "phrase");
+    if (by_option) args.push_back("requirelock");
+    else o.env.push_back("SILLYDES_REQUIRE_LOCK=1");
+    RunResult r = sd(args, o);
+    if (r.code == 15) {
+      need(!file_exists(T(tag)), "error 15 left an output file");
+      need(r.err.find("ERROR#15") != std::string::npos, "error 15 without its message: " + r.err);
+      passed((what + ": the 2 GiB could not be locked, error 15 and no output").c_str());
+    } else {
+      need(r.code == 0, what + " gave exit code " + str(r.code) + ": " + r.err);
+      sd_ok(act("d", T(tag), T(tag + ".out"), "phrase"), "decrypting what strict mode wrote", with_stdin(phrase + "\n"));
+      need(get(T(tag + ".out")) == get(R("hello.sdes")), what + " round trip mismatch");
+      passed((what + ": the 2 GiB were locked, round trip").c_str());
+    }
+  }
+  {
+    std::vector<std::string> twice = act("e", R("hello.sdes"), T("strict2"), "phrase");
+    twice.push_back("requirelock");
+    twice.push_back("requirelock");
+    sd_rc(3, twice, with_stdin(phrase + "\n"), "seven arguments");
+    std::vector<std::string> dup = act("e", R("hello.sdes"), T("strict2"), "phrase");
+    dup[2] = "requirelock";  // in the place of out=
+    dup.push_back("requirelock");
+    sd_rc(9, dup, with_stdin(phrase + "\n"), "requirelock in the place of out= and again at the end");
+    need(!file_exists(T("strict2")), "a refused command line left an output file");
+    passed("requirelock: a seventh argument is error 3, a second requirelock is error 9");
+  }
 }
 
 void wrong_keys()

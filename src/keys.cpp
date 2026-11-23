@@ -129,7 +129,8 @@ KeyMaterial derive_keys(const KeyInput &in, const uint8_t *salt, const KdfParams
 {
   KeyMaterial km;
   if (in.usephrase) {
-    SecretBuf dk = argon2id(in.phrase.data(), in.phrase.size(), salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey);
+    SecretBuf dk = argon2id(in.phrase.data(), in.phrase.size(), salt, SALT_LEN, 1u << kdf.logm, kdf.t, kdf.p, NL * 8 + sizeof km.mackey,
+                          nullptr, 0, nullptr, 0, in.require_lock);
     memcpy(km.key, dk.data(), NL * 8);
     memcpy(km.mackey, dk.data() + NL * 8, sizeof km.mackey);
     wipe(dk.data(), dk.size());

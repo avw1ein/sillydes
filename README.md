@@ -270,7 +270,7 @@ Examine the file `sample.key` to see how to construct a key file. It's an ASCII 
 
 ### Phrase
 
-Put `phrase` on the command line instead of `key=`. The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less (section 9 says how each system decides that). Deriving the keys takes about 2 seconds on Linux and on a Mac with Apple silicon and 3 to 6 seconds on the other systems that have been measured (Windows, an Intel Mac); the same time passes again when a file is opened.
+Put `phrase` on the command line instead of `key=` (and, if you want the program to refuse to run when the 2 GiB table could be swapped out, `requirelock` after it; section 8). The program prompts for a phrase of at least 20 characters; there is no upper limit. The keys are derived with Argon2id (RFC 9106), a slow function that needs 2 GiB of memory, and a random salt, so the same phrase gives different keys for every file and every guess costs an attacker that memory as well. If the machine cannot provide 2 GiB, the program stops with error 7 rather than running with less (section 9 says how each system decides that). Deriving the keys takes about 2 seconds on Linux and on a Mac with Apple silicon and 3 to 6 seconds on the other systems that have been measured (Windows, an Intel Mac); the same time passes again when a file is opened.
 
 On a terminal the phrase is read with the echo off and, when encrypting, asked twice; from a pipe or a file it is read as it comes, and in a Windows console as Unicode text.
 
@@ -326,8 +326,11 @@ What the program does about crash dumps and other processes differs per system. 
 | Core and crash dumps | `RLIMIT_CORE` is 0; the process is marked non-dumpable; blocks of 64 KiB and more are excluded from dumps | `RLIMIT_CORE` is 0 | the error dialog of a crash is switched off; the 2 GiB table, the locked pages and the stack window are registered with Windows Error Reporting as excluded from dumps (not verified: no call reads that back) |
 | A debugger of the same user | refused (non-dumpable) | refused (`PT_DENY_ATTACH`; not verified, see below), and the build is signed with the hardened runtime and without `get-task-allow` | refused: the access list of the process gives its owner only the right to query, wait for and end it, none to read or write its memory; an administrator, and any process that has the debug privilege enabled, still gets in |
 | Code from outside | - | the hardened runtime refuses injected libraries and code that is not signed in | the process allows no code generated at run time, no extension points (hooks, AppInit DLLs), no images from network shares and no child process |
+| The 2 GiB table (phrase mode) | a `memfd_secret` mapping (Linux 5.14 and later) when `RLIMIT_MEMLOCK` is at least 2 GiB or the process has `CAP_IPC_LOCK`: never swapped, no hibernation while it exists, and out of the kernel's own view of memory, so that not even root can read it through `/proc/<pid>/mem` or `ptrace`; otherwise `mlock`, as far as the limit allows, and swappable when it does not | `mlock`, as far as the system allows | `VirtualLock`, after raising the working set when needed |
 | Keys and phrase kept in RAM | `mlock`, as far as `RLIMIT_MEMLOCK` (`ulimit -l`) allows | `mlock`, as far as the system allows | `VirtualLock`, after raising the working set when needed |
-| Files written | mode 0600 for a new file; a symbolic link as output is refused | the same | a new file inherits the access list of its folder; a link as output is refused |
+| Files written | mode 0600 for a new file; a symbolic link as output is refused | the same | a new file inherits the access list of its folder (deliberately: an encrypted file is made to be shared, and a list of the owner alone would also keep out the backup and virus scanners that run as the system, which is why the program does not set one); for files that only you may read, restrict the output folder once, for example `icacls <folder> /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"`, and every new file in it inherits that; a link as output is refused |
+
+The word `requirelock` on the command line (in any position, at most once), or `SILLYDES_REQUIRE_LOCK=1` in the environment, turns a table that could not be locked in RAM into an error; it concerns phrase mode only, which is where the 2 GiB table is, and either one is enough: the program stops with level 15 before it writes anything. Without it a table that cannot be locked is used anyway, and encrypted swap is the remedy. An ordinary user has an `ulimit -l` far below 2 GiB, so the setting is mostly for machines where the limit was raised on purpose (`ulimit -l unlimited` as root, `LimitMEMLOCK=infinity` in a service, `setcap cap_ipc_lock+ep` on the program); on Windows and macOS it asks for `VirtualLock` and `mlock` to succeed.
 
 The tests read the access list and the mitigation policies back from the running Windows process, and the limits and the hardened-runtime signature on Linux and macOS. That a debugger cannot attach on macOS is not verified: the test machines refuse every debugger, so there is nothing to compare with. Security software may slow the 2 GiB derivation. Nothing here protects against malware that runs as you.
 
@@ -335,7 +338,7 @@ The tests read the access list and the mitigation policies back from the running
 
 ## 9. Error levels
 
-The program can generate fourteen error levels. You can use these in a shell script or in a parent program.
+The program can generate fifteen error levels. You can use these in a shell script or in a parent program.
 
 | Level | Meaning |
 |------:|---------|
@@ -354,6 +357,7 @@ The program can generate fourteen error levels. You can use these in a shell scr
 | 12 | CRC error, e-mail style only. |
 | 13 | Authentication failed: wrong key, or data damaged or altered. |
 | 14 | System random generator failed. |
+| 15 | The 2 GiB table could not be locked in RAM, and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (section 8). |
 
 **Level 7** is decided before the memory is taken, from what is free and from the limits set on the process: on Linux the `MemAvailable` of the kernel and the `ulimit -v` and `-d` limits; on Windows the smaller of the free physical memory, the free commit limit and the memory limit of a job object the program runs in; on macOS the free, inactive and purgeable pages, which is an estimate (a heavily loaded Mac may report too little although macOS would have swapped; then error 7 is a false alarm, and closing something helps). The program never runs with less and never lets the system kill it for lack of memory. Level 4 on Windows also covers an argument that is not valid UTF-16.
 
