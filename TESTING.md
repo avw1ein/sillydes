@@ -41,8 +41,8 @@ CI ([build.yml](.github/workflows/build.yml), [constant-time.yml](.github/workfl
 | `macos` | macos-26 (arm64), macos-15-intel; presets `ci` and `universal` | a universal binary runs its own slice on each runner, so both slices are tested natively |
 | `sanitize` | ubuntu-latest, macos-26 | AddressSanitizer and UndefinedBehaviorSanitizer over the whole `e2e`, without the preload scan and the address-space limit |
 | `big-endian` | ubuntu-latest | s390x cross-compiled, run under QEMU user mode: the unit tests, and files made there and on x86-64 open on the other |
-| `interop` | all seven builds | section 6; the whole `build` workflow also runs every night on `main` (and by hand), so that a changed runner image shows up there |
-| `constant-time` (workflow) | on changes, nightly, by hand | `valgrind` on x86-64 and arm64, g++ and clang++, `-O0`, `-O2`, `-O3`; `timing` on Linux, Linux arm64, macOS and Windows at scale 10 |
+| `interop` | all seven builds | section 6; the whole `build` workflow runs on every push and pull request, and by hand (`gh workflow run build.yml`) |
+| `constant-time` (workflow) | on changes, by hand (no schedule at present) | `valgrind` on x86-64 and arm64, g++ and clang++, `-O0`, `-O2`, `-O3`; `timing` on Linux, Linux arm64, macOS and Windows at scale 10 |
 | `unicode` (workflow) | on changes to the tables and what they depend on | downloads the data from unicode.org, checks it against stored SHA-256 sums; a separate workflow so that an outage of unicode.org cannot turn `build` red |
 | `release` (workflow) | on a version tag; by hand it is a dry run | five targets, each with the whole suite; see the make-release skill |
 
@@ -234,18 +234,20 @@ Facts about the runners:
   deliberate, since a new compiler there is a warning worth seeing early. Nothing in a workflow may use
   `windows-latest` or `macos-latest`: the interop artifact names depend on `runner.arch`, not on a label,
   so that a relabel cannot mislabel a build. The images are rebuilt weekly with newer tools inside the
-  same label; the nightly run of `build.yml` is what shows such a change.
+  same label; a push (or a run by hand) is what shows such a change, since there is no nightly run at present.
 - **Changing a runner label** (when `actions/runner-images` announces that a label moves or that an
   image is deprecated, which its Announcement issues and releases say ahead of time, and when
-  a nightly run fails on one system only): 1. look at what the label runs now (`gh run view --job <id>
+  a run fails on one system only): 1. look at what the label runs now (`gh run view --job <id>
   --log | grep -A3 "Runner Image"` gives `Image:` and the OS version); 2. on a branch `ci/runner-<label>`
   change the label in every workflow (`grep -rn "<old label>" .github/workflows`), in the tables of this
   file and in PORTPLAN.md; 3. push, wait for the whole `build` workflow and rerun it twice (section 3 on
   CPU-dependent results; the macOS and Windows timings of the key derivation below move with the image,
   so compare with them before calling a slowdown a bug); 4. start `release.yml` by hand on the branch
   (`gh workflow run release.yml --ref <branch>`, a dry run) because it builds on the same labels;
-  5. fast-forward `main` and read the next nightly run. A label that goes away does not fail: the job waits
-  for a runner that never comes, which the nightly run shows within a day.
+  5. fast-forward `main` and read the run on `main`. A label that goes away does not fail: the job waits
+  for a runner that never comes. The same happens when the hosted pool is short of capacity (macOS
+  arm64 on 2026-11-24: the job was cancelled after 15 minutes, with the annotation "not acquired by Runner
+  of type hosted"); rerun the failed jobs (`gh run rerun <id> --failed`) before looking for a cause.
 - Public repositories have free runners; the whole matrix takes about ten minutes, the macOS Intel runner
   being the slowest.
 - Measured on the runners: `available_memory()` 13 to 14 GiB (Windows, Linux arm64), 3.0 GiB (macOS arm64),

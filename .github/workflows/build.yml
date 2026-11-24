@@ -7,14 +7,12 @@
 
 name: build
 
-# Every push and pull request, and every night: runner images are updated weekly, and the labels below
-# are pinned (TESTING.md section 7, "Runner labels"), so a change in an image shows up in the
-# nightly run on main, with the interop job included, and not in the middle of somebody's work.
+# Every push and pull request, and by hand. The runner labels below are pinned (TESTING.md section 7,
+# "Runner labels"); the images behind them are updated weekly. There is no nightly run at present: to
+# have one (it shows a changed image without a push), add `schedule: - cron: '43 4 * * *'` under `on:`.
 on:
   push:
   pull_request:
-  schedule:
-    - cron: '43 4 * * *'
   workflow_dispatch:
 
 permissions:
