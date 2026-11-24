@@ -153,7 +153,7 @@ The numbers above $2^{512}$ are an artefact of treating the whitening as indepen
 
 - **Key bits.** DES ignores the lowest bit of each key byte, so the DES layers use 448 bits. The whitening reads all 64 bits of each key, so all 512 bits count. A key file that differs in one such bit fails authentication **(measured)**.
 - **Complementation.** DES satisfies $D_{\bar k}(\bar x) = \overline{D_k(x)}$, which halves brute force on a plain DES cascade. Here complementing $K$ replaces every $W_l$ by an unrelated PRF output, so the property gives no saving.
-- **Weak and semi-weak keys.** A weak key makes $D_k$ an involution. Random keys hit one with probability $2^{-52}$ per layer; with chosen key files it is the user's responsibility. Even then, the whitening between layers means no $D_k \circ D_k$ cancellation can occur.
+- **Weak and semi-weak keys.** A weak key makes $D_k$ an involution. Random keys hit one with probability $2^{-52}$ per layer; with chosen key files the program refuses every key with at most four different round keys (the 4 weak, 12 semi-weak and 240 further keys, including the 48 published possibly weak ones) when encrypting, also among the keys of a phrase (error 16; `allowweak` or `SILLYDES_ALLOW_WEAK=1` overrides it, for research only) and accepts them when decrypting. Even then, the whitening between layers means no $D_k \circ D_k$ cancellation can occur.
 - **Equivalent keys.** Two keys $K \ne K'$ give the same cipher only if they agree on all 448 DES bits and all nine $W_j$ and every $\Delta_i$ collide, which for a PRF has probability below $2^{-18432}$.
 
 ### 5.4 Quantum key search

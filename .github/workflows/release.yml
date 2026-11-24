@@ -89,8 +89,8 @@ jobs:
         include:
           - { name: linux-x86_64, os: ubuntu-22.04, ext: '' }
           - { name: linux-arm64, os: ubuntu-22.04-arm, ext: '' }
-          - { name: macos-universal, os: macos-latest, ext: '' }
-          - { name: windows-x86_64, os: windows-latest, ext: .exe }
+          - { name: macos-universal, os: macos-26, ext: '' }
+          - { name: windows-x86_64, os: windows-2025-vs2026, ext: .exe }
           - { name: windows-arm64, os: windows-11-arm, ext: .exe }
     runs-on: ${{ matrix.os }}
     defaults:

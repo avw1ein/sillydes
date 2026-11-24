@@ -28,7 +28,41 @@ uint8_t length_mask(const uint8_t key[NL][8])
   return m;
 }
 
+// PC-1 of FIPS 46: the 56 key bits, parity bits left out, as the halves C and D of the key schedule.
+const uint8_t PC1[56] = {
+  57, 49, 41, 33, 25, 17,  9,  1, 58, 50, 42, 34, 26, 18,
+  10,  2, 59, 51, 43, 35, 27, 19, 11,  3, 60, 52, 44, 36,
+  63, 55, 47, 39, 31, 23, 15,  7, 62, 54, 46, 38, 30, 22,
+  14,  6, 61, 53, 45, 37, 29, 21, 13,  5, 28, 20, 12,  4
+};
+
+// 1 if the 28-bit half repeats with a period that divides 4, else 0.
+uint64_t period_four(uint64_t h)
+{
+  uint64_t diff = h ^ (((h << 4) | (h >> 24)) & 0xFFFFFFFull);
+  return ((diff | (0u - diff)) >> 63) ^ 1;
+}
+
 }  // namespace
+
+// The round keys are rotations of C and D, so a key has at most four different round keys exactly when
+// both halves have a period that divides 4: 16 x 16 = 256 settings of the 56 key bits (times 256
+// parity settings), which are the 4 weak keys (one round key), the 12 semi-weak keys (two) and 240
+// keys with four round keys, each used four times; the 48 "possibly weak" keys of the published list
+// are among the last. An exhaustive search over all 2^28 halves finds no other key with four or fewer.
+bool has_weak_key(const uint8_t key[NL][8])
+{
+  uint64_t hit = 0;
+  for (int n = 0; n < NL; n++) {
+    uint64_t c = 0, d = 0;
+    for (int i = 0; i < 28; i++) {
+      c = (c << 1) | ((key[n][(PC1[i] - 1) / 8] >> (7 - (PC1[i] - 1) % 8)) & 1);
+      d = (d << 1) | ((key[n][(PC1[28 + i] - 1) / 8] >> (7 - (PC1[28 + i] - 1) % 8)) & 1);
+    }
+    hit |= period_four(c) & period_four(d);
+  }
+  return value_barrier((uint32_t)hit) != 0;
+}
 
 // The value of a hexadecimal digit, with bit 8 set if c is none. Key digits are secret, so there is
 // no branch and no table index on c (STRUCTURE.md section 12).

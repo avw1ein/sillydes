@@ -28,6 +28,9 @@ void seal(Buf &data, const KeyInput &keys, const KdfParams &kdf)
   randbytes(iv, IV_LEN);
   if (all_zero(salt, SALT_LEN) || all_zero(iv, IV_LEN)) errorexit(14);
   KeyMaterial km = derive_keys(keys, salt, kdf);
+  // Only on the way in, and also for the keys of a phrase: a file that was sealed with such a key before
+  // this check existed must still open. The data is untouched when this fails.
+  if (!keys.allow_weak && has_weak_key(km.key)) errorexit(16);
   SillyDesCipher cipher(km.key, salt);
 
   // One allocation for the whole container, so the plaintext is never copied.

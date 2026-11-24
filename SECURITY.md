@@ -32,6 +32,9 @@ library.
 - **A weak phrase.** The phrase is chosen by a person and is the weak point; the cipher cannot be
   stronger than it. Use a random string from a password manager, or a key file with eight random
   keys (README, section 7).
+- **Weak DES keys that you allowed.** The program refuses weak and semi-weak DES keys, and the other
+  keys with at most four round keys, when encrypting. `allowweak` and `SILLYDES_ALLOW_WEAK=1` switch that
+  off and are for research only: never use them for data you want to protect (README, section 7).
 - **Someone who can run code as you, or as an administrator or root.** That person can read the
   process's memory, the file you typed the phrase into, the plaintext before and after. The
   measures against debuggers and dumps (README, section 8) are mitigations, not boundaries; on

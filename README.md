@@ -266,6 +266,8 @@ key=sample.key
 
 Examine the file `sample.key` to see how to construct a key file. It's an ASCII file with eight 64-bit keys in hexadecimal. Its lines may end in LF, CR LF or CR, and it may start with a byte order mark or be UTF-16 with one, as some editors and shells on other systems write it. Fill it with random values, for example from `/dev/urandom` (Linux, macOS) or a password manager; eight random keys give the cipher its full 512 bits. A key file written by Windows PowerShell 5.1 with `>` is UTF-16 with a byte order mark, which the program reads; so is one from PowerShell 7 (UTF-8) or a Windows editor.
 
+**Weak keys.** DES has keys that behave badly because their round keys repeat: 4 weak keys (one round key; encrypting twice gives back the plaintext), 12 semi-weak keys (two round keys; six pairs that undo each other) and 240 keys with only four different round keys, each used four times, among them the 48 "possibly weak" keys of the published lists. The program refuses all 256 (an exhaustive search of the DES key schedule finds no other key with four or fewer round keys). DES ignores the lowest bit of every byte, so each of them has 256 spellings, and the program ignores those bits too. Encrypting with a key file in which one of the eight keys is such a key stops with level 16 before anything is written; the message does not say which key it was. The same check applies to the eight keys that a phrase gives, after the key derivation: the chance is about 2^-45 per file, and since every run uses a new salt the answer is to run again. **`allowweak` is for research only** (studying the cipher with weak keys, test vectors, reproducing an old file) and must never be used for data you want to protect. To use it, put the word `allowweak` on the command line (in any position, at most once) or set `SILLYDES_ALLOW_WEAK=1` in the environment (exactly `1`; either one is enough), with a key file or a phrase. Decrypting never checks: a file that was made with a weak key before this check existed, or with `allowweak`, opens without either. The whitening between the layers and the tweak depend on all 512 key bits, so a weak key does not make the cipher collapse (ANALYSIS.md section 5.3), but a key like that is never a good choice.
+
 **NEVER use `sample.key` for real data.** It is published together with this program, so anyone can decrypt what you encrypt with it. It is meant for the demonstration in section 1 only.
 
 ### Phrase
@@ -340,7 +342,7 @@ The tests read the access list and the mitigation policies back from the running
 
 ## 9. Error levels
 
-The program can generate fifteen error levels. You can use these in a shell script or in a parent program.
+The program can generate sixteen error levels. You can use these in a shell script or in a parent program.
 
 | Level | Meaning |
 |------:|---------|
@@ -360,6 +362,7 @@ The program can generate fifteen error levels. You can use these in a shell scri
 | 13 | Authentication failed: wrong key, or data damaged or altered. |
 | 14 | System random generator failed. |
 | 15 | The 2 GiB table could not be locked in RAM, and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (section 8). |
+| 16 | One of the eight DES keys (from the key file or from the phrase) is weak, and neither `allowweak` nor `SILLYDES_ALLOW_WEAK=1` (both for research only) is given; encryption only (section 7). |
 
 **Level 7** is decided before the memory is taken, from what is free and from the limits set on the process: on Linux the `MemAvailable` of the kernel and the `ulimit -v` and `-d` limits; on Windows the smaller of the free physical memory, the free commit limit and the memory limit of a job object the program runs in; on macOS the free, inactive and purgeable pages, which is an estimate (a heavily loaded Mac may report too little although macOS would have swapped; then error 7 is a false alarm, and closing something helps). The program never runs with less and never lets the system kill it for lack of memory. Level 4 on Windows also covers an argument that is not valid UTF-16.
 

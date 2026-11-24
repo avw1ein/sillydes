@@ -30,6 +30,12 @@ the section of the tag's version as the text of the GitHub Release.
   variable: the variant is header byte 7, which was reserved and zero, so no file changes. A key file
   has no Argon2i: the word is error 10 with `key=` when encrypting, the variable is ignored. The command
   line may now have a seventh word. A release before this one stops with error 13 on an Argon2i file.
+- Weak DES keys: encrypting with eight keys of which one has at most four different round keys (the 4 weak,
+  12 semi-weak and 240 other keys, which include the 48 published "possibly weak" keys; parity bits
+  ignored) stops with the new error level 16, before anything is written. It applies to a key file and to
+  the keys that a phrase gives (a retry has a new salt). The command-line word `allowweak` or
+  `SILLYDES_ALLOW_WEAK=1` (exactly `1`) allows them, **for research only, never for real data**. Decryption never checks, so files made
+  with such a key still open. The command line may now have an eighth word.
 - Windows on arm64: the data-independent timing mode (DIT) is switched on in the process, as on Linux and
   macOS. Windows has no way to ask whether the CPU has it, so the program tries the instruction and ignores
   a refusal. The hardening test reads the bit back on the runner.

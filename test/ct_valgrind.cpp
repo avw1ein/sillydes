@@ -120,6 +120,17 @@ int main(int argc, char **argv)
     expect(!ne, "ct_equal of different arrays");
   }
 
+  // The weak-key test, with the keys secret: only the verdict may depend on them.
+  for (int weak = 0; weak < 2; weak++) {
+    uint8_t key[NL][8];
+    for (int n = 0; n < NL; n++) fill(key[n], 8, (uint8_t)(5 * n + 2));
+    if (weak) memcpy(key[5], "\xE0\xE0\xE0\xE0\xF1\xF1\xF1\xF0", 8);  // E0E0E0E0F1F1F1F1 with another parity bit
+    secret(key, sizeof key);
+    volatile bool v = has_weak_key(key);
+    declassify((void *)&v, sizeof v);
+    expect(v == (weak == 1), "has_weak_key verdict");
+  }
+
   // The hex decoding of a key file, every byte value with the byte secret.
   for (int c = 0; c < 256; c++) {
     uint8_t byte = (uint8_t)c;
@@ -184,6 +195,7 @@ int main(int argc, char **argv)
   {
     KeyInput in;
     in.usephrase = false;
+    in.allow_weak = true;  // seal branches on the weak-key verdict, the one thing about the key that it says; has_weak_key is checked below
     for (int n = 0; n < NL; n++) fill(in.key[n], 8, (uint8_t)(5 * n + 2));
     secret(in.key, sizeof in.key);
     Buf d(1000);

@@ -318,14 +318,78 @@ void phrases(const std::string &phrase)
     twice.push_back("requirelock");
     sd_rc(9, twice, with_stdin(phrase + "\n"), "second requirelock");
     twice.push_back("requirelock");
-    sd_rc(3, twice, with_stdin(phrase + "\n"), "eight arguments");
+    twice.push_back("requirelock");
+    sd_rc(3, twice, with_stdin(phrase + "\n"), "nine arguments");
     std::vector<std::string> dup = act("e", R("hello.sdes"), T("strict2"), "phrase");
     dup[2] = "requirelock";  // in the place of out=
     dup.push_back("requirelock");
     sd_rc(9, dup, with_stdin(phrase + "\n"), "requirelock in the place of out= and again at the end");
     need(!file_exists(T("strict2")), "a refused command line left an output file");
-    passed("requirelock: a second requirelock is error 9, an eighth argument is error 3");
+    passed("requirelock: a second requirelock is error 9, a ninth argument is error 3");
   }
+}
+
+// Weak DES keys: a key file with one is refused when encrypting (error 16, nothing written) unless the word
+// allowweak or SILLYDES_ALLOW_WEAK=1 allows it, and files made with one always open.
+void weak_keys()
+{
+  const std::string hello = get(R("hello.sdes"));
+  put(T("w.in"), hello);
+  const char *good[] = { "BA7CDE4350091ADE", "7F6644780026ADEF", "CBDFE44672998390", "BC7DEDACDBCFDDDE",
+                         "00018849949F7367", "BBFCDD6A88D3C000", "3D91A7E20BC4F586", "E8052B6C94F1D37A" };
+  auto keyfile = [&](const std::string &name, int at, const char *weak) {
+    std::string k = "; one key replaced\n";
+    for (int i = 0; i < 8; i++) k += std::string(i == at ? weak : good[i]) + "\n";
+    put(T(name), k);
+  };
+
+  // One of each class, and a weak key with other parity bits, at the first and at the last place.
+  const char *weak[] = { "0101010101010101", "E0E0E0E0F1F1F1F1", "1FE01FE00EF10EF1", "FE01FE01FE01FE01", "1F1F01010E0E0101", "E00101E0F10101F1", "0000000000000000", "FFFFFFFFFFFFFFFF", "FEFEFE01FEFEFE01", "1F0101FE0E0101FE" };
+  for (size_t i = 0; i < sizeof weak / sizeof *weak; i++) {
+    const std::string name = "w" + str((int)i) + ".key", out = "w" + str((int)i) + ".out";
+    keyfile(name, i % 2 ? 7 : 0, weak[i]);
+    RunResult r = sd(act("e", T("w.in"), T(out), T(name)));
+    need(r.code == 16 && r.err.find("ERROR#16") != std::string::npos, std::string("weak key ") + weak[i] + " gave exit code " + str(r.code) + ": " + r.err);
+    need(r.err.find(weak[i]) == std::string::npos, "error 16 names the key");
+    need(!file_exists(T(out)), "error 16 left an output file");
+  }
+  keyfile("w8.key", 4, "01FE01FE01FE01FE");
+  sd_rc(16, act("em", T("w.in"), T("w8.out"), T("w8.key")), RunOptions(), "weak key with e-mail output");
+  need(!file_exists(T("w8.out")), "error 16 left an output file");
+  passed("weak, semi-weak, possibly weak and other four-round-key keys are refused when encrypting (error 16)");
+
+  // Allowed by the word or by the variable (exactly 1), then opened without either.
+  std::vector<std::string> word = act("e", T("w.in"), T("w.word"), T("w0.key"));
+  word.push_back("allowweak");
+  sd_ok(word, "encryption with a weak key and the word allowweak");
+  RunOptions env;
+  env.env.push_back("SILLYDES_ALLOW_WEAK=1");
+  sd_ok(act("e", T("w.in"), T("w.env"), T("w0.key")), "encryption with a weak key and SILLYDES_ALLOW_WEAK=1", env);
+  RunOptions no;
+  no.env.push_back("SILLYDES_ALLOW_WEAK=yes");
+  sd_rc(16, act("e", T("w.in"), T("w.no"), T("w0.key")), no, "SILLYDES_ALLOW_WEAK=yes allowed a weak key");
+  need(!file_exists(T("w.no")), "error 16 left an output file");
+  for (const char *f : { "w.word", "w.env" }) {
+    sd_ok(act("d", T(f), T("w.dec"), T("w0.key")), "decryption with a weak key");
+    need(get(T("w.dec")) == hello, "weak key round trip mismatch");
+  }
+  std::vector<std::string> dword = act("d", T("w.word"), T("w.dec2"), T("w0.key"));
+  dword.push_back("allowweak");
+  sd_ok(dword, "decryption with a weak key and the word allowweak");
+  passed("allowweak and SILLYDES_ALLOW_WEAK=1 allow weak keys; decryption needs neither");
+
+  // With a phrase a weak key is as good as never seen (the chance is about 2^-45), but the word is accepted, and it counts like the others.
+  const std::string phrase = "The quick brown fox jumps over the lazy dog, again and again.";
+  std::vector<std::string> ph = act("e", T("w.in"), T("w.ph"), "phrase");
+  ph.push_back("allowweak");
+  sd_ok(ph, "encryption with a phrase and the word allowweak", with_stdin(phrase + "\n"));
+  sd_ok(act("d", T("w.ph"), T("w.phout"), "phrase"), "decryption of what allowweak wrote with a phrase", with_stdin(phrase + "\n"));
+  need(get(T("w.phout")) == hello, "phrase round trip with allowweak mismatch");
+  std::vector<std::string> twice = act("e", T("w.in"), T("w.twice"), T("w0.key"));
+  twice.push_back("allowweak");
+  twice.push_back("allowweak");
+  sd_rc(9, twice, RunOptions(), "allowweak twice");
+  passed("allowweak: accepted with a phrase, a second word is error 9");
 }
 
 // The Argon2i mode: chosen when encrypting, by the word or by SILLYDES_ARGON2I=1, and recorded in header byte 7.
@@ -387,15 +451,17 @@ void argon2i_mode(const std::string &phrase)
   sd_ok(kdec, "key file decryption with the word argon2i", kenv);
   need(get(T("a2.kout")) == hello, "key file round trip with the word argon2i mismatch");
 
-  // The word is like requirelock: at most once, and it counts toward the seven arguments.
+  // The word is like requirelock: at most once, and it counts toward the eight arguments.
   std::vector<std::string> two = act("e", T("a2.in"), T("a2.two"), "phrase");
   two.push_back("argon2i");
   two.push_back("argon2i");
   sd_rc(9, two, with_stdin(phrase + "\n"), "argon2i twice");
   two.push_back("requirelock");
-  sd_rc(3, two, with_stdin(phrase + "\n"), "eight arguments");
+  two.push_back("allowweak");
+  two.push_back("allowweak");
+  sd_rc(3, two, with_stdin(phrase + "\n"), "nine arguments");
   need(!file_exists(T("a2.two")), "a refused command line left an output file");
-  passed("argon2i: a key file refuses it when encrypting and ignores it otherwise, a second word is error 9, an eighth argument error 3");
+  passed("argon2i: a key file refuses it when encrypting and ignores it otherwise, a second word is error 9, a ninth argument error 3");
 }
 
 void wrong_keys()
@@ -1093,6 +1159,7 @@ int main(int argc, char **argv)
   round_trips();
   phrases(phrase);
   argon2i_mode(phrase);
+  weak_keys();
   wrong_keys();
   block_tests();
   wrong_phrase();

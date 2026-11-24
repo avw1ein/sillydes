@@ -593,6 +593,45 @@ int main()
   }
 
 
+  // Weak DES keys: has_weak_key sees all the classes whatever the parity bits and wherever in the key
+  // file they stand, seal refuses them (error 16) unless allowed, and unseal never refuses them.
+  {
+    auto hexkey = [](const char *h, uint8_t out[8]) { for (int i = 0; i < 8; i++) out[i] = (uint8_t)strtoul(std::string(h + 2 * i, 2).c_str(), nullptr, 16); };
+    const char *weak[] = { "0101010101010101", "FEFEFEFEFEFEFEFE", "E0E0E0E0F1F1F1F1", "1F1F1F1F0E0E0E0E",  // weak
+                           "01FE01FE01FE01FE", "FE01FE01FE01FE01", "E0FEE0FEF1FEF1FE", "1F011F010E010E01",  // semi-weak
+                           "1F1F01010E0E0101", "01FE1FE001FE0EF1", "E00101E0F10101F1", "FE1F01E0FE0E01F1",  // possibly weak
+                           "01011F0101010E01", "FEFEFE01FEFEFE01", "1F0101FE0E0101FE", "E001FE01F101FE01" };  // four round keys, not in the published list
+    uint8_t k[NL][8];
+    memcpy(k, key, sizeof k);
+    if (has_weak_key(k)) { puts("FAIL: random keys reported weak"); fails++; }
+    for (const char *w : weak)
+      for (int pos = 0; pos < NL; pos += 7) {
+        memcpy(k, key, sizeof k);
+        hexkey(w, k[pos]);
+        if (!has_weak_key(k)) { printf("FAIL: weak key %s at %d not seen\n", w, pos); fails++; }
+        for (int i = 0; i < 8; i++) {
+          k[pos][i] ^= 1;  // parity bits do not matter to DES
+          if (!has_weak_key(k)) { printf("FAIL: weak key %s with a parity bit flipped not seen\n", w); fails++; }
+          k[pos][i] ^= 3;  // but a key bit does
+          if (has_weak_key(k)) { printf("FAIL: key next to weak key %s reported weak\n", w); fails++; }
+          k[pos][i] ^= 2;
+        }
+      }
+
+    KeyInput ki;
+    memcpy(ki.key, key, sizeof ki.key);
+    hexkey("E0E0E0E0F1F1F1F1", ki.key[3]);
+    Buf msg(300);
+    randbytes(msg.data(), msg.size());
+    Buf f = msg;
+    if (exit_code([&] { seal(f, ki, DEFAULT_KDF); }) != 16 || f != msg) { puts("FAIL: seal with a weak key is not error 16 with the data untouched"); fails++; }
+    ki.allow_weak = true;
+    seal(f, ki, DEFAULT_KDF);
+    ki.allow_weak = false;
+    unseal(f, ki);
+    if (f != msg) { puts("FAIL: weak key round trip"); fails++; }
+  }
+
   // Errors are exceptions, so the destructors on the way out wipe the keys and the data.
   {
     Buf junk(HDR_LEN + 256 + TAG_LEN, 0x42);

@@ -7,9 +7,15 @@
 
 name: build
 
+# Every push and pull request, and every night: runner images are updated weekly, and the labels below
+# are pinned (TESTING.md section 7, "Runner labels"), so a change in an image shows up in the
+# nightly run on main, with the interop job included, and not in the middle of somebody's work.
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '43 4 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -55,7 +61,7 @@ jobs:
   # Windows, from the first platform file on: the Microsoft compiler and
   # MinGW-w64 are different compilers with different warnings, and users have both.
   windows-msvc:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: cmake -S . -B build -DSILLYDES_WERROR=ON
@@ -98,7 +104,7 @@ jobs:
             build/Release/test_e2e.exe
 
   windows-mingw:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     defaults:
       run:
         shell: msys2 {0}
@@ -134,7 +140,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-15-intel]
+        os: [macos-26, macos-15-intel]
         preset: [ci, universal]
     runs-on: ${{ matrix.os }}
     steps:
@@ -149,16 +155,16 @@ jobs:
           codesign -d --entitlements - build/${{ matrix.preset }}/sillydes
       - name: Files for the other systems (interop)
         if: matrix.preset == 'ci'
-        run: build/ci/test_e2e build/ci/sillydes . --interop-make interop ${{ matrix.os == 'macos-latest' && 'macos-arm64' || 'macos-x64' }}
+        run: build/ci/test_e2e build/ci/sillydes . --interop-make interop ${{ runner.arch == 'ARM64' && 'macos-arm64' || 'macos-x64' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.preset == 'ci'
         with:
-          name: interop-${{ matrix.os == 'macos-latest' && 'macos-arm64' || 'macos-x64' }}
+          name: interop-${{ runner.arch == 'ARM64' && 'macos-arm64' || 'macos-x64' }}
           path: interop
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.preset == 'ci'
         with:
-          name: bin-${{ matrix.os == 'macos-latest' && 'macos-arm64' || 'macos-x64' }}
+          name: bin-${{ runner.arch == 'ARM64' && 'macos-arm64' || 'macos-x64' }}
           path: |
             build/ci/sillydes
             build/ci/test_e2e
@@ -231,7 +237,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -250,10 +256,10 @@ jobs:
         include:
           - { label: linux-x64, os: ubuntu-latest }
           - { label: linux-arm64, os: ubuntu-24.04-arm }
-          - { label: macos-arm64, os: macos-latest }
+          - { label: macos-arm64, os: macos-26 }
           - { label: macos-x64, os: macos-15-intel }
-          - { label: windows-msvc, os: windows-latest }
-          - { label: windows-mingw, os: windows-latest }
+          - { label: windows-msvc, os: windows-2025-vs2026 }
+          - { label: windows-mingw, os: windows-2025-vs2026 }
           - { label: windows-arm64, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
     defaults:

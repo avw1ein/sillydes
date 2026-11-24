@@ -379,6 +379,12 @@ bool argon2i_requested()
   return v && v[0] == '1' && v[1] == '\0';
 }
 
+bool weak_keys_allowed()
+{
+  const char *v = getenv("SILLYDES_ALLOW_WEAK");
+  return v && v[0] == '1' && v[1] == '\0';
+}
+
 void lock_stack()
 {
   size_t page = page_size();

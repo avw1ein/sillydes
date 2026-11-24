@@ -22,7 +22,7 @@ The tests need 2 GiB of free memory and take about a minute. `-V` (the presets d
 | `primitives` | [test_primitives.cpp](test/test_primitives.cpp) | Known answers of every algorithm (RFC 7693, FIPS 180-4, RFC 4231, RFC 9106 and the reference implementation's vectors, FIPS 46 and CRC-32), the cipher's properties, the KDF bounds, errors as exceptions, the key file parser, buffer growth, memory locking, `scrub_stack`, `decode_text` and the phrase canonical form (also the hash of the Unicode tables), `available_memory`, and, last, `harden_process` read back from the operating system |
 | `e2e` | [test_e2e.cpp](test/test_e2e.cpp) | The real binary, on every system the same way: golden files of format 5.2.0, round trips, phrase mode, tampering, wrong keys, key files and e-mail text in other encodings, phrases piped and typed another way, refused phrases, bytes that are not translated, file names outside ASCII, the same file under other spellings, a phrase typed into a terminal, PowerShell and `cmd` (Windows), the ASCII-and-LF rule for the sources, and the memory residue scan |
 | `hardening` | [check_hardening.cmake](cmake/check_hardening.cmake) | The finished binary carries its build hardening: ELF (PIE, non-executable stack, RELRO, BIND_NOW, stack protector, IBT and SHSTK or BTI and PAC), PE (ASLR, high-entropy ASLR, DEP, control flow guard with MSVC), Mach-O (every slice PIE with stack protector, valid signature with the hardened runtime flag and without `get-task-allow`, the architectures asked for) |
-| `ct_valgrind`, `ct_valgrind_detects_a_leak` | [ct_valgrind.cpp](test/ct_valgrind.cpp) | Linux, needs `valgrind`: with secrets marked uninitialised, no branch and no memory address depends on them in DES, SHA-512, HMAC, BLAKE2b, the MAC compare, `hex_digit`, key derivation from a key file, the cipher in CBC mode, padding, and `seal`; a deliberate leak must be caught |
+| `ct_valgrind`, `ct_valgrind_detects_a_leak` | [ct_valgrind.cpp](test/ct_valgrind.cpp) | Linux, needs `valgrind`: with secrets marked uninitialised, no branch and no memory address depends on them in DES, SHA-512, HMAC, BLAKE2b, the MAC compare, `hex_digit`, `has_weak_key`, key derivation from a key file, the cipher in CBC mode, padding, and `seal`; a deliberate leak must be caught |
 | `ct_branches` | [ct_branches.sh](tools/ct_branches.sh) | Linux: the conditional branches per function of the binary, as a report; `hex_digit` must have none |
 | `ct_timing` | [ct_timing.cpp](test/ct_timing.cpp) | Option `-DSILLYDES_TIMING_TESTS=ON`: a dudect-style Welch t-test of the same primitives and of `unseal` with a wrong tag; a deliberate early-exit compare must be detected |
 | `unicode_check` | [unicode_conformance.cpp](test/unicode_conformance.cpp) | Option `-DSILLYDES_REGENERATE_UNICODE=<dir>` after `tools/fetch_ucd.sh <dir>`: the committed tables are what the generator makes of the data files, and the complete `NormalizationTest.txt` passes through the program's own normaliser |
@@ -36,12 +36,12 @@ CI ([build.yml](.github/workflows/build.yml), [constant-time.yml](.github/workfl
 | `cmake` | ubuntu-latest, g++ and clang++ | the SBOM target, the SBOM artifact, interop files |
 | `linux-arm64` | ubuntu-24.04-arm | the whole suite natively, residue scan included |
 | `linux-static` | ubuntu-latest, ubuntu-24.04-arm | `-DSILLYDES_STATIC=ON`: the program as it is released, a static PIE; the whole suite on it, except the preloaded scan (it needs the dynamic loader; the scan binary does the same search). The test programs stay dynamic |
-| `windows-msvc`, `windows-arm64` | windows-latest, windows-11-arm | `/W4 /WX`, static runtime |
-| `windows-mingw` | windows-latest, MSYS2 UCRT64 | static; MINGW64 is deprecated by MSYS2 |
-| `macos` | macos-latest (arm64), macos-15-intel; presets `ci` and `universal` | a universal binary runs its own slice on each runner, so both slices are tested natively |
-| `sanitize` | ubuntu-latest, macos-latest | AddressSanitizer and UndefinedBehaviorSanitizer over the whole `e2e`, without the preload scan and the address-space limit |
+| `windows-msvc`, `windows-arm64` | windows-2025-vs2026, windows-11-arm | `/W4 /WX`, static runtime |
+| `windows-mingw` | windows-2025-vs2026, MSYS2 UCRT64 | static; MINGW64 is deprecated by MSYS2 |
+| `macos` | macos-26 (arm64), macos-15-intel; presets `ci` and `universal` | a universal binary runs its own slice on each runner, so both slices are tested natively |
+| `sanitize` | ubuntu-latest, macos-26 | AddressSanitizer and UndefinedBehaviorSanitizer over the whole `e2e`, without the preload scan and the address-space limit |
 | `big-endian` | ubuntu-latest | s390x cross-compiled, run under QEMU user mode: the unit tests, and files made there and on x86-64 open on the other |
-| `interop` | all seven builds | section 6 |
+| `interop` | all seven builds | section 6; the whole `build` workflow also runs every night on `main` (and by hand), so that a changed runner image shows up there |
 | `constant-time` (workflow) | on changes, nightly, by hand | `valgrind` on x86-64 and arm64, g++ and clang++, `-O0`, `-O2`, `-O3`; `timing` on Linux, Linux arm64, macOS and Windows at scale 10 |
 | `unicode` (workflow) | on changes to the tables and what they depend on | downloads the data from unicode.org, checks it against stored SHA-256 sums; a separate workflow so that an outage of unicode.org cannot turn `build` red |
 | `release` (workflow) | on a version tag; by hand it is a dry run | five targets, each with the whole suite; see the make-release skill |
@@ -188,7 +188,7 @@ results in ANALYSIS.md section 8. Things to know:
 - Valgrind does not run on current macOS, and Windows has only the timing test. BlaMka's 32x32 to 64
   multiply is covered only by the timing test, which does not exercise Argon2id. MSVC AddressSanitizer
   was tried and dropped: the link fails on a missing `clang_rt.asan_*_runtime_thunk` library on the
-  `windows-latest` image.
+  `windows-2025-vs2026` image.
 
 ## 6. Interop between systems
 
@@ -226,9 +226,26 @@ Facts about the runners:
   Compare variants inside one job.
 - `gh run rerun` and then `gh api repos/avw1ein/sillydes/actions/runs/<id>/attempts/N --jq .conclusion`
   for each attempt: `gh run view` shows a stale attempt right after a rerun.
-- Runner labels (`windows-latest`, `macos-latest`) float to newer images; Linux release builds are pinned
-  to `ubuntu-22.04` on purpose (the glibc they carry), as static programs. The Windows and macOS labels
-  should be pinned and updated on purpose.
+- **Runner labels.** The Windows and macOS labels are pinned to the image that the floating label pointed
+  to when they were pinned (`windows-latest` was `windows-2025-vs2026`, `macos-latest` was `macos-26`, an
+  arm64 image): `windows-2025-vs2026`, `macos-26`, next to `windows-11-arm` and `macos-15-intel`, which
+  were pinned already. Linux release builds are on `ubuntu-22.04` on purpose (the glibc they carry), as
+  static programs. `ubuntu-latest` still floats for the development jobs (it is 26.04 now); that is
+  deliberate, since a new compiler there is a warning worth seeing early. Nothing in a workflow may use
+  `windows-latest` or `macos-latest`: the interop artifact names depend on `runner.arch`, not on a label,
+  so that a relabel cannot mislabel a build. The images are rebuilt weekly with newer tools inside the
+  same label; the nightly run of `build.yml` is what shows such a change.
+- **Changing a runner label** (when `actions/runner-images` announces that a label moves or that an
+  image is deprecated, which its Announcement issues and releases say ahead of time, and when
+  a nightly run fails on one system only): 1. look at what the label runs now (`gh run view --job <id>
+  --log | grep -A3 "Runner Image"` gives `Image:` and the OS version); 2. on a branch `ci/runner-<label>`
+  change the label in every workflow (`grep -rn "<old label>" .github/workflows`), in the tables of this
+  file and in PORTPLAN.md; 3. push, wait for the whole `build` workflow and rerun it twice (section 3 on
+  CPU-dependent results; the macOS and Windows timings of the key derivation below move with the image,
+  so compare with them before calling a slowdown a bug); 4. start `release.yml` by hand on the branch
+  (`gh workflow run release.yml --ref <branch>`, a dry run) because it builds on the same labels;
+  5. fast-forward `main` and read the next nightly run. A label that goes away does not fail: the job waits
+  for a runner that never comes, which the nightly run shows within a day.
 - Public repositories have free runners; the whole matrix takes about ten minutes, the macOS Intel runner
   being the slowest.
 - Measured on the runners: `available_memory()` 13 to 14 GiB (Windows, Linux arm64), 3.0 GiB (macOS arm64),

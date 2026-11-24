@@ -67,7 +67,8 @@ Read the section that matches the file you are about to change before you change
 - **A new test:** follow TESTING.md section 2 (loud skip, a control, ASCII source, bytes from C++, XOR tamper,
   shared buffer in timing tests, an independent source for expected values).
 - **Workflows:** actions are pinned to commit hashes; Linux release builds are static (`-DSILLYDES_STATIC=ON`) on `ubuntu-22.04`; the Windows
-  and macOS labels float (pin them on purpose, not by accident); a release is tried with the workflow's dry
+  and macOS labels are pinned (`windows-2025-vs2026`, `macos-26`; never `windows-latest` or `macos-latest`) and
+  changed on purpose by the procedure in TESTING.md section 7, in every workflow at once; a release is tried with the workflow's dry
   run (`gh workflow run release.yml --ref <branch>`) before a tag.
 - **A claim about a system you cannot run** (a debugger is refused, a dump excludes a block) is not a result.
   Add it to the unverified list in SECURITY.md and TESTING.md section 8 instead, or build the experiment

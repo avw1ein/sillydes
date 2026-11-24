@@ -7,7 +7,7 @@ This document describes how the program is built and how data moves through it. 
 SillyDES is a single-process command line tool written in C++11 for Linux, macOS and Windows (64-bit, x86-64 and arm64), with no third-party dependencies. Everything that differs between the systems is in one platform layer (sections 2 and 11). It reads one input file completely into memory, transforms it, and writes one output file. There is no daemon, network access, or persistent state.
 
 ```
-sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase [requirelock] [argon2i]
+sillydes act=e|d|em|dm in=FILE out=FILE key=KEYFILE | phrase [requirelock] [argon2i] [allowweak]
 ```
 
 | `act=` | Meaning | Steps |
@@ -350,6 +350,8 @@ The smallest possible container is 600 bytes. The KDF parameters are validated b
 
 Eight keys of 16 hexadecimal digits, one per line, the first word of the line; the rest of the line is a comment. Empty lines and lines that start with `;` are skipped, spaces and tabs before a key are allowed, and what follows the eighth key is not read. `readkeyfile` passes the file through `decode_text` first and takes LF, CR LF and CR as line endings, so a key file saved by an editor or a shell on another system gives the same keys. Anything else is error 5, which names the file and never its contents.
 
+`seal` refuses (error 16), after the keys are derived and before anything is encrypted, a set of eight keys in which one is weak in the wide sense: at most four different round keys. The round keys are rotations of the halves C and D that PC-1 makes of the 56 key bits, so that is the case exactly when both halves repeat with a period that divides 4 (`has_weak_key` in `keys.cpp` tests `h == rotl28(h, 4)` for both). That is 16 x 16 = 256 settings of the key bits, times 256 parity settings: the 4 weak keys (one round key), the 12 semi-weak keys (two) and 240 keys with four round keys, among them the 48 "possibly weak" keys of the published list. An exhaustive search over all 2^28 values of each half (the partition of the 16 rounds by equal PC-2 bits, combined) finds no other key with four or fewer round keys. The test is branch-free and has no index on the key; only its verdict is used, and `seal` branches on it, which is why `ct_valgrind` runs `seal` with `allow_weak` set and `has_weak_key` on its own. It sees the keys of a phrase too (`KeyMaterial::key`, after Argon2). `unseal` does not check, so files that were made with such a key still open. Allowing weak keys is for research only, and is documented as such in the usage text, the README and the message of error 16. `main` sets `allow_weak` from the word `allowweak` or from `SILLYDES_ALLOW_WEAK=1` (`weak_keys_allowed` of the platform layer, exactly `1`, as for the other variables).
+
 ## 7. Phrase input
 
 ```mermaid
@@ -404,6 +406,7 @@ All failures end in `errorexit(code)`, which prints a message to stderr and thro
 | 13 | `unseal` | authentication failed, bad header, wrong key or altered data |
 | 14 | `randbytes`, `seal` | system random generator failed or returned an all-zero salt or IV |
 | 15 | `argon2` | the table could not be locked in RAM and `requirelock` or `SILLYDES_REQUIRE_LOCK=1` is given (`KeyInput::require_lock`) |
+| 16 | `seal` | one of the eight keys (key file or phrase) has at most four different DES round keys (weak, semi-weak and the like) and neither `allowweak` nor `SILLYDES_ALLOW_WEAK=1` (research only) is given (`KeyInput::allow_weak`) |
 
 ## 9. Build and test structure
 
@@ -483,7 +486,7 @@ flowchart LR
 | `available_memory` | `MemAvailable`, and the `RLIMIT_AS` and `RLIMIT_DATA` limits | free, inactive and purgeable pages from `host_statistics64` (an estimate), and the limits | the smaller of free physical memory, the free commit limit and the memory limit of the job object the process is in |
 | `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog, DIT on arm64 by trying the instruction (section 12) |
 | Secret memory | `mmap`, `mlock`, `MADV_DONTDUMP` | `mmap`, `mlock` (no `MADV_DONTDUMP`; core dumps being off covers it) | `VirtualAlloc`, `VirtualLock` after raising the working set, `WerRegisterExcludedMemoryBlock` |
-| `secret_map`, `lock_required` | `memfd_secret` (5.14 and later) when `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows the size; a SIGBUS handler around the first touch of every page; null otherwise. `SILLYDES_REQUIRE_LOCK` | null (no such mapping) | null; `SILLYDES_REQUIRE_LOCK` through `GetEnvironmentVariableW` |
+| `secret_map`, `lock_required`, `weak_keys_allowed` | `memfd_secret` (5.14 and later) when `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows the size; a SIGBUS handler around the first touch of every page; null otherwise. `SILLYDES_REQUIRE_LOCK` | null (no such mapping) | null; `SILLYDES_REQUIRE_LOCK` through `GetEnvironmentVariableW` |
 | `lock_stack`, `scrub_stack` | `alloca` window of 256 KiB (halved under a small limit) | the same | `_alloca`, the same window |
 | `read_secret_line` | `termios` without echo (restored by a destructor), `read(2)` to LF or end of input | the same | console: no echo, `ReadConsoleW` into a locked, wiped buffer, strict UTF-16 to UTF-8 (an unpaired surrogate is refused), a line that starts with Ctrl+Z is the end of the input; pipe or file: `ReadFile`, bytes as they are |
 | Arguments | the bytes | the bytes | `wmain` (MinGW: `-municode`), converted to UTF-8; an unpaired surrogate is error 4. Not `CommandLineToArgvW`, which pulls in shell32 |

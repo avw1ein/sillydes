@@ -69,6 +69,8 @@ void *secret_map(size_t n);
 bool lock_required();
 // True if the environment selects Argon2i for encryption in phrase mode (SILLYDES_ARGON2I=1).
 bool argon2i_requested();
+// True if the environment allows weak DES keys when encrypting (SILLYDES_ALLOW_WEAK=1); for research only.
+bool weak_keys_allowed();
 // Faults in and locks a window of stack below the caller, so that keys, key schedules and hash
 // intermediates held in local variables cannot be swapped out. Call once, early in main; best effort.
 void lock_stack();

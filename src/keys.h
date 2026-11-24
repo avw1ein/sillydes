@@ -9,6 +9,7 @@
 struct KeyInput {
   bool usephrase = false;
   bool require_lock = false;  // error 15 if the table of the phrase KDF cannot be locked in RAM
+  bool allow_weak = false;  // research only: seal accepts weak DES keys (has_weak_key) instead of error 16
   SecretBuf phrase;  // wiped by its allocator, also when it grows
   uint8_t key[NL][8] = {};  // only meaningful when !usephrase
 
@@ -25,6 +26,12 @@ struct KeyMaterial {
 };
 
 void readkeyfile(const std::string &name, uint8_t key[NL][8]);
+
+// True if any of the eight keys is a weak DES key in the wide sense: one with at most four different
+// round keys (4 weak, 12 semi-weak and 240 others, which include the 48 "possibly weak" keys of the
+// published list; each with all 256 settings of its parity bits). Branch-free on the key bytes: the
+// answer is the only thing that depends on them.
+bool has_weak_key(const uint8_t key[NL][8]);
 
 // Reads a phrase (no echo on a terminal); asks twice on a terminal when confirm is set. Reads
 // stdin with read(2) a byte at a time, so no stdio buffer ever holds a copy. The line is brought

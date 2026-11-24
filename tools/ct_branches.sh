@@ -19,7 +19,7 @@ BIN=${1:?usage: ct_branches.sh binary}
 # Mangled names of functions that must not contain a conditional branch.
 MUST_BE_BRANCHFREE="_Z9hex_digith"
 # What the report covers, as extended regular expressions on the mangled names.
-REPORT='Des|Sha512|Hmac512|Blake2b|blake2b_long|ct_equal|hex_digit|SillyDesCipher|pad256|derive_keys|length_mask'
+REPORT='Des|Sha512|Hmac512|Blake2b|blake2b_long|ct_equal|hex_digit|has_weak_key|SillyDesCipher|pad256|derive_keys|length_mask'
 
 OBJDUMP=${OBJDUMP:-objdump}
 if ! command -v "$OBJDUMP" >/dev/null 2>&1; then echo "ct_branches: no objdump, nothing checked"; exit 0; fi

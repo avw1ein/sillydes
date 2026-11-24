@@ -411,6 +411,12 @@ bool argon2i_requested()
   return GetEnvironmentVariableW(L"SILLYDES_ARGON2I", v, 2) == 1 && v[0] == L'1';
 }
 
+bool weak_keys_allowed()
+{
+  wchar_t v[2] = {};
+  return GetEnvironmentVariableW(L"SILLYDES_ALLOW_WEAK", v, 2) == 1 && v[0] == L'1';
+}
+
 void lock_stack()
 {
   size_t page = page_size();
