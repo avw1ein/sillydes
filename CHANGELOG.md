@@ -10,7 +10,10 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
-**File format: unchanged (5.2.0).**
+## [5.2.2] - 2026-11-24
+
+**File format: unchanged (5.2.0).** Files written by 5.2.1 and by 5.2.2 open in each other, with a
+key file or a phrase, except an Argon2i file (new in this release), which 5.2.1 refuses with error 13.
 
 ### Added
 
@@ -39,6 +42,12 @@ the section of the tag's version as the text of the GitHub Release.
 - Windows on arm64: the data-independent timing mode (DIT) is switched on in the process, as on Linux and
   macOS. Windows has no way to ask whether the CPU has it, so the program tries the instruction and ignores
   a refusal. The hardening test reads the bit back on the runner.
+
+### Changed
+
+- CI: the Windows and macOS runner labels are pinned (`windows-2025-vs2026`, `macos-26`) instead of
+  `windows-latest` and `macos-latest`, in the build, constant-time and release workflows; the procedure for
+  changing one is in TESTING.md section 7. No workflow runs on a schedule at present.
 
 ## [5.2.1] - 2026-11-22
 
@@ -237,7 +246,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.1...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.2...HEAD
+[5.2.2]: https://github.com/avw1ein/sillydes/compare/v5.2.1...v5.2.2
 [5.2.1]: https://github.com/avw1ein/sillydes/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/avw1ein/sillydes/compare/v5.1.1...v5.2.0
 [5.1.1]: https://github.com/avw1ein/sillydes/compare/v5.1.0...v5.1.1
