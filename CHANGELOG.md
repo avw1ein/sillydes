@@ -10,7 +10,11 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
-**File format: unchanged (5.2.0).** The program changes in how it writes its output and how it protects the prompt; this is also documentation and two tools.
+## [5.2.3] - 2026-11-25
+
+**File format: unchanged (5.2.0).** Files written by 5.2.2 and by 5.2.3 open in each other, with a
+key file or a phrase. The program changes in how it writes its output and how it protects the prompt;
+this release also has documentation and two tools.
 
 ### Security
 
@@ -291,7 +295,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.2...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.3...HEAD
+[5.2.3]: https://github.com/avw1ein/sillydes/compare/v5.2.2...v5.2.3
 [5.2.2]: https://github.com/avw1ein/sillydes/compare/v5.2.1...v5.2.2
 [5.2.1]: https://github.com/avw1ein/sillydes/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/avw1ein/sillydes/compare/v5.1.1...v5.2.0

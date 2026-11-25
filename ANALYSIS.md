@@ -1,4 +1,4 @@
-# Mathematical analysis of SillyDES 5.2.2
+# Mathematical analysis of SillyDES 5.2.3
 
 This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
@@ -30,7 +30,7 @@ The argument has two parts, and it is worth keeping them apart. The key-search b
 
 ### 1.1 What the reassessment of November 2026 changed
 
-The code and the file format are those of 5.2.2 and did not change. The conclusions did, in five places:
+The cipher, the key derivation and the file format are those of 5.2.2 and are the same in 5.2.3; only the handling of the output file and of the prompt changed. The conclusions did change, in five places:
 
 1. **The bare core is much weaker than stated.** Earlier revisions gave $2^{196}$ chosen texts and $2^{288}$ work for the best attack on one fixed instance, and $2^{144}$ quantum. A structure in the swap network that they had missed gives $2^{47}$ chosen texts and $2^{153}$ work, about $2^{94}$ quantum, and a distinguisher with $2^{57}$ texts and no key guess (section 6.2). The structure was checked on a scaled model and with the real DES; the two programs are in [tools/](tools/) (section 12).
 2. **The deployed bound is unchanged, but its source is named.** $2^{512}$ and $2^{256}$ are the key length of HMAC-SHA-512. Under the PRF assumption the DES layers contribute little to the confidentiality of the deployed scheme and nothing provable to its key length (section 5.2). What they do contribute, a second line of defence and the hiding of the HMAC outputs, is in section 5.7.
