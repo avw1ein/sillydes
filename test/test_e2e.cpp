@@ -671,6 +671,10 @@ void same_file()
     RunResult r = sd(act("dm", T("same.in"), out, R("sample.key")));
     need(r.code == 6, "input and output are one file (" + out + ") but the exit code is " + str(r.code));
   }
+  put(T("same.key"), get(R("sample.key")));
+  RunResult key_out = sd(act("em", T("same.in"), T("same.key"), T("same.key")));
+  need(key_out.code == 6, "key file and output are one file but the exit code is " + str(key_out.code));
+  need(get(T("same.key")) == get(R("sample.key")), "a refused output destroyed the key file");
   need(get(T("same.in")) == hello, "a refused output destroyed the input");
   passed("input and output that are one file are refused, also through links and other spellings");
 }

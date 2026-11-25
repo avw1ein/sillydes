@@ -31,6 +31,13 @@ int64_t read_input(FileHandle f, uint8_t *p, size_t n);
 // Creates the file or truncates it; readable by its owner only where the OS has such a thing.
 // Refuses a symbolic link as the last part of the name. NO_FILE if that is not possible.
 FileHandle open_output(const std::string &name);
+// Creates an output in the same directory for replacement. temp_name is empty for a direct
+// target such as a FIFO or /dev/null. The caller must remove or commit the temporary file.
+FileHandle open_output(const std::string &name, std::string &temp_name);
+// Replaces target atomically with temp_name. false if the replacement failed.
+bool commit_output(const std::string &temp_name, const std::string &target);
+// Removes a temporary output. Used after write or close failure.
+void remove_output(const std::string &temp_name);
 // Writes all n bytes; false if that is not possible.
 bool write_output(FileHandle f, const uint8_t *p, size_t n);
 // Closes the file; false if that reports an error (it matters for a file that was written).

@@ -542,6 +542,26 @@ int check_hardening(std::string &detail)
     return 1;
   }
   CloseHandle(h);
+  h = OpenProcess(WRITE_DAC, FALSE, GetCurrentProcessId());
+  if (h) {
+    CloseHandle(h);
+    detail = "the owner can rewrite this process's DACL";
+    return 1;
+  }
+  if (GetLastError() != ERROR_ACCESS_DENIED) {
+    detail = "opening this process for WRITE_DAC failed with error " + std::to_string((unsigned)GetLastError());
+    return 1;
+  }
+  h = OpenThread(THREAD_GET_CONTEXT, FALSE, GetCurrentThreadId());
+  if (h) {
+    CloseHandle(h);
+    detail = "the owner can get this thread's context";
+    return 1;
+  }
+  if (GetLastError() != ERROR_ACCESS_DENIED) {
+    detail = "opening this thread for THREAD_GET_CONTEXT failed with error " + std::to_string((unsigned)GetLastError());
+    return 1;
+  }
   detail = "memory of the process cannot be opened by its owner";
 
   typedef BOOL(WINAPI * GetPolicy)(HANDLE, int, PVOID, SIZE_T);

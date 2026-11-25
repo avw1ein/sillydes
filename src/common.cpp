@@ -62,6 +62,7 @@ Buf readfile(const std::string &name)
   if (in.f == NO_FILE) errorexit(1);
   Buf data;
   if (size != UNKNOWN_SIZE) {
+    if (size > PTRDIFF_MAX) throw std::bad_alloc();
     if (size > SIZE_MAX - 1) throw std::bad_alloc();
     data.resize((size_t)size + 1);  // +1: EOF read fits without growing
   }
@@ -83,12 +84,23 @@ Buf readfile(const std::string &name)
 void writefile(const std::string &name, const Buf &data)
 {
   errarg = name;
-  OpenFile out(open_output(name));
+  std::string temp;
+  OpenFile out(open_output(name, temp));
   if (out.f == NO_FILE) errorexit(2);
-  if (!write_output(out.f, data.data(), data.size())) errorexit(2);
+  if (!write_output(out.f, data.data(), data.size())) {
+    if (!temp.empty()) remove_output(temp);
+    errorexit(2);
+  }
   FileHandle f = out.f;
   out.f = NO_FILE;
-  if (!close_file(f)) errorexit(2);
+  if (!close_file(f)) {
+    if (!temp.empty()) remove_output(temp);
+    errorexit(2);
+  }
+  if (!temp.empty() && !commit_output(temp, name)) {
+    remove_output(temp);
+    errorexit(2);
+  }
 }
 
 void randbytes(uint8_t *p, size_t n)

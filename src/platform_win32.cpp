@@ -207,6 +207,74 @@ FileHandle open_output(const std::string &name)
   return (FileHandle)h;
 }
 
+FileHandle open_output(const std::string &name, std::string &temp_name)
+{
+  temp_name.clear();
+  std::wstring w;
+  if (!widen(name, w)) return NO_FILE;
+  DWORD attrs = GetFileAttributesW(w.c_str());
+  if (attrs != INVALID_FILE_ATTRIBUTES &&
+      (attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
+    return NO_FILE;
+  if (attrs != INVALID_FILE_ATTRIBUTES) {
+    HANDLE h = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return NO_FILE;
+    BY_HANDLE_FILE_INFORMATION info;
+    if (!GetFileInformationByHandle(h, &info) ||
+        (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) {
+      CloseHandle(h);
+      return NO_FILE;
+    }
+    CloseHandle(h);
+  } else {
+    HANDLE h = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+      DWORD type = GetFileType(h);
+      if (type == FILE_TYPE_CHAR || type == FILE_TYPE_PIPE) return h;
+      CloseHandle(h);
+    }
+  }
+
+  const size_t slash = name.find_last_of("/\\");
+  const std::wstring dir = slash == std::string::npos ? L"." : w.substr(0, slash);
+  wchar_t tmp[MAX_PATH];
+  if (!GetTempFileNameW(dir.c_str(), L"SDX", 0, tmp)) return NO_FILE;
+  HANDLE probe = CreateFileW(tmp, 0, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (probe == INVALID_HANDLE_VALUE) { DeleteFileW(tmp); return NO_FILE; }
+  CloseHandle(probe);
+  if (!DeleteFileW(tmp)) return NO_FILE;
+  HANDLE h = CreateFileW(tmp, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (h == INVALID_HANDLE_VALUE) return NO_FILE;
+  temp_name = "";
+  int n = WideCharToMultiByte(CP_UTF8, 0, tmp, -1, nullptr, 0, nullptr, nullptr);
+  if (n > 0) {
+    temp_name.resize((size_t)n);
+    if (WideCharToMultiByte(CP_UTF8, 0, tmp, -1, &temp_name[0], n, nullptr, nullptr) != n)
+      temp_name.clear();
+  }
+  if (temp_name.empty()) {
+    CloseHandle(h);
+    DeleteFileW(tmp);
+    return NO_FILE;
+  }
+  while (!temp_name.empty() && temp_name.back() == '\0') temp_name.pop_back();
+  return (FileHandle)h;
+}
+
+bool commit_output(const std::string &temp_name, const std::string &target)
+{
+  std::wstring temp, wtarget;
+  return !temp_name.empty() && widen(temp_name, temp) && widen(target, wtarget) &&
+         MoveFileExW(temp.c_str(), wtarget.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+}
+
+void remove_output(const std::string &temp_name)
+{
+  std::wstring w;
+  if (!temp_name.empty() && widen(temp_name, w)) DeleteFileW(w.c_str());
+}
+
 bool write_output(FileHandle f, const uint8_t *p, size_t n)
 {
   while (n > 0) {
@@ -291,11 +359,24 @@ void restrict_process_access()
   alignas(8) BYTE user[256];  // a TOKEN_USER and its SID (at most 68 bytes)
   DWORD got = 0;
   if (GetTokenInformation(token, TokenUser, user, sizeof user, &got)) {
-    alignas(8) BYTE acl_space[128];  // an ACL of one entry with that SID
+    alignas(8) BYTE acl_space[256];
+    alignas(8) BYTE owner_rights_sid[128];
+    DWORD owner_rights_size = sizeof owner_rights_sid;
+    if (!CreateWellKnownSid(WinCreatorOwnerRightsSid, nullptr, owner_rights_sid, &owner_rights_size)) {
+      CloseHandle(token);
+      return;
+    }
     PACL acl = (PACL)acl_space;
     if (InitializeAcl(acl, sizeof acl_space, ACL_REVISION) &&
-        AddAccessAllowedAce(acl, ACL_REVISION, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, ((TOKEN_USER *)user)->User.Sid))
+        AddAccessAllowedAce(acl, ACL_REVISION, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, ((TOKEN_USER *)user)->User.Sid) &&
+        AddAccessAllowedAce(acl, ACL_REVISION, READ_CONTROL, (PSID)owner_rights_sid))
       SetSecurityInfo(GetCurrentProcess(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr,
+                      acl, nullptr);
+
+    if (InitializeAcl(acl, sizeof acl_space, ACL_REVISION) &&
+        AddAccessAllowedAce(acl, ACL_REVISION, THREAD_QUERY_INFORMATION | THREAD_TERMINATE | SYNCHRONIZE, ((TOKEN_USER *)user)->User.Sid) &&
+        AddAccessAllowedAce(acl, ACL_REVISION, READ_CONTROL, (PSID)owner_rights_sid))
+      SetSecurityInfo(GetCurrentThread(), SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr,
                       acl, nullptr);
   }
   CloseHandle(token);
@@ -474,6 +555,17 @@ namespace {
 
 typedef std::vector<wchar_t, LockedAllocator<wchar_t>> WideSecret;
 
+DWORD console_prompt_mode;
+
+BOOL WINAPI console_prompt_ctrl_handler(DWORD)
+{
+  HANDLE in = GetStdHandle(STDIN_INPUT_HANDLE);
+  if (in != INVALID_HANDLE_VALUE && in != nullptr)
+    SetConsoleMode(in, console_prompt_mode);
+  FlushConsoleInputBuffer(in);
+  return FALSE;
+}
+
 // Switches the echo of the console off, and puts the mode back however the scope is left.
 struct NoEcho {
   HANDLE in;
@@ -481,11 +573,16 @@ struct NoEcho {
   bool on;
   explicit NoEcho(HANDLE h) : in(h), old(0), on(GetConsoleMode(h, &old) != 0)
   {
-    if (on) SetConsoleMode(in, old & ~(DWORD)ENABLE_ECHO_INPUT);
+    if (on) {
+      console_prompt_mode = old;
+      SetConsoleMode(in, old & ~(DWORD)ENABLE_ECHO_INPUT);
+      SetConsoleCtrlHandler(console_prompt_ctrl_handler, TRUE);
+    }
   }
   ~NoEcho()
   {
     if (!on) return;
+    SetConsoleCtrlHandler(console_prompt_ctrl_handler, FALSE);
     SetConsoleMode(in, old);
     write_message(MSG_ERR, "\n");
   }

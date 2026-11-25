@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <vector>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -36,6 +37,29 @@
 #endif
 
 namespace {
+
+struct PromptSignalState {
+  termios mode;
+  struct sigaction old[5];
+};
+
+PromptSignalState prompt_signal_state;
+
+int prompt_signal_index(int sig)
+{
+  const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
+  for (int i = 0; i < 5; i++) if (signals[i] == sig) return i;
+  return -1;
+}
+
+void prompt_signal_handler(int sig)
+{
+  tcflush(STDIN_FILENO, TCIFLUSH);
+  tcsetattr(STDIN_FILENO, TCSANOW, &prompt_signal_state.mode);
+  const int i = prompt_signal_index(sig);
+  if (i >= 0) sigaction(sig, &prompt_signal_state.old[i], nullptr);
+  raise(sig);
+}
 
 // arm64: the data-independent timing mode (DIT, ARMv8.4) makes the CPU run the data-processing
 // instructions in a time that does not depend on their operands. The program is single-threaded and
@@ -118,6 +142,46 @@ FileHandle open_output(const std::string &name)
   return fd < 0 ? NO_FILE : fd;
 }
 
+FileHandle open_output(const std::string &name, std::string &temp_name)
+{
+  temp_name.clear();
+  struct stat st;
+  if (lstat(name.c_str(), &st) == 0) {
+    if (S_ISLNK(st.st_mode) || S_ISDIR(st.st_mode)) return NO_FILE;
+    if (!S_ISREG(st.st_mode)) {
+      int fd = open(name.c_str(), O_WRONLY | O_NOFOLLOW | O_CLOEXEC);
+      return fd < 0 ? NO_FILE : fd;
+    }
+  }
+
+  const size_t slash = name.rfind('/');
+  const std::string dir = slash == std::string::npos ? "." : name.substr(0, slash);
+  temp_name = dir + "/.sillydes.tmp.XXXXXX";
+  std::vector<char> pattern(temp_name.begin(), temp_name.end());
+  pattern.push_back('\0');
+  int fd = mkstemp(pattern.data());
+  if (fd < 0) { temp_name.clear(); return NO_FILE; }
+  temp_name.assign(pattern.data());
+  if (fchmod(fd, 0600) != 0) {
+    close(fd);
+    unlink(temp_name.c_str());
+    temp_name.clear();
+    return NO_FILE;
+  }
+  fcntl(fd, F_SETFD, FD_CLOEXEC);
+  return fd;
+}
+
+bool commit_output(const std::string &temp_name, const std::string &target)
+{
+  return !temp_name.empty() && rename(temp_name.c_str(), target.c_str()) == 0;
+}
+
+void remove_output(const std::string &temp_name)
+{
+  if (!temp_name.empty()) unlink(temp_name.c_str());
+}
+
 bool write_output(FileHandle f, const uint8_t *p, size_t n)
 {
   for (size_t off = 0; off < n;) {
@@ -165,6 +229,40 @@ uint64_t available_memory()
   if (avail == UINT64_MAX) {
     long pages = sysconf(_SC_AVPHYS_PAGES), psize = sysconf(_SC_PAGESIZE);
     if (pages > 0 && psize > 0) avail = (uint64_t)pages * (uint64_t)psize;
+  }
+  if (FILE *cg = fopen("/proc/self/cgroup", "r")) {
+    char line[512];
+    std::string path;
+    while (fgets(line, sizeof line, cg))
+      if (strncmp(line, "0::", 3) == 0) {
+        path = line + 3;
+        if (!path.empty() && path.back() == '\n') path.pop_back();
+        break;
+      }
+    fclose(cg);
+    if (!path.empty() && path[0] == '/') {
+      std::string dir = "/sys/fs/cgroup" + path;
+      for (;;) {
+        FILE *m = fopen((dir + "/memory.max").c_str(), "r");
+        FILE *c = fopen((dir + "/memory.current").c_str(), "r");
+        if (m && c) {
+          char max_text[32];
+          unsigned long long max = UINT64_MAX, current = 0;
+          if (fgets(max_text, sizeof max_text, m) && strcmp(max_text, "max\n") != 0)
+            sscanf(max_text, "%llu", &max);
+          unsigned long long used;
+          if (fscanf(c, "%llu", &used) == 1) current = used;
+          uint64_t limit = max == UINT64_MAX ? UINT64_MAX : (current < max ? max - current : 0);
+          if (limit < avail) avail = limit;
+        }
+        if (m) fclose(m);
+        if (c) fclose(c);
+        if (dir == "/sys/fs/cgroup") break;
+        const size_t slash = dir.rfind('/');
+        dir.resize(slash == std::string::npos ? 0 : slash);
+        if (dir.empty()) dir = "/sys/fs/cgroup";
+      }
+    }
   }
 #endif
   struct rlimit rl;
@@ -426,15 +524,26 @@ struct NoEcho {
   explicit NoEcho(bool tty) : on(tty), old()
   {
     if (!on) return;
-    tcgetattr(STDIN_FILENO, &old);
+    if (tcgetattr(STDIN_FILENO, &old) != 0) { on = false; return; }
+    prompt_signal_state.mode = old;
     termios t = old;
     t.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &t);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &t) != 0) { on = false; return; }
+    const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
+    struct sigaction sa;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = prompt_signal_handler;
+    for (int i = 0; i < 5; i++)
+      sigaction(signals[i], &sa, &prompt_signal_state.old[i]);
   }
   ~NoEcho()
   {
     if (!on) return;
     tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
+    for (int i = 0; i < 5; i++)
+      sigaction(signals[i], &prompt_signal_state.old[i], nullptr);
     write_message(MSG_ERR, "\n");
   }
 };
@@ -453,6 +562,10 @@ bool read_secret_line(const char *prompt, SecretBuf &s)
   for (;;) {
     ssize_t k = read(STDIN_FILENO, &c, 1);
     if (k < 0 && errno == EINTR) continue;
+    if (k < 0) {
+      wipe(&c, sizeof c);
+      return false;
+    }
     if (k <= 0) { eof = true; break; }
     if (c == '\n') break;
     s.push_back(c);

@@ -1,1 +1,5 @@
 build/
+*.key
+!sample.key
+hello.txt
+*.out

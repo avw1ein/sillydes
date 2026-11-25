@@ -34,6 +34,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
       sillydes_add_flag(-fcf-protection=full)  # IBT and shadow stack markers
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
       sillydes_add_flag(-mbranch-protection=standard)  # PAC and BTI
+      add_link_options(-Wl,-z,force-bti)
     endif()
   endif()
 
@@ -62,7 +63,7 @@ elseif(MSVC)
   # /GS is the default; /sdl turns on more checks of the compiler, /guard:cf control flow guard,
   # /Qspectre the mitigation of Spectre variant 1 in the compiled code.
   add_compile_options(/GS /sdl /guard:cf /Qspectre)
-  add_link_options(/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF)
+  add_link_options(/DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF /DEPENDENTLOADFLAG:0x800)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|x86")
     add_link_options(/CETCOMPAT)
   endif()

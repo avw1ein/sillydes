@@ -133,7 +133,8 @@ SILLYDES_NOINLINE int run(const std::vector<std::string> &argv)
   keys.allow_weak = args.allowweak || weak_keys_allowed();
   if (args.usephrase) keys.phrase = getphrase(args.encrypt);
 
-  if (args.in == args.out || same_file(args.in, args.out)) errorexit(6);
+  if (args.in == args.out || same_file(args.in, args.out) ||
+      (!args.keyfile.empty() && same_file(args.keyfile, args.out))) errorexit(6);
 
   if (!args.keyfile.empty()) readkeyfile(args.keyfile, keys.key);
 
@@ -175,6 +176,9 @@ int main(int argc, char *argv[])
   } catch (const ExitError &e) {
     rc = e.code;
   } catch (const std::bad_alloc &) {
+    report_error(7);
+    rc = 7;
+  } catch (...) {
     report_error(7);
     rc = 7;
   }
