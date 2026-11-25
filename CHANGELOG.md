@@ -10,6 +10,12 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+### Documentation
+
+- [ANALYSIS.md](ANALYSIS.md) says what the nibble swaps are worth to the core on its own: the amount and
+  the kind of data that an attacker needs of one instance, not computing time or memory (sections 1, 5.7
+  and 14.3).
+
 ## [5.2.3] - 2026-11-25
 
 **File format: unchanged (5.2.0).** Files written by 5.2.2 and by 5.2.3 open in each other, with a

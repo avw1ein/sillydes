@@ -13,7 +13,7 @@ This analyses the wrapping scheme around DES and, in section 13, DES itself. In 
 | What the security rests on | HMAC-SHA-512 as a pseudorandom function under the 64 key bytes. Under that assumption a file shows an attacker only $G(y)\oplus y$ at secret random points $y$, one per block, and choosing the plaintext does not change that (section 5.2) |
 | Generic key search | about $2^{512}$ classically, $2^{256}$ Grover iterations: the key length of HMAC-SHA-512, which derives whitening, tweak and MAC key from all 512 key bits. A guess is tested on the tag without running the cipher. The DES layers add nothing provable to this figure (sections 5.2, 5.4 and 14) |
 | Same cascade without whitening | $2^{224}$ time from the 4\|4 split; about $2^{149}$ with quantum claw finding |
-| Bare core: one fixed instance that an attacker may query | far below the 512-bit key, and still out of reach in practice. Told from a random permutation with about $2^{57}$ chosen texts and no key guess; key recovery with about $2^{47}$ chosen texts and $2^{153}$ work, about $2^{94}$ with a quantum computer and classical data. Both are below AES-256. The cause is the 64-bit word and the half-word swap, not DES (section 6.2) **(structure measured)** |
+| Bare core: one fixed instance that an attacker may query | far below the 512-bit key, and still out of reach in practice. Told from a random permutation with about $2^{57}$ chosen texts and no key guess; key recovery with about $2^{47}$ chosen texts and $2^{153}$ work, about $2^{94}$ with a quantum computer and classical data. Both are below AES-256. The cause is the 64-bit word and the half-word swap, not DES (section 6.2) **(structure measured)**. The same swaps are why an attacker needs that much data: without them the core would be 32 separate 64-bit ciphers, told from a random permutation with two chosen texts (section 5.7) |
 | The same attacks on the deployed scheme | need about $2^{46}$ texts under one permutation instance; the tweak and the fresh salt and IV provide one. Slide and Simon-type attacks find no structure (sections 6.4 and 6.5). Linear approximations with equal input and output masks pass through the tweak, with a correlation estimated below $2^{-180}$, which would take $2^{360}$ blocks of one file to see (section 6.3) |
 | What the DES core contributes | Not the 512-bit level. It is necessary, since without it the tweak cancels; it is a second line of defence at about $2^{153}$ should a mask ever repeat; and it keeps every whitening and tweak value out of sight, so that HMAC-SHA-512 cannot be attacked through known outputs. The masks and the core cover each other's weak side (section 5.7) |
 | Chaining | CBC around all layers with a random 256-byte IV, inside the tweak |
@@ -244,12 +244,24 @@ Sections 5.2, 6.2 and 14 say what the eight DES layers with the block expansion 
 | The core without the tweak | $2^{153}$; $2^{94}$ quantum | $2^{47}$ chosen blocks under one mask (32 PiB) |
 | AES-256 | $2^{256}$; $2^{128}$ Grover iterations | a few known blocks |
 
-What the block expansion adds to DES to get there:
+What the block expansion and the whitening add to DES to get there:
 
 - a block of 2048 bits, so the limit of $2^{32}$ blocks that a 64-bit block imposes is gone;
 - every ciphertext word depends on every plaintext word after five layers (section 4);
 - a layer key can only be tested together with whitening words, at least 120 bits at a time, because no input or output of a DES word is visible (section 13.3);
 - the attack needs texts chosen in structures. Random texts show nothing: in the scaled model they give 0.999 and 1.000 times the random rate where a structure gives 33.7 (section 12).
+
+**What the swaps themselves are worth is data.** The third item is the work of the whitening; the other three are the work of the swaps. $D_k$ and the XORs act on every 64-bit word by itself (section 2), so without the swaps the core would be 32 separate 64-bit ciphers side by side. For one fixed instance:
+
+| | Without the swaps | With the swaps |
+|---|---|---|
+| Told from a random permutation of 2048 bits | with two chosen texts: change one plaintext word and only one ciphertext word changes | with about $2^{57}$ chosen texts of one structure (section 6.2) |
+| Reading without the key | every known word is a dictionary entry for its place, and an equal ciphertext word shows an equal plaintext word | only a whole equal block shows an equal block; no way to read anything else without the key was found |
+| Key recovery | not worked out here | about $2^{47}$ chosen texts (32 PiB) and $2^{153}$ work; the texts must agree in 1984 bits, and random texts show nothing in the scaled model (section 12) |
+
+- **Data.** The swaps raise the amount and the kind of data that an attacker needs of one instance: from two chosen texts to about $2^{57}$ to tell it from a random permutation, and from single known words to whole blocks to read anything without the key.
+- **Computing time and memory.** The swaps are not shown to raise either. The attack at $2^{153}$ works on the coupling that the swaps make, the ceiling of $2^{120}$ DES evaluations is the same with and without them (section 14.3), and the memory of the attack is the storage of its own texts and of the list of about $2^{34}$ pairs (section 6.2).
+- **Limits.** The left column follows from the definition and was not measured. The right column gives the cheapest attacks found, not lower bounds. All of it concerns one fixed instance: in the deployed scheme, under the assumption of section 5.2, every word of every block has its own mask and a key guess is tested on the tag (section 5.4), so the swaps add nothing that an attacker has to pay for.
 
 The consequence is a second line of defence. If a mask were ever used twice, through a fault in an implementation or through a repeated salt after about $2^{64}$ files (section 5.2), the data would not lie open: it would be behind this cipher. The limits of the statement:
 
@@ -685,7 +697,7 @@ That is an XOR-cascade of length 8, with the whitening between the calls, where 
 
 3. **The theory explains why data matters.** With the whole codebook, a word-wise cascade of length 8 stands at 112 bits. By the bound $q_c\,q_e^{\,8}\ll 2^{960}$ it stands at about 114 bits against $2^{47}$ texts and at the ceiling of 120 against a single text. The deployed scheme gives one text per instance, the most favourable end of that scale. This agrees with section 6.1: the cascade is not where the deployed scheme is weak. It does not make the cascade stronger than 120 bits.
 
-4. **The theory does not cover the swaps, and the swaps are where the core is weak.** The proofs are for one 64-bit word. The attack of section 6.2 works on the coupling between words, which the model above ignores. Counted the way the theory counts, that attack stays within the bounds: it uses $2^{47}$ texts and at most $2^{120}$ different DES evaluations, since it tries every key of one layer on at most every input. Its $2^{153}$ is the computing time on top. So the wide block did not make the cascade weaker than the theory allows, and it did not make it stronger either: 2048 bits of block and eight layers bought diffusion (section 4), not key length.
+4. **The theory does not cover the swaps, and the swaps are where the core is weak.** The proofs are for one 64-bit word. The attack of section 6.2 works on the coupling between words, which the model above ignores. Counted the way the theory counts, that attack stays within the bounds: it uses $2^{47}$ texts and at most $2^{120}$ different DES evaluations, since it tries every key of one layer on at most every input. Its $2^{153}$ is the computing time on top. So the wide block did not make the cascade weaker than the theory allows, and it did not make it stronger either: 2048 bits of block and eight layers bought diffusion (section 4), not key length. What that diffusion is worth is data, not computing time: without the swaps two chosen texts tell the core from a random permutation and every known word is a dictionary entry, and with them the cheapest attacks found need about $2^{57}$ and $2^{47}$ chosen texts of one structure (section 5.7).
 
 5. **The efficiency lesson points the other way.** Gaži and Tessaro reach 88 bits with two DES calls per word. This core spends eight calls per word for a level that the theory caps at 120 and that section 6.2 puts at about 153 bits of computing time and $2^{47}$ texts. If the aim were a DES-based cipher with a proof, 2XOR or an XOR-cascade of length 3 or 4 would give more per call; none of them would come near the range of AES-256, and all of them keep the 64-bit block of DES with its limit of $2^{32}$ blocks.
 
