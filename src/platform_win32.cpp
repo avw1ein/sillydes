@@ -231,7 +231,7 @@ FileHandle open_output(const std::string &name, std::string &temp_name)
     HANDLE h = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h != INVALID_HANDLE_VALUE) {
       DWORD type = GetFileType(h);
-      if (type == FILE_TYPE_CHAR || type == FILE_TYPE_PIPE) return h;
+      if (type == FILE_TYPE_CHAR || type == FILE_TYPE_PIPE) return (FileHandle)h;
       CloseHandle(h);
     }
   }
@@ -559,7 +559,7 @@ DWORD console_prompt_mode;
 
 BOOL WINAPI console_prompt_ctrl_handler(DWORD)
 {
-  HANDLE in = GetStdHandle(STDIN_INPUT_HANDLE);
+  HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
   if (in != INVALID_HANDLE_VALUE && in != nullptr)
     SetConsoleMode(in, console_prompt_mode);
   FlushConsoleInputBuffer(in);
