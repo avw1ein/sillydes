@@ -84,20 +84,16 @@ Buf readfile(const std::string &name)
 void writefile(const std::string &name, const Buf &data)
 {
   errarg = name;
+  // The data goes to a temporary file that replaces the target only when everything has been
+  // written, so a failure leaves neither partial plaintext nor a truncated target. The handle is
+  // closed before the file is renamed or removed: Windows refuses both while it is open.
   std::string temp;
-  OpenFile out(open_output(name, temp));
-  if (out.f == NO_FILE) errorexit(2);
-  if (!write_output(out.f, data.data(), data.size())) {
-    if (!temp.empty()) remove_output(temp);
-    errorexit(2);
-  }
-  FileHandle f = out.f;
-  out.f = NO_FILE;
-  if (!close_file(f)) {
-    if (!temp.empty()) remove_output(temp);
-    errorexit(2);
-  }
-  if (!temp.empty() && !commit_output(temp, name)) {
+  FileHandle f = open_output(name, temp);
+  if (f == NO_FILE) errorexit(2);
+  bool ok = write_output(f, data.data(), data.size());
+  if (!close_file(f)) ok = false;
+  if (ok && !temp.empty()) ok = commit_output(temp, name);
+  if (!ok) {
     remove_output(temp);
     errorexit(2);
   }

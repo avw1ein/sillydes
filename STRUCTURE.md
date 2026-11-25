@@ -397,7 +397,7 @@ All failures end in `errorexit(code)`, which prints a message to stderr and thro
 | Code | Raised by | Meaning |
 |---|---|---|
 | 1 | `readfile`, `readkeyfile` | cannot read (open failure, directory, read error) |
-| 2 | `writefile` | cannot write (also refuses symlinks; files are created with mode 0600) |
+| 2 | `writefile` | cannot write (also refuses symlinks; the output is a temporary file with mode 0600 that replaces the target only when complete, and is removed on every failure) |
 | 3, 4, 9, 10 | `parse_args`, `getphrase` | wrong count, invalid, duplicate or missing argument |
 | 5 | `readkeyfile` | faulty key file |
 | 6 | `main` | input and output are the same file |
@@ -482,14 +482,14 @@ flowchart LR
 |---|---|---|---|
 | `secure_zero` (backs `wipe`) | `explicit_bzero` | `memset_s` (needs `__STDC_WANT_LIB_EXT1__` before the first include) | `SecureZeroMemory` |
 | `os_random` | `getrandom` | `getentropy`, at most 256 bytes at a time | `BCryptGenRandom` (the system preferred generator) |
-| Files | POSIX, `O_NOFOLLOW`, `O_CLOEXEC`, mode 0600 | the same | `CreateFileW`, binary; a link is refused by looking at the handle before the file is truncated (`FILE_FLAG_OPEN_REPARSE_POINT`); a new file inherits the access list of its folder |
+| Files | POSIX, `O_CLOEXEC`; output through `mkstemp` in the target's folder (mode 0600) and `rename`, a link or directory as target is refused, a target that is no regular file (a FIFO, `/dev/null`) is opened directly | the same | `CreateFileW`, binary; output through a random name in the target's folder (`CREATE_NEW`) and `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, a link is refused by looking at the handle (`FILE_FLAG_OPEN_REPARSE_POINT`), a console or pipe is opened directly; a new file inherits the access list of its folder |
 | `same_file` | `st_dev` and `st_ino` | the same | `GetFileInformationByHandle` (volume serial and file index); `st_ino` is 0 on Windows |
 | `available_memory` | `MemAvailable`, and the `RLIMIT_AS` and `RLIMIT_DATA` limits | free, inactive and purgeable pages from `host_statistics64` (an estimate), and the limits | the smaller of free physical memory, the free commit limit and the memory limit of the job object the process is in |
 | `harden_process` | `RLIMIT_CORE` 0, `PR_SET_DUMPABLE` 0, DIT on arm64 | `RLIMIT_CORE` 0, `PT_DENY_ATTACH`, DIT on arm64; the binary is signed with the hardened runtime | restrictive access list on the own process, four mitigation policies, no crash dialog, DIT on arm64 by trying the instruction (section 12) |
 | Secret memory | `mmap`, `mlock`, `MADV_DONTDUMP` | `mmap`, `mlock` (no `MADV_DONTDUMP`; core dumps being off covers it) | `VirtualAlloc`, `VirtualLock` after raising the working set, `WerRegisterExcludedMemoryBlock` |
 | `secret_map`, `lock_required`, `weak_keys_allowed` | `memfd_secret` (5.14 and later) when `RLIMIT_MEMLOCK` or `CAP_IPC_LOCK` allows the size; a SIGBUS handler around the first touch of every page; null otherwise. `SILLYDES_REQUIRE_LOCK` | null (no such mapping) | null; `SILLYDES_REQUIRE_LOCK` through `GetEnvironmentVariableW` |
 | `lock_stack`, `scrub_stack` | `alloca` window of 256 KiB (halved under a small limit) | the same | `_alloca`, the same window |
-| `read_secret_line` | `termios` without echo (restored by a destructor), `read(2)` to LF or end of input | the same | console: no echo, `ReadConsoleW` into a locked, wiped buffer, strict UTF-16 to UTF-8 (an unpaired surrogate is refused), a line that starts with Ctrl+Z is the end of the input; pipe or file: `ReadFile`, bytes as they are |
+| `read_secret_line` | `termios` without echo (restored by a destructor, and by a handler for SIGINT, SIGTERM, SIGHUP, SIGQUIT and SIGTSTP that also flushes the typed input; echo goes off again after SIGCONT; a signal that is ignored or caught already is left alone), `read(2)` to LF or end of input | the same | console: no echo, `ReadConsoleW` into a locked, wiped buffer, strict UTF-16 to UTF-8 (an unpaired surrogate is refused), a line that starts with Ctrl+Z is the end of the input; pipe or file: `ReadFile`, bytes as they are |
 | Arguments | the bytes | the bytes | `wmain` (MinGW: `-municode`), converted to UTF-8; an unpaired surrogate is error 4. Not `CommandLineToArgvW`, which pulls in shell32 |
 | `write_message` | bytes to stdout and stderr | the same | `WriteConsoleW` when the handle is a console, UTF-8 bytes when redirected |
 
@@ -543,8 +543,8 @@ is `strtoll`, and counts are `uint64_t` with `PRIu64`). Sizes computed from the 
 - A universal build is the preset `universal` (`arm64;x86_64`, deployment target 11.0); each runner type
   runs its own slice natively.
 
-**Linux.** Ubuntu's arm64 toolchain does not leave a BTI marker in the GNU property note (it survives only
-if every input has it), so the hardening check looks for `bti` and `paciasp` in the code. Release binaries
+**Linux.** The GNU property note carries the BTI marker only if every input has it, so arm64 links with
+`-z force-bti`, and the hardening check requires the marker in the note as well as `bti` and `paciasp` in the code. Release binaries
 are static PIEs (`-DSILLYDES_STATIC=ON`, linked with `-static-pie`): the C and C++ libraries are in the file, so the
 program runs on any 64-bit Linux whatever its C library, and there is no loader, no lazy binding and no
 library search at run time. They are built on Ubuntu 22.04, whose glibc is the one they carry. Details:
@@ -589,9 +589,10 @@ can be swapped (`requirelock` or `SILLYDES_REQUIRE_LOCK=1` makes the table an er
 
 **Process hardening** ([README](README.md) section 8 has the table): Linux and macOS set `RLIMIT_CORE` to 0;
 Linux clears the dumpable flag, macOS calls `PT_DENY_ATTACH` and is signed with the hardened runtime. Windows
-replaces the access list of the process by one entry that gives the owner only
-`PROCESS_QUERY_LIMITED_INFORMATION`, `PROCESS_TERMINATE` and `SYNCHRONIZE` (so a debugger or dump tool of the
-same user cannot read it), sets the mitigation policies for dynamic code, extension points (AppInit DLLs,
+replaces the access lists of the process and of its main thread by one entry that gives the owner only
+`PROCESS_QUERY_LIMITED_INFORMATION`, `PROCESS_TERMINATE` and `SYNCHRONIZE` (thread: the matching thread rights), plus an OWNER
+RIGHTS entry that grants `READ_CONTROL` only (so a debugger or dump tool of the same user cannot read it, and
+the owner cannot rewrite the list), sets the mitigation policies for dynamic code, extension points (AppInit DLLs,
 global hooks), remote images and child processes, switches off the crash dialog, and registers secret blocks
 with Windows Error Reporting as excluded from dumps. The strict handle check (an exception on an invalid
 handle) is left out on purpose: the program is single-threaded and closes each handle once, so the gain is

@@ -212,54 +212,47 @@ FileHandle open_output(const std::string &name, std::string &temp_name)
   temp_name.clear();
   std::wstring w;
   if (!widen(name, w)) return NO_FILE;
-  DWORD attrs = GetFileAttributesW(w.c_str());
-  if (attrs != INVALID_FILE_ATTRIBUTES &&
-      (attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
-    return NO_FILE;
-  if (attrs != INVALID_FILE_ATTRIBUTES) {
-    HANDLE h = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return NO_FILE;
+  // A console or a pipe is written to directly. A link is refused; a plain file, an absent name or
+  // anything this cannot open is replaced through a temporary file, and the rename has the last word.
+  HANDLE existing = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+  if (existing != INVALID_HANDLE_VALUE) {
+    DWORD type = GetFileType(existing);
     BY_HANDLE_FILE_INFORMATION info;
-    if (!GetFileInformationByHandle(h, &info) ||
-        (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) {
-      CloseHandle(h);
+    bool link = type == FILE_TYPE_DISK && (!GetFileInformationByHandle(existing, &info) ||
+                                           (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)));
+    if (link) {
+      CloseHandle(existing);
       return NO_FILE;
     }
-    CloseHandle(h);
-  } else {
-    HANDLE h = CreateFileW(w.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h != INVALID_HANDLE_VALUE) {
-      DWORD type = GetFileType(h);
-      if (type == FILE_TYPE_CHAR || type == FILE_TYPE_PIPE) return (FileHandle)h;
-      CloseHandle(h);
-    }
+    if (type != FILE_TYPE_DISK) return (FileHandle)existing;
+    CloseHandle(existing);
   }
 
-  const size_t slash = name.find_last_of("/\\");
-  const std::wstring dir = slash == std::string::npos ? L"." : w.substr(0, slash);
-  wchar_t tmp[MAX_PATH];
-  if (!GetTempFileNameW(dir.c_str(), L"SDX", 0, tmp)) return NO_FILE;
-  HANDLE probe = CreateFileW(tmp, 0, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (probe == INVALID_HANDLE_VALUE) { DeleteFileW(tmp); return NO_FILE; }
-  CloseHandle(probe);
-  if (!DeleteFileW(tmp)) return NO_FILE;
-  HANDLE h = CreateFileW(tmp, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (h == INVALID_HANDLE_VALUE) return NO_FILE;
-  temp_name = "";
-  int n = WideCharToMultiByte(CP_UTF8, 0, tmp, -1, nullptr, 0, nullptr, nullptr);
-  if (n > 0) {
-    temp_name.resize((size_t)n);
-    if (WideCharToMultiByte(CP_UTF8, 0, tmp, -1, &temp_name[0], n, nullptr, nullptr) != n)
-      temp_name.clear();
+  // Next to the target, so that the rename stays on one volume. The separators are ASCII, so the
+  // UTF-8 name can be cut at the last one (or after a drive letter).
+  size_t cut = name.find_last_of("/\\");
+  if (cut == std::string::npos && name.size() >= 2 && name[1] == ':') cut = 1;
+  const std::string dir = cut == std::string::npos ? std::string() : name.substr(0, cut + 1);
+  for (int attempt = 0; attempt < 16; attempt++) {
+    uint8_t rnd[8];
+    if (!os_random(rnd, sizeof rnd)) return NO_FILE;
+    static const char hex[] = "0123456789abcdef";
+    std::string candidate = dir + ".sillydes.";
+    for (uint8_t b : rnd) {
+      candidate += hex[b >> 4];
+      candidate += hex[b & 15];
+    }
+    candidate += ".tmp";
+    std::wstring wt;
+    if (!widen(candidate, wt)) return NO_FILE;
+    HANDLE h = CreateFileW(wt.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+      temp_name = candidate;
+      return (FileHandle)h;
+    }
+    if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) return NO_FILE;
   }
-  if (temp_name.empty()) {
-    CloseHandle(h);
-    DeleteFileW(tmp);
-    return NO_FILE;
-  }
-  while (!temp_name.empty() && temp_name.back() == '\0') temp_name.pop_back();
-  return (FileHandle)h;
+  return NO_FILE;
 }
 
 bool commit_output(const std::string &temp_name, const std::string &target)

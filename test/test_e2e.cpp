@@ -679,6 +679,42 @@ void same_file()
   passed("input and output that are one file are refused, also through links and other spellings");
 }
 
+void output_replacement()
+{
+  // The output is written to a new file that replaces the target: the old content never receives
+  // the plaintext, a hard link to the old file keeps its content, a symbolic link is refused (error 2),
+  // and a run that fails leaves the old target alone and no temporary file next to it.
+  put(T("rep.out"), "old content");
+  sd_ok(act("dm", R("hello.sdes"), T("rep.out"), R("sample.key")), "decryption over an existing output");
+  need(get(T("rep.out")) == hello_txt, "an existing output does not hold the plaintext");
+
+  put(T("rep.target"), "linked content");
+  if (make_hard_link(T("rep.target"), T("rep.hard"))) {
+    sd_ok(act("dm", R("hello.sdes"), T("rep.hard"), R("sample.key")), "decryption over a hard link");
+    need(get(T("rep.target")) == "linked content", "plaintext was written through a hard link");
+  } else {
+    skipped("output through a hard link (the file system or the account does not allow it)");
+  }
+
+  if (make_symlink("rep.elsewhere", T("rep.sym"))) {
+    sd_rc(2, act("dm", R("hello.sdes"), T("rep.sym"), R("sample.key")), RunOptions(), "a symbolic link as output");
+    need(!file_exists(T("rep.elsewhere")), "a symbolic link as output was followed");
+  } else {
+    skipped("a symbolic link as output (the file system or the account does not allow it)");
+  }
+
+  put(T("rep.keep"), "kept content");
+  put(T("rep.bad"), "not a container");
+  sd_rc(13, act("d", T("rep.bad"), T("rep.keep"), R("sample.key")), RunOptions(), "a file that does not authenticate");
+  need(get(T("rep.keep")) == "kept content", "a failed run changed the existing output");
+
+  std::vector<std::string> names;
+  need(list_dir(tmp, names), "cannot list the test directory");
+  for (const std::string &n : names)
+    need(n.find(".sillydes.") == std::string::npos, "a temporary file was left behind: " + n);
+  passed("an output replaces the target through a temporary file: no write through links, none left behind");
+}
+
 void sources_are_ascii()
 {
   // The sources stay ASCII with LF line endings, so that every compiler and every checkout sees the same
@@ -1171,6 +1207,7 @@ int main(int argc, char **argv)
   refused_phrases();
   data_is_bytes();
   same_file();
+  output_replacement();
   sources_are_ascii();
   messages_are_utf8();
   terminal_tests(nfc);

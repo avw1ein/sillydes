@@ -81,6 +81,11 @@ Named, because a test machine cannot show them (details in [TESTING.md](TESTING.
 - error 7 on macOS under a memory limit, and the macOS free-memory estimate on a loaded Mac;
 - real older Windows 10 builds, your own terminal emulator and PowerShell profile, Gatekeeper on a
   downloaded macOS binary;
+- on Windows: that `/DEPENDENTLOADFLAG:0x800` keeps `bcrypt.dll` from being loaded from the program's folder (it is a
+  linker flag of the MSVC build; a MinGW build has none, so keep the program in a folder only you can write), that the
+  access lists with the OWNER RIGHTS entry hold against a process of the same user, that the console handler
+  restores the echo after Ctrl+C, and the replacement of the output through a temporary file;
+- that BTI is enforced on Linux arm64: the marker is in the file, whether the kernel maps it `PROT_BTI` is not observed;
 - the data-independent timing mode on Windows on arm64: it is switched on by trying the instruction (Windows reports no
   feature bit) and the runner's CPU, which has it, shows the bit set; a Windows arm64 CPU without the feature has not been
   seen, where the program is meant to skip the mode silently.

@@ -38,29 +38,6 @@
 
 namespace {
 
-struct PromptSignalState {
-  termios mode;
-  struct sigaction old[5];
-};
-
-PromptSignalState prompt_signal_state;
-
-int prompt_signal_index(int sig)
-{
-  const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
-  for (int i = 0; i < 5; i++) if (signals[i] == sig) return i;
-  return -1;
-}
-
-void prompt_signal_handler(int sig)
-{
-  tcflush(STDIN_FILENO, TCIFLUSH);
-  tcsetattr(STDIN_FILENO, TCSANOW, &prompt_signal_state.mode);
-  const int i = prompt_signal_index(sig);
-  if (i >= 0) sigaction(sig, &prompt_signal_state.old[i], nullptr);
-  raise(sig);
-}
-
 // arm64: the data-independent timing mode (DIT, ARMv8.4) makes the CPU run the data-processing
 // instructions in a time that does not depend on their operands. The program is single-threaded and
 // the bit is never cleared. Without the feature the instruction is undefined, so ask first.
@@ -517,33 +494,83 @@ bool stdin_is_terminal()
 
 namespace {
 
+// The signals that end or stop the process while the phrase is typed.
+const int PROMPT_SIGNALS[] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
+const int PROMPT_SIGNAL_COUNT = sizeof PROMPT_SIGNALS / sizeof PROMPT_SIGNALS[0];
+
+// What the signal handlers need; they may only use async-signal-safe calls.
+struct Prompt {
+  termios saved;  // the mode before the prompt
+  termios quiet;  // the same without echo
+  struct sigaction old[PROMPT_SIGNAL_COUNT];
+  bool hooked[PROMPT_SIGNAL_COUNT];
+  struct sigaction old_cont;
+  bool cont_hooked;
+};
+Prompt prompt;
+
+void hook(int sig, void (*handler)(int), struct sigaction &old, bool &hooked)
+{
+  struct sigaction cur;
+  hooked = false;
+  // A signal that is ignored or caught already is the caller's choice (nohup, a wrapper): leave it.
+  if (sigaction(sig, nullptr, &cur) != 0 || cur.sa_handler != SIG_DFL || (cur.sa_flags & SA_SIGINFO)) return;
+  struct sigaction sa;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;  // no SA_RESTART: a read in progress returns and is repeated
+  sa.sa_handler = handler;
+  hooked = sigaction(sig, &sa, &old) == 0;
+}
+
+void on_prompt_end(int sig);
+
+void hook_prompt_signal(int i)
+{
+  hook(PROMPT_SIGNALS[i], on_prompt_end, prompt.old[i], prompt.hooked[i]);
+}
+
+// The typed part of the phrase must not reach the next program that reads the terminal, and the
+// terminal must not stay without echo: both are undone, then the signal takes its default action.
+void on_prompt_end(int sig)
+{
+  tcflush(STDIN_FILENO, TCIFLUSH);
+  tcsetattr(STDIN_FILENO, TCSANOW, &prompt.saved);
+  struct sigaction dfl;
+  sigemptyset(&dfl.sa_mask);
+  dfl.sa_flags = 0;
+  dfl.sa_handler = SIG_DFL;
+  sigaction(sig, &dfl, nullptr);
+  raise(sig);  // pending until this handler returns, then terminates or stops the process
+}
+
+// After a stop (Ctrl+Z, then fg) the prompt goes on: echo off again and the stop signal caught again.
+void on_prompt_continue(int)
+{
+  tcsetattr(STDIN_FILENO, TCSANOW, &prompt.quiet);
+  for (int i = 0; i < PROMPT_SIGNAL_COUNT; i++)
+    if (prompt.hooked[i] && PROMPT_SIGNALS[i] == SIGTSTP) hook_prompt_signal(i);
+}
+
 // Puts the terminal back in its old mode however the scope is left.
 struct NoEcho {
   bool on;
-  termios old;
-  explicit NoEcho(bool tty) : on(tty), old()
+  explicit NoEcho(bool tty) : on(tty)
   {
     if (!on) return;
-    if (tcgetattr(STDIN_FILENO, &old) != 0) { on = false; return; }
-    prompt_signal_state.mode = old;
-    termios t = old;
-    t.c_lflag &= ~ECHO;
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &t) != 0) { on = false; return; }
-    const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
-    struct sigaction sa;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = prompt_signal_handler;
-    for (int i = 0; i < 5; i++)
-      sigaction(signals[i], &sa, &prompt_signal_state.old[i]);
+    if (tcgetattr(STDIN_FILENO, &prompt.saved) != 0) { on = false; return; }
+    prompt.quiet = prompt.saved;
+    prompt.quiet.c_lflag &= ~ECHO;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &prompt.quiet) != 0) { on = false; return; }
+    for (int i = 0; i < PROMPT_SIGNAL_COUNT; i++) hook_prompt_signal(i);
+    hook(SIGCONT, on_prompt_continue, prompt.old_cont, prompt.cont_hooked);
   }
   ~NoEcho()
   {
     if (!on) return;
-    tcsetattr(STDIN_FILENO, TCSANOW, &old);
-    const int signals[5] = { SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP };
-    for (int i = 0; i < 5; i++)
-      sigaction(signals[i], &prompt_signal_state.old[i], nullptr);
+    tcsetattr(STDIN_FILENO, TCSANOW, &prompt.saved);
+    for (int i = 0; i < PROMPT_SIGNAL_COUNT; i++)
+      if (prompt.hooked[i]) sigaction(PROMPT_SIGNALS[i], &prompt.old[i], nullptr);
+    if (prompt.cont_hooked) sigaction(SIGCONT, &prompt.old_cont, nullptr);
     write_message(MSG_ERR, "\n");
   }
 };

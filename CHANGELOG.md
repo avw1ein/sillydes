@@ -10,7 +10,27 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
-**File format: unchanged (5.2.0).** The program is unchanged; this is documentation and two tools.
+**File format: unchanged (5.2.0).** The program changes in how it writes its output and how it protects the prompt; this is also documentation and two tools.
+
+### Security
+
+- The output is written to a temporary file next to the target (mode 0600, `O_EXCL` or `CREATE_NEW`) and renamed
+  over it when complete. A failed write leaves an existing output unchanged and no partial plaintext behind;
+  plaintext is no longer written into an existing file with loose permissions or into a hard link. An existing file's
+  mode, owner and links are not kept, and write permission on the folder is needed. A FIFO, a device, a console
+  or a pipe as output is still written directly.
+- The key file as output is error 6.
+- A signal at the phrase prompt (SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGTSTP; Ctrl+C on a Windows console) restores the
+  terminal echo and discards the part of the phrase typed so far, so that it does not reach the next program.
+- Windows: the access lists of the process and of its main thread have an OWNER RIGHTS entry that grants
+  `READ_CONTROL` only, so the owner cannot rewrite them; the MSVC build searches only System32 for its DLLs
+  (`/DEPENDENTLOADFLAG:0x800`).
+- Linux arm64 links with `-z force-bti`; the hardening check requires the marker, `readelf` and `objdump`.
+- Phrase mode takes the cgroup v2 memory limit into account (error 7 instead of a kill), a read error at the prompt
+  is error 10, and an input too large to hold is error 7 instead of an abort.
+- Release workflow: the tagged commit must be on `main`; the publish job downloads the five artifacts by name and
+  verifies the build provenance and SBOM attestation of each file before it creates the release.
+- `.gitignore` covers key files (except `sample.key`), `hello.txt` and `*.out`.
 
 ### Added
 
