@@ -1,6 +1,6 @@
 # Mathematical analysis of SillyDES 5.2.2
 
-This analyses the wrapping scheme around DES, not DES itself. DES is treated as a keyed random permutation on 64-bit words. Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
+This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
 ## 1. Summary
 
@@ -10,18 +10,33 @@ This analyses the wrapping scheme around DES, not DES itself. DES is treated as 
 | Layers | 8 DES layers, 256 DES operations per 256-byte block |
 | Keys | 8 DES keys (64 bytes); all 512 key bits feed the 2048-bit whitening and the per-block tweak |
 | Per-block tweak | XEX: a secret 2048-bit mask, a PRF of key, salt and block index, XORed before and after the cipher. Every block is encrypted by its own permutation instance, used once |
-| Generic key search | about $2^{512}$ classically, $2^{256}$ Grover iterations. With one input-output pair per permutation instance, which is all the scheme ever provides, no quantity an attacker can compute depends on a proper subset of the key bits, so no divide-and-conquer or meet-in-the-middle split exists (sections 5.2 and 5.4) |
+| What the security rests on | HMAC-SHA-512 as a pseudorandom function under the 64 key bytes. Under that assumption a file shows an attacker only $G(y)\oplus y$ at secret random points $y$, one per block, and choosing the plaintext does not change that (section 5.2) |
+| Generic key search | about $2^{512}$ classically, $2^{256}$ Grover iterations: the key length of HMAC-SHA-512, which derives whitening, tweak and MAC key from all 512 key bits. A guess is tested on the tag without running the cipher. The DES layers add nothing provable to this figure (sections 5.2, 5.4 and 14) |
 | Same cascade without whitening | $2^{224}$ time from the 4\|4 split; about $2^{149}$ with quantum claw finding |
-| Differential, linear, slide and Simon-type attacks | need two pairs under one permutation instance; the tweak and the fresh salt and IV ensure none exist, classically or in superposition. The bare core, given many pairs of one fixed instance, would fall to a lane-confined truncated differential: about $2^{196}$ chosen texts and $2^{288}$ work classically, $2^{116}$ superposition queries and $2^{144}$ work with quantum queries (section 6) |
+| Bare core: one fixed instance that an attacker may query | far below the 512-bit key, and still out of reach in practice. Told from a random permutation with about $2^{57}$ chosen texts and no key guess; key recovery with about $2^{47}$ chosen texts and $2^{153}$ work, about $2^{94}$ with a quantum computer and classical data. Both are below AES-256. The cause is the 64-bit word and the half-word swap, not DES (section 6.2) **(structure measured)** |
+| The same attacks on the deployed scheme | need about $2^{46}$ texts under one permutation instance; the tweak and the fresh salt and IV provide one. Slide and Simon-type attacks find no structure (sections 6.4 and 6.5). Linear approximations with equal input and output masks pass through the tweak, with a correlation estimated below $2^{-180}$, which would take $2^{360}$ blocks of one file to see (section 6.3) |
+| What the DES core contributes | Not the 512-bit level. It is necessary, since without it the tweak cancels; it is a second line of defence at about $2^{153}$ should a mask ever repeat; and it keeps every whitening and tweak value out of sight, so that HMAC-SHA-512 cannot be attacked through known outputs. The masks and the core cover each other's weak side (section 5.7) |
 | Chaining | CBC around all layers with a random 256-byte IV, inside the tweak |
 | Randomisation | Salt, IV and padding are random and drawn inside the sealing routine only, with error 14 if the generator fails: equal messages give unrelated ciphertexts **(measured)**; two files made with one key file share no whitening and no tweak |
 | Integrity | HMAC-SHA-512 (512-bit key, 512-bit tag) over header and ciphertext, verified before decryption; $2^{256}$ Grover iterations for the MAC key or a forgery |
 | Passphrase | Argon2id (2 GiB, 1 pass, 4 lanes, RFC 9106 first recommendation), random salt; optionally Argon2i (2 GiB, 6 passes, 4 lanes) against cache observers; strength is the phrase entropy, halved by Grover |
 | 64-bit word collisions | occur at the random rate (about $2^{30}$ blocks) and carry no information, because the tweak masks every ciphertext word with a block-specific secret (section 8) |
 | Speed | 1 MiB in 0.09 s each way; 16 MiB in 1.22 s each way, about 13 MB/s; phrase mode adds 1.8 s **(measured)** |
-| Against AES-256 | about $2^{256}$ quantum for cipher and MAC against $2^{128}$ for AES-256, heuristic and unreviewed; 100 to 700 times slower (section 10) |
+| DES itself | 56-bit key, 64-bit block. Exhaustive search has been practical since 1998; differential and linear cryptanalysis need $2^{47}$ chosen and $2^{43}$ known texts. None of it applies here, because no input or output of a DES word is ever visible. DES is not the weak point of the scheme and not the source of its key length (section 13) |
+| Key-length extension theory | In the ideal-cipher model a cascade of DES with whitening can be proven secure up to at most $2^{120}$ DES evaluations, whatever its length and key size (Gaži and Tessaro 2012 and later work). The theory supports whitening between the layers and locates the $2^{512}$ figure with HMAC, not with the cascade (section 14) |
+| Against AES-256 | about $2^{256}$ quantum for key search and MAC against $2^{128}$ for AES-256, heuristic, unreviewed and owed to HMAC-SHA-512; the block cipher on its own is weaker than AES-256; 100 to 700 times slower (section 10) |
 
-The key-search bound rests on one structural fact: every layer input, including the first and the last, is XORed with a pseudorandom function of **all** 512 key bits, so there is no partial-key test anywhere in the cipher. The tweak adds a second fact: no permutation instance is ever used for more than one block, so there is nothing for a multi-pair attack to compare. Both facts hold for a quantum attacker as well as a classical one.
+The argument has two parts, and it is worth keeping them apart. The key-search bound is a statement about HMAC-SHA-512: whitening, tweak and MAC key are pseudorandom functions of **all** 512 key bits, so nothing an attacker computes can be checked against a part of the key. The resistance to structural attacks is a statement about use: no permutation instance is ever used for more than one block, so the attacks that break the bare core have no data to work on. The DES layers with the block expansion sit between the two. They are not the source of the 512-bit level, and on their own they are far below it (section 6.2). They are not decoration either: without them the tweak would cancel, they are a cipher of about $2^{153}$ in their own right, and they keep every HMAC output out of an attacker's sight (section 5.7). Both parts hold for a quantum attacker as well as a classical one.
+
+### 1.1 What the reassessment of November 2026 changed
+
+The code and the file format are those of 5.2.2 and did not change. The conclusions did, in five places:
+
+1. **The bare core is much weaker than stated.** Earlier revisions gave $2^{196}$ chosen texts and $2^{288}$ work for the best attack on one fixed instance, and $2^{144}$ quantum. A structure in the swap network that they had missed gives $2^{47}$ chosen texts and $2^{153}$ work, about $2^{94}$ quantum, and a distinguisher with $2^{57}$ texts and no key guess (section 6.2). The structure was checked on a scaled model and with the real DES; the two programs are in [tools/](tools/) (section 12).
+2. **The deployed bound is unchanged, but its source is named.** $2^{512}$ and $2^{256}$ are the key length of HMAC-SHA-512. Under the PRF assumption the DES layers contribute little to the confidentiality of the deployed scheme and nothing provable to its key length (section 5.2). What they do contribute, a second line of defence and the hiding of the HMAC outputs, is in section 5.7.
+3. **Linear approximations with equal masks are not removed by the tweak**, contrary to the earlier text. Their correlation is too small to matter (section 6.3).
+4. **DES itself** is now covered (section 13), and so is the theory of randomised cascades (section 14).
+5. **Corrections.** The header magic in section 2 was that of format 5.1.0; the bias of the best DES approximation was given as $2^{-23}$ and is $1.49\cdot 2^{-24}$; a key guess is tested on the tag, not through 256 DES operations (section 5.4).
 
 ## 2. Model
 
@@ -42,7 +57,7 @@ $$u_i = m_i \oplus c_{i-1},\qquad c_i = G(u_i \oplus \Delta_i)\oplus\Delta_i,\qq
 
 Decryption is $m_i = G^{-1}(c_i\oplus\Delta_i)\oplus\Delta_i\oplus c_{i-1}$. Writing $G_i(x) = G(x\oplus\Delta_i)\oplus\Delta_i$, the scheme is plain CBC over a family of permutations $G_0, G_1, \dots$ of which each member encrypts exactly one block.
 
-The file is `SD\x05\x10 | log2 m, t, p, v | salt | IV | c_0 ... c_n | tag`: a 280-byte header (format version bytes major and minor·16+patch; $m$ the Argon2 memory in KiB, $t$ the passes, $p$ the lanes, $v$ the variant: 0 Argon2id, 1 Argon2i), the blocks, and $\text{tag}=\mathrm{HMAC\text{-}SHA\text{-}512}(K_{mac},\ \text{everything before it})$, 64 bytes, with $K_{mac}$ a 512-bit key. Salt and IV are drawn from the system random generator inside the sealing routine on every encryption; no interface accepts them from a caller, and the program stops with error 14 if the generator fails or returns an all-zero value.
+The file is `SD\x05\x20 | log2 m, t, p, v | salt | IV | c_0 ... c_n | tag`: a 280-byte header (format version bytes major and minor·16+patch; $m$ the Argon2 memory in KiB, $t$ the passes, $p$ the lanes, $v$ the variant: 0 Argon2id, 1 Argon2i), the blocks, and $\text{tag}=\mathrm{HMAC\text{-}SHA\text{-}512}(K_{mac},\ \text{everything before it})$, 64 bytes, with $K_{mac}$ a 512-bit key. Salt and IV are drawn from the system random generator inside the sealing routine on every encryption; no interface accepts them from a caller, and the program stops with error 14 if the generator fails or returns an all-zero value.
 
 Key material by mode:
 
@@ -53,7 +68,7 @@ Key material by mode:
 | Salt | input to $W_j$ and $\Delta_i$ | input to Argon2id, $W_j$ and $\Delta_i$ |
 | Varies per file | salt, hence all $W_j$ and $\Delta_i$, and IV | salt, hence $K$, $K_{mac}$, all $W_j$, $\Delta_i$, and IV |
 
-The three HMAC labels differ in their first bytes, so whitening, tweak and MAC key are domain-separated outputs of one PRF under $K$.
+The three HMAC labels share the prefix `SillyDES 5.2.0 ` and differ in the word after it, and the three inputs have different lengths (38, 45 and 18 bytes), so whitening, tweak and MAC key are domain-separated outputs of one PRF under $K$.
 
 ```mermaid
 flowchart LR
@@ -90,7 +105,7 @@ Properties, all checked on random blocks for $s = 16, 32, 64, 128, 256$ **(measu
 - **Involution:** $P_s^2 = \mathrm{id}$.
 - **Lane-preserving:** the byte position inside a 64-bit word never changes, because $s/2$ is a multiple of 8.
 - **Pairing:** each layer pairs word $b$ with word $b \oplus \text{stride}$, taking half the nibbles from each.
-- **Stay set:** in every $P_s$, exactly 32 of the 64 bit positions of a word stay in that word: the low nibbles for a word in the lower half of its group, the high nibbles for a word in the upper half. The other 32 move to the partner word. This number governs the best differential trail (section 6).
+- **Stay set:** in every $P_s$, exactly 32 of the 64 bit positions of a word stay in that word: the low nibbles for a word in the lower half of its group, the high nibbles for a word in the upper half. The other 32 move to the partner word. This half-and-half split is the cause of the weakness of the bare core (section 6.2).
 
 | Position | initial | after $D_0$ | $D_1$ | $D_2$ | $D_3$ | $D_4$ | $D_5$ | $D_6$ |
 |---|---|---|---|---|---|---|---|---|
@@ -112,7 +127,8 @@ Modelling each DES layer as fully mixing its word, the word-level cones over all
 - The counts are identical for every start bit (min = max).
 - The third row starts at 2 because $P_{256}$ precedes the first layer: every input word of $D_0$ already holds nibbles from two plaintext words.
 - A single bit reaches the whole block at layer 6, and every output word depends on the whole plaintext at layer 5. Layers 7 and 8 are extra margin, not needed for diffusion. Symmetrically, from the ciphertext side layers 1 and 2 are margin.
-- Hence every pair of consecutive layers can be regarded as "spare" from one side or the other, but no layer is spare from both sides: a trail must cross at least six fully diffusing layers.
+- Hence every pair of consecutive layers can be regarded as "spare" from one side or the other, but no layer is spare from both sides.
+- **Reach is not mixing.** These counts say which words a bit can influence, not how well. The two halves of a word travel on separate branches for five layers and meet again only at the input of the seventh; until then each branch carries 32 bits of information through every layer. Section 6.2 shows what that costs: the margin of two layers that the table suggests does not exist for an attacker who has many texts of one instance.
 - $c_i$ depends on $m_0,\dots,m_i$ and the IV. A change in $m_i$ changes about half of the bits of $c_i$, and since $c_i$ is the next chaining value, every later block changes too.
 
 ## 5. Key space and generic attacks
@@ -123,19 +139,37 @@ With public permutations between the layers, a meet-in-the-middle split works: g
 
 A quantum attacker does better still: claw finding replaces the classical meet-in-the-middle and costs about the $2/3$ power of it, if a large quantum memory exists, which puts the eight-layer cascade without whitening near $2^{149}$. The same applies to any cascade of standard ciphers, which is why a cascade of AES-256 would not raise its quantum level either (section 10).
 
+The plain cascade and its whitened variants are what the literature on key-length extension treats; section 14 gives the proven bounds and what they mean here.
+
 ### 5.2 Whitening and tweak derived from all key bits
 
-The argument is simpler and stronger than a bit count. Under the assumption that HMAC-SHA-512 with a 512-bit key is a pseudorandom function:
+Assume that HMAC-SHA-512 under the 64-byte key $K$ is a pseudorandom function (PRF). To an attacker without $K$, every $W_j$ and every $\Delta_i$ is then an independent uniform 2048-bit string, new for every salt. Three things follow, and together they are the security argument of the scheme.
 
-1. Every layer input, including the plaintext side ($W_0$ and $\Delta_i$) and the ciphertext side ($W_8$ and $\Delta_i$), is XORed with a value that is a PRF output of the **whole** key $K$.
-2. Any computation that produces a checkable quantity, from either end, must evaluate at least one DES word, and therefore must know at least one 64-bit word of some $W_l$ (and, at the outer layers, of $\Delta_i$).
-3. A PRF output gives no information about any other output, and a partial key gives no information about any output. So knowing one word of one $W_l$ costs guessing all 512 bits of $K$.
+**1. What an attacker sees.** Write $x_i = m_i\oplus c_{i-1}$ for the chained input, which the attacker knows, and $y_i = x_i\oplus\Delta_i$ for the input of the core. Because $\Delta_i$ is uniform, used for this block only and independent of everything before it, $y_i$ is uniform and independent of $x_i$. The ciphertext block is
 
-Therefore **there is no partial-key test anywhere in the cipher**: no guess of fewer than 512 bits can be confirmed or refuted. This excludes meet-in-the-middle, divide-and-conquer over layers, and divide-and-conquer over words, and reduces the generic attack to brute force over $K$ at about $2^{512}$. The whitening cannot be solved for separately, because it is added before a nonlinear layer, so it is not removed by combining blocks; the tweak cannot be solved for either, because it differs for every block. With no halves to meet in the middle, quantum claw finding has nothing to work on, and the quantum generic attack is Grover over $K$ (section 5.4).
+$$c_i = G(y_i)\oplus\Delta_i = x_i\oplus F(y_i),\qquad F(y) = G(y)\oplus y .$$
 
-The argument holds for what the attacker actually gets: one input-output pair per permutation instance $G_i$. It does not hold for many pairs of one fixed instance, because differences cancel the whitening and a right pair of a differential then gives a 120-bit partial test on $k_7$ and one word of $W_8$ (section 6.2). The tweak and the fresh salt and IV are what deny such pairs, so the $2^{512}$ figure rests on them, not on the core alone.
+The scheme is therefore a one-time pad on $x_i$ whose pad is $F$ at a secret, uniform point that is never used again. All that a file gives an attacker is the list $F(y_0), F(y_1), \dots$ for independent uniform $y_i$ that he does not see. Choosing the plaintext changes nothing, since $y_i$ stays uniform, and there is no decryption oracle, since the tag is checked first.
 
-For completeness, a bit-count model treats every whitening word as 64 independent unknown bits and asks what a meet-in-the-middle at each cut would have to guess, ignoring the tweak. The cut sits at the output of $D_l$; the forward side needs the cone of one output word, the backward side the cone of the two words of $s_{l+1}$ that feed it (64 bits per whitening word, 56 per key, 64 per ciphertext word because of $W_8$):
+**2. What that asks of the core.** Confidentiality holds as long as $F(y)$ at a uniform secret $y$ cannot be told from a uniform string. For a mask $\alpha\ne 0$ the bias of $\alpha\cdot F(y)$ is the correlation of the linear approximation $\alpha\cdot y\oplus\alpha\cdot G(y)$, the one with the same mask on both sides of $G$. The distribution of $F(y)$ is uniform exactly when all of these correlations are zero, so they are the complete leak. For the eight DES layers they are estimated below $2^{-180}$ (section 6.3).
+
+This is far less than the XEX proof asks of its cipher. That proof needs a strong pseudorandom permutation because a tweak is used for many blocks; here a mask is used for one. Two extreme cases show the range:
+
+- With $G = \mathrm{id}$, $F = 0$ and the scheme outputs $x_i$ in clear. The core is necessary.
+- With $G$ a fixed public linear map for which $G\oplus\mathrm{id}$ is invertible, $F(y)$ is exactly uniform and the scheme is perfectly secret in this model, although such a $G$ is no cipher at all.
+
+Under the PRF assumption the DES layers are therefore not what an attacker has to break. They have to keep the tweak from cancelling, which any map with small equal-mask correlations does, and the confidentiality of the deployed scheme is carried by the tweak, that is by HMAC-SHA-512. What the DES layers add for someone who does not want to lean on that assumption alone is the subject of section 5.7.
+
+**3. Key search.** The only secret behind $W_j$, $\Delta_i$ and the MAC key is $K$, and under the PRF assumption no output helps to find another output or a part of $K$. So **there is no partial-key test**: no guess of fewer than 512 bits can be confirmed or refuted, which excludes meet-in-the-middle and divide-and-conquer over layers or words and leaves brute force over $K$ at about $2^{512}$, or Grover over $K$ for a quantum attacker (section 5.4). The cheapest test of a guess does not run the cipher at all: derive the MAC key and check the tag. The figure $2^{512}$ is the key length of HMAC-SHA-512. It is not a product of eight DES keys: the 448 DES key bits count because they are part of the HMAC key.
+
+**What the argument rests on.**
+
+- **The PRF assumption.** The generic attacks on HMAC-SHA-512 are a search over its 512-bit key and collisions in its 512-bit chaining state, which need about $2^{256}$ queries under one key. A file of $n$ blocks makes $36 + 4n$ queries.
+- **One key for two primitives.** The same 64 bytes key HMAC and the DES layers. No interaction between SHA-512 and DES is known, and no output of a DES word is ever visible unmasked, but a proof would want separate keys. A later format could derive the DES keys from $K$ with a label of their own at no cost.
+- **One use per mask.** The mask depends on the salt and the block index. The salt has 128 bits, so two files made with one key file share a salt with probability $2^{-128}$ per pair, and about $2^{64}$ files are needed before one such pair is expected. Blocks at equal positions of those two files would be two texts of one instance, with an input difference that the two random IVs make random. That is far from the $2^{46}$ chosen texts that section 6.2 needs, but it is where the statement "one text per instance" ends.
+- **The core under many texts.** With many texts of one fixed instance the argument does not apply, and the core falls well below $2^{512}$ (section 6.2). The figure rests on the tweak and on the randomisation, not on the core.
+
+For completeness, a bit-count model treats every whitening word as 64 independent unknown bits and asks what a meet-in-the-middle on a single known pair of the core would have to guess at each cut, ignoring the tweak. The cut sits at the output of $D_l$; the forward side needs the cone of one output word, the backward side the cone of the two words of $s_{l+1}$ that feed it (64 bits per whitening word, 56 per key, 64 per ciphertext word because of $W_8$):
 
 | Cut after layer | Forward unknown bits | Backward unknown bits | Cost of the split ($\max$) |
 |---|---|---|---|
@@ -147,12 +181,12 @@ For completeness, a bit-count model treats every whitening word as 64 independen
 | 6 | 4368 | 752 | $2^{4368}$ |
 | 7 | 6472 | 312 | $2^{6472}$ |
 
-The numbers above $2^{512}$ are an artefact of treating the whitening as independent: a real attacker would guess $K$ instead. The table's only content is that every cut needs far more than 512 unknown bits on each side, which is the same conclusion as the PRF argument. As a check of the method, the same model applied to a hypothetical six-layer cascade without whitening gives $2^{168}$ at the 3|3 cut, matching $2^{56\lceil r/2\rceil}$.
+The numbers above $2^{512}$ are an artefact of treating the whitening as independent: a real attacker would guess $K$ instead. The table's only content is that every cut needs far more than 512 unknown bits on each side, which is the same conclusion as the PRF argument. It concerns one pair only and says nothing about attacks that use many texts of one instance, which need far fewer unknowns (section 6.2). As a check of the method, the same model applied to a hypothetical six-layer cascade without whitening gives $2^{168}$ at the 3|3 cut, matching $2^{56\lceil r/2\rceil}$.
 
 ### 5.3 DES-specific properties
 
 - **Key bits.** DES ignores the lowest bit of each key byte, so the DES layers use 448 bits. The whitening reads all 64 bits of each key, so all 512 bits count. A key file that differs in one such bit fails authentication **(measured)**.
-- **Complementation.** DES satisfies $D_{\bar k}(\bar x) = \overline{D_k(x)}$, which halves brute force on a plain DES cascade. Here complementing $K$ replaces every $W_l$ by an unrelated PRF output, so the property gives no saving.
+- **Complementation.** DES satisfies $D_{\bar k}(\bar x) = \overline{D_k(x)}$, which halves brute force on a plain DES cascade. Here complementing $K$ replaces every $W_l$ by an unrelated PRF output, so the property gives no saving in a search over $K$. An attacker who guesses a layer key together with a whitening word as independent unknowns (section 6.2) does see it: $(k, W)$ and $(\bar k, \bar W)$ give complementary values, so such a guess costs $2^{119}$ and not $2^{120}$.
 - **Weak and semi-weak keys.** A weak key makes $D_k$ an involution. Random keys hit one with probability $2^{-52}$ per layer; with chosen key files the program refuses every key with at most four different round keys (the 4 weak, 12 semi-weak and 240 further keys, including the 48 published possibly weak ones) when encrypting, also among the keys of a phrase (error 16; `allowweak` or `SILLYDES_ALLOW_WEAK=1` overrides it, for research only) and accepts them when decrypting. Even then, the whitening between layers means no $D_k \circ D_k$ cancellation can occur.
 - **Equivalent keys.** Two keys $K \ne K'$ give the same cipher only if they agree on all 448 DES bits and all nine $W_j$ and every $\Delta_i$ collide, which for a PRF has probability below $2^{-18432}$.
 
@@ -164,7 +198,7 @@ With no partial-key test (section 5.2), the quantum generic attack is Grover ove
 |---|---|---|---|
 | Key bits | 256 | 512 (448 DES bits, 64 bits that only feed whitening and tweak) | 512 |
 | Grover iterations | $2^{128}$ | $2^{256}$ | $2^{256}$ |
-| Cost per iteration | one AES-256 circuit | 256 DES circuits plus 40 HMAC-SHA-512 computations for whitening and tweak | one circuit |
+| Cost per iteration | one AES-256 circuit | the tag check: HMAC-SHA-512 for the MAC key and over the file, 12 SHA-512 compressions for the smallest file. The cipher is not needed; through it the test would cost 256 DES circuits and 40 HMAC-SHA-512 computations | one circuit |
 
 AES-256 key search is NIST's reference for its highest post-quantum category (category 5). Without the whitening the cascade would be near $2^{149}$ by claw finding (section 5.1), which is another reason to keep it.
 
@@ -172,7 +206,7 @@ The cipher key is not the only 512-bit quantity. Where the quantum bound of the 
 
 | Part | Quantum cost | Reason |
 |---|---|---|
-| Cipher key | $2^{256}$ iterations | Grover on 512 bits (heuristic, section 5.2) |
+| Cipher key | $2^{256}$ iterations | Grover on 512 bits; the key length is that of HMAC-SHA-512 (section 5.2) |
 | MAC key | $2^{256}$ iterations | HMAC-SHA-512 key is 512 bits, derived from the keys or the passphrase |
 | Tag forgery | $2^{256}$ iterations | 512-bit tag |
 | **Whole scheme, key file** | **about $2^{256}$** | limited by the cipher and MAC keys, which are both 512 bits |
@@ -183,8 +217,9 @@ The cipher key is not the only 512-bit quantity. Where the quantum bound of the 
 
 ### 5.5 What this does not show
 
-- It is a heuristic about cost, not a proof. It assumes there is no structural attack on XOR-whitened networks of DES words beyond guessing the unknowns.
-- Security of whitening and tweak rests on HMAC-SHA-512 behaving as a pseudorandom function, an additional assumption beyond DES. In key-file mode the MAC key is a PRF output of the same $K$, so cipher and MAC are not independent.
+- It is a heuristic about cost, not a proof. Under the PRF assumption the argument of section 5.2 is close to a reduction, but it has not been written out in full or checked by anyone else.
+- The key length comes from HMAC-SHA-512, an additional assumption beyond DES, and the DES layers add nothing provable to it. Under the same assumption, HMAC-SHA-512 output XORed onto the data would be as secure and much faster. The difference lies outside that assumption: such a stream would hand every HMAC output to an attacker with known plaintext and would have nothing behind it if a mask were repeated, and this scheme does neither (section 5.7). In key-file mode the MAC key is a PRF output of the same $K$, so cipher and MAC are not independent.
+- The core on its own is far below the 512-bit level: about $2^{153}$ by the best attack found, which is an upper bound and not a proof of strength (sections 5.7 and 6.2). Nothing here supports using it without the tweak and the random salt and IV.
 - In phrase mode the real limit is the phrase entropy (section 8).
 - The construction is custom and unreviewed. A standard cipher such as AES-256 would give a 256-bit bound with reviewed security.
 
@@ -193,9 +228,53 @@ The cipher key is not the only 512-bit quantity. Where the quantum bound of the 
 - **Unicity:** one known 256-byte block gives 2048 bits of constraint against 512 key bits, so a single block identifies the key.
 - **Known pairs:** in CBC the attacker knows $u_i = m_i\oplus c_{i-1}$, but the input of $G$ is $u_i\oplus\Delta_i$ and its output is $c_i\oplus\Delta_i$, both unknown. Each known plaintext block is therefore a known pair of $G_i$, a permutation instance that encrypts nothing else. There are no known pairs of $G$ itself.
 
+### 5.7 What the DES core contributes
+
+Sections 5.2, 6.2 and 14 say what the eight DES layers with the block expansion are not: they are not the source of the 512-bit level, and used alone they are far below it. That is half of the picture. The core is not decoration either. Three things can be said for it, each with its limit, and one thing cannot.
+
+**1. The core is necessary.** The tweak is XORed in before and after the core. With nothing between, the two XORs cancel and the plaintext comes out (section 9). This shows that the scheme needs a core, and no more: for this purpose alone, any permutation $G$ for which $G(y)\oplus y$ looks random would serve (section 5.2).
+
+**2. The core is a cipher of considerable strength in its own right, and the block expansion is what makes it one.** The best attack that this analysis found on the core without the tweak costs about $2^{153}$ operations and needs $2^{47}$ chosen blocks under one mask, or about $2^{94}$ with a quantum computer and the same data (section 6.2). For comparison:
+
+| Cipher | Best known key recovery | Data |
+|---|---|---|
+| DES | $2^{56}$ | one known block |
+| Triple DES, three keys | $2^{112}$; about $2^{90}$ | a few known blocks; $2^{32}$ known blocks |
+| AES-128 | $2^{128}$; $2^{64}$ Grover iterations | a few known blocks |
+| The core without the tweak | $2^{153}$; $2^{94}$ quantum | $2^{47}$ chosen blocks under one mask (32 PiB) |
+| AES-256 | $2^{256}$; $2^{128}$ Grover iterations | a few known blocks |
+
+What the block expansion adds to DES to get there:
+
+- a block of 2048 bits, so the limit of $2^{32}$ blocks that a 64-bit block imposes is gone;
+- every ciphertext word depends on every plaintext word after five layers (section 4);
+- a layer key can only be tested together with whitening words, at least 120 bits at a time, because no input or output of a DES word is visible (section 13.3);
+- the attack needs texts chosen in structures. Random texts show nothing: in the scaled model they give 0.999 and 1.000 times the random rate where a structure gives 33.7 (section 12).
+
+The consequence is a second line of defence. If a mask were ever used twice, through a fault in an implementation or through a repeated salt after about $2^{64}$ files (section 5.2), the data would not lie open: it would be behind this cipher. The limits of the statement:
+
+- $2^{153}$ is the cost of the best attack found here, an upper bound on the strength of the core. It is not a proof that nothing cheaper exists, and nobody else has looked.
+- It is a second line at about $2^{153}$, not at $2^{512}$, and it is below AES-256.
+- A repeated mask also makes equal inputs give equal outputs, which shows that two blocks are equal even when it shows nothing else.
+
+**3. The core hides the HMAC outputs.** An attacker with known plaintext sees $c_i\oplus x_i = G(y_i)\oplus y_i$ with $y_i = x_i\oplus\Delta_i$. To learn $\Delta_i$ he would have to find $y_i$, which means inverting $y\mapsto G(y)\oplus y$ for a $G$ whose keys and whitening he does not have. The whitening values are inside the core and are not visible either. So no output of HMAC-SHA-512 under $K$ ever reaches the attacker: he sees only what the DES layers make of them. Compare the two simpler constructions:
+
+- HMAC output XORed onto the data: every known plaintext byte gives a byte of HMAC output.
+- A linear map in place of the DES layers: $c_i\oplus x_i = (G\oplus\mathrm{id})\,y_i$ can be solved for $y_i$, and then $\Delta_i = y_i\oplus x_i$ is known.
+
+In this scheme an attack on HMAC-SHA-512 that starts from known outputs has nothing to start from; it would first have to get through the DES layers in the setting where they are strongest, one text per instance. The limits of the statement:
+
+- Under the PRF assumption of section 5.2 this adds nothing, because that assumption already allows the attacker to see outputs. It matters only if HMAC-SHA-512 has a weakness that needs known outputs, and none is known. HMAC-SHA-512 is by far the better studied of the two parts.
+- It is an observation about what is visible, not a proof.
+- The tag is a visible HMAC output, but under the MAC key and not under $K$. In key-file mode the MAC key is itself an HMAC output under $K$ that is used as a key and never shown; in phrase mode it is independent of $K$.
+
+**What cannot be said.** That DES with the block expansion makes the 512-bit key space, or the $2^{512}$ level. The 448 DES key bits are part of the 512, but the size of a key space is not the cost of searching it: no cascade of DES can be shown secure beyond $2^{120}$ DES operations (section 14), the core falls at about $2^{153}$, and a guess of the key is tested on the tag without the core (section 5.4).
+
+**Taken together.** The two parts cover each other's weak side. The masks see to it that the core never gets two related blocks, which is where the core is weak. The core sees to it that no mask is ever visible, so that the scheme does not lean on HMAC-SHA-512 in its most exposed form, and it stands behind the masks as a cipher of about $2^{153}$ should one of them ever repeat. The 512-bit key length is carried by HMAC-SHA-512; the DES core with the block expansion turns it into a cipher in which neither a mask nor any input or output of a DES word can be seen.
+
 ## 6. Differential, linear, slide and period-finding attacks
 
-This section treats the structural attacks: first why the deployed scheme gives them nothing to work with, then how the bare core would fare without that protection, classically and in the Q1 and Q2 models. The published quantum results used, checked against their abstracts unless stated otherwise:
+This section treats the structural attacks: first why the deployed scheme gives them nothing to work with, then how the bare core would fare without that protection, classically and with a quantum computer. Section 6.2 was redone in the reassessment of November 2026 (section 1.1). The published quantum results used, checked against their abstracts unless stated otherwise:
 
 - Kaplan, Leurent, Leverrier, Naya-Plasencia, *Quantum differential and linear cryptanalysis*, ToSC 2016(1): differential and linear distinguishers get at most a quadratic speed-up in Q2 (about $p^{-1/2}$ queries for a differential of probability $p$); key-recovery variants gain less than quadratic; in Q1 the data cannot be amplified, so only the offline key guessing gets a Grover speed-up.
 - Kaplan, Leurent, Leverrier, Naya-Plasencia, *Breaking symmetric cryptosystems using quantum period finding*, Crypto 2016: Simon's algorithm in Q2 breaks CBC-MAC, PMAC, GMAC, GCM and OCB with $O(n)$ queries, and slides a one-round self-similar cipher at the same cost. The Even-Mansour break by the same method is Kuwakado and Morii 2012, cited from memory.
@@ -206,46 +285,54 @@ This section treats the structural attacks: first why the deployed scheme gives 
 
 ### 6.1 Why the tweak closes the door
 
-Differential and linear cryptanalysis compare at least two pairs under the **same** permutation with a known input difference (or a known linear relation between inputs). Here block $i$ is encrypted by $G_i$ and block $j$ by $G_j$; relative to the core $G$ their inputs differ by $\Delta u\oplus\Delta_i\oplus\Delta_j$ and their outputs by $\Delta c\oplus\Delta_i\oplus\Delta_j$, where $\Delta_i\oplus\Delta_j$ is an unknown PRF output. The attacker therefore knows neither the input nor the output difference of $G$ for any two blocks, in this file or in any other file, because the salt enters the tweak. There is no pair to analyse. The same holds for any attack that needs a repeated input or a repeated internal state across blocks, and it holds in Q2 as well: a superposition query to the encryption carries a fresh salt and IV, so even such a query reaches a family $\{G_i\}$ that is never queried again.
+Differential cryptanalysis and the structural attack of section 6.2 compare texts under the **same** permutation with a known input difference. Here block $i$ is encrypted by $G_i$ and block $j$ by $G_j$; relative to the core $G$ their inputs differ by $\Delta u\oplus\Delta_i\oplus\Delta_j$ and their outputs by $\Delta c\oplus\Delta_i\oplus\Delta_j$, where $\Delta_i\oplus\Delta_j$ is an unknown PRF output. The attacker therefore knows neither the input nor the output difference of $G$ for any two blocks, in this file or in any other file, because the salt enters the tweak. There is no pair to analyse. The same holds for any attack that needs a repeated input or a repeated internal state across blocks, and it holds in Q2 as well: a superposition query to the encryption carries a fresh salt and IV, so even such a query reaches a family $\{G_i\}$ that is never queried again. Linear cryptanalysis is the one exception: an approximation with the same mask on both sides passes through the tweak (section 6.3).
 
-This depends on the salt and the IV being fresh for every encryption, which [src/container.cpp](src/container.cpp) enforces: both are drawn inside `seal` from the system random generator, no interface accepts them from a caller, and an all-zero value or a generator failure stops the program with error 14. Two files made with the same key file, salt and IV would share every $W_j$ and $\Delta_i$; their first blocks would then be two pairs of the single permutation $G_0$ with a known input difference, and the attack of section 6.2 would apply to it, block for block, across such files. The tweak alone does not prevent this, since a constant XOR is transparent to differences; the randomisation does.
+This depends on the salt and the IV being fresh for every encryption, which [src/container.cpp](src/container.cpp) enforces: both are drawn inside `seal` from the system random generator, no interface accepts them from a caller, and an all-zero value or a generator failure stops the program with error 14. Two files made with the same key file, salt and IV would share every $W_j$ and $\Delta_i$; their first blocks would then be texts of the single permutation $G_0$ with input differences that the sender of the plaintexts controls, and the attack of section 6.2 would apply to it, block for block, across such files. The tweak alone does not prevent this, since a constant XOR is transparent to differences; the randomisation does.
 
-The remainder of this section asks how the core $G$ would fare **if the tweak and the randomisation were not there**, that is, if the attacker could query one fixed instance of $G$ at will. This is the second line of defence, and it shows how much work the DES layers do on their own.
+The remainder of this section asks how the core $G$ would fare **if the tweak and the randomisation were not there**, that is, if the attacker could query one fixed instance of $G$ at will. It shows how much the DES layers would hold on their own, which is far less than the deployed bound.
 
-### 6.2 The core without the tweak: lane-confined differentials
+### 6.2 The core without the tweak: half-word structure
 
-XOR with the chaining value or with $W_l$ does not change differences and only changes the sign of linear approximations, so the whitening is transparent to both kinds of attack. What is not transparent is that the attacker never sees any inner value, and that peeling a layer costs 64 unknown whitening bits for every word it touches on top of the 56-bit layer key, with the number of words doubling per layer peeled.
+XOR with the chaining value or with $W_l$ does not change differences, so for an attacker who compares texts of one instance the core is a network of 256 secret 64-bit permutations, $x\mapsto D_{k_l}(x\oplus W_l[w])$ for layer $l$ and word $w$, joined by public swaps that move half of each word to a partner word. Earlier revisions of this analysis followed a difference that stays in one word through all eight layers. That is not the cheapest path. The network has a much stronger property, which uses nothing of DES: only that the words have 64 bits and that a swap moves exactly half of them.
 
-The cheapest way for a difference to cross the network is to stay in a single DES word. After each DES layer the output difference in the active word is essentially random; $P_s$ keeps it inside the word only if it lies in the 32-bit stay set (section 3), which a random permutation does with probability $2^{-32}$. The attacker can choose the plaintext difference inside the stay set of $P_{256}$ for free, and the eighth layer's output needs no confinement because it is observed directly. That leaves seven confinements, after $D_0$ to $D_6$:
+**Structure.** $P_{256}$ fills each input word of $D_0$ from 64 plaintext bits (32 from each of two plaintext words). A structure is a set of plaintexts that differ only in the 64 bits of one such word $w$; it has up to $2^{64}$ members, and the other 31 input words of $D_0$ are equal for all of them.
 
-$$\Pr\big[\Delta c \text{ confined to one word} \mid \Delta u \text{ confined to the stay set of that word}\big] \approx 2^{-7\cdot 32} = 2^{-224}.$$
+**Two branches.** Split the output word of $D_0$ into $a$, the 32 bits that $P_{16}$ leaves in word $w$, and $b$, the 32 bits it moves to word $w\oplus 1$. The swaps after $D_1$ to $D_4$ have strides 2, 4, 8 and 16, so the words reached from $a$ and the words reached from $b$ keep different lowest index bits and do not meet again before the swap after $D_5$, which has stride 1. Through $D_1$ to $D_5$ every word that varies depends on $a$ alone or on $b$ alone: 1, 2, 4, 8 and 16 words in each branch. At the input of $D_6$ every one of the 32 words holds 32 bits that depend only on $a$ and 32 bits that depend only on $b$ **(measured with the project's DES and cipher class, section 12)**.
 
-For a random 2048-bit permutation the same event has probability $2^{-1984}$, so this is a distinguisher for the bare $G$ with about $2^{224}$ chosen pairs. Allowing two active words costs $2^{-64}$ per layer, because both must confine, and a two-word difference can never merge back into one word for free, so no trail does better in this model.
+**Collision rates.** On the way to $D_6$ each branch passes five times through a 32-bit half. Five random functions on $2^{32}$ points in a row collide with probability about $5\cdot 2^{-32}$, so for two texts of a structure the half of a $D_6$ input word that comes from $a$ agrees with probability about $6\cdot 2^{-32}$ (once for $a = a'$, five times for a later collision), and likewise for $b$. A given word at the input of $D_6$, and so at its output, is equal for two texts of a structure with probability
 
-- **Data.** A structure of $2^{32}$ plaintexts that vary only in the 32 stay-set bits of word $w$ contains $2^{63}$ pairs, every one with an admissible input difference. About $2^{161}$ structures, $2^{193}$ chosen texts, contain one right pair, which is found by sorting the ciphertexts of each structure on the 1984 bits outside word $w$: a wrong pair collides there with probability $2^{-1984}$, so every collision is a right pair, and it is identified without any key guess. Six right pairs, needed below, cost about $2^{196}$ chosen texts ($2^{204}$ bytes).
-- **Key recovery.** Differences cancel the whitening, so a right pair is a partial-key test. From the ciphertext side: guess $k_7$ and $W_8[w]$ (120 bits), invert $D_7$ on word $w$, and require the difference at the input of $D_7$ to lie in the stay set of $P_{32}$; a wrong guess passes with probability $2^{-32}$ per pair, so four pairs leave the right one. The next layer needs the full output word $w$ of $D_6$, which $P_{32}$ assembled from words $w$ and $w\oplus 2$ of the input of $D_7$, so the guess grows to $W_8[w\oplus 2]$, 64 bits of $W_7$ and $k_6$: 184 bits, six pairs. One layer further the backward cone doubles again (section 5.2): 312 bits for $k_5$, 568 for $k_4$, more than the key. The plaintext side mirrors this: 120 bits for $k_0$ and $W_0[w]$, 184 for $k_1$, 312 for $k_2$. The cheapest course is $2\cdot 2^{120}+2\cdot 2^{184}$ for $k_0,k_1,k_6,k_7$, then brute force over the remaining 288 key bits, each guess checked by deriving the whitening: about $2^{288}$ in total, against $2^{512}$ generic.
-- **Data model.** Controlling $\Delta u_i$ requires knowing $c_{i-1}$ before choosing $m_i$, an adaptive encryption oracle, and every pair must go through the same instance of $G$, which the tweak and the randomisation prevent. Encrypting files offers neither. The attack is therefore a statement about the core, not about the scheme: the core on its own is below its generic bound, and the tweak with fresh salt and IV is the component that restores it.
-- **Assumption.** Sixteen-round DES is assumed to have no truncated differential into a fixed 32-bit subset with probability noticeably above $2^{-32}$. If it had probability $2^{-32+e}$ the trail would gain $2^{7e}$, still far from feasible for any plausible $e$.
+$$\Pr \approx (6\cdot 2^{-32})^2 = 36\cdot 2^{-64}\qquad\text{against } 2^{-64} \text{ for a random permutation.}$$
 
-**Quantum cost.** Nothing quantum changes the trail, only the cost of exploiting it:
+A scaled model with 16-bit words gives 34 where this predicts 36 **(measured, model)**.
 
-| Setting | Data | Work | Against |
+**What follows for one fixed instance.**
+
+- **Seven layers are no cipher.** With $D_7$ left out, equal ciphertext words between texts of a structure occur 36 times too often; about $2^{30}$ chosen texts show it.
+- **Eight layers are distinguishable without any key guess.** A ciphertext word is equal when two halves agree at the input of $D_7$, each of which is a half of a $D_6$ output word. The excess of 36 survives as a relative excess of about $122\cdot 2^{-32}\approx 2^{-25}$ in the rate of equal ciphertext words (the model gives a factor 1.43 where the same formula predicts 1.48). Counting these over all 32 words needs about $2^{113}$ pairs, that is about $2^{57}$ chosen texts of one structure. A random permutation of 2048 bits would need $2^{1024}$.
+- **Key recovery through the first layer.** A guess of $k_0$ and $W_0[w]$, 120 bits or $2^{119}$ distinct cases after the complementation property (section 5.3), gives $a$ and $b$ for every text. Pairs with equal $a$ or equal $b$ then show equal ciphertext words 36 times as often as other pairs, and a wrong guess does not. With about $2^{47}$ chosen texts the right guess stands out by about 290 such pairs against 8. The pairs with an equal ciphertext word are listed once, without the key, and there are about $2^{34}$ of them, so the work is about $2^{119}\cdot 2^{34} = 2^{153}$ DES operations. In the scaled model the right guess scores about 270000 and the best of 50 wrong guesses 12100 **(measured, model)**. With $k_0$ and $W_0$ known the first layer is removed and the same method takes the next layer at lower cost, since the seven remaining layers show the factor 36 directly.
+- **With little data.** Guessing $k_7$ and the two words of $W_8$ that cover one output word of $D_6$ (184 bits) and testing for the factor 36 there needs only about $2^{34}$ chosen texts, at about $2^{218}$ work.
+- **The single-word differential** of earlier revisions is superseded. For the record, its figures were also too high: a difference confined to one word survives a swap with probability $2^{-31}$, not $2^{-32}$, because it may stay in its word or move to the partner as a whole (the model gives $2^{-7}$ for 16-bit words), and a structure has $2^{64}$ texts, not $2^{32}$. Seven swaps give $2^{-217}$ and one right pair costs about $2^{154}$ chosen texts.
+
+| Setting | Data | Work | For comparison |
 |---|---|---|---|
-| Bare core, classical | $2^{196}$ chosen texts of one instance | $2^{288}$ | $2^{512}$ |
-| Bare core, Q1 | $2^{196}$ classical chosen texts of one instance | $2^{144}$ quantum, but the data dominates | $2^{256}$ |
-| Bare core, Q2 | $2^{116}$ superposition queries to one instance | $2^{144}$ | $2^{256}$ |
-| Deployed scheme, any model | no second pair of any instance exists | $2^{256}$ (Grover on $K$) | $2^{256}$ |
+| Bare core, classical, distinguisher | $2^{57}$ chosen texts of one instance | about the same | $2^{1024}$ for a random permutation |
+| Bare core, classical, key recovery | $2^{47}$ chosen texts of one instance | $2^{153}$ | $2^{256}$ for AES-256 |
+| Bare core, quantum computer, classical data (Q1) | $2^{47}$ chosen texts of one instance | about $2^{94}$: $2^{60}$ Grover iterations over the first-layer guess, each over the $2^{34}$ listed pairs | $2^{128}$ for AES-256 |
+| Bare core, superposition queries (Q2) | not worked out | not above the Q1 figure | |
+| Deployed scheme, any model | one text per instance | $2^{256}$ (Grover on $K$) | |
 
-- **Finding right pairs.** The trail holds with probability $2^{-224}$ and is recognised from the ciphertext alone. In Q2 the attacker runs amplitude amplification over the $2^{32}$-text structures, evaluating $G$ in superposition on both texts of a candidate pair and marking the pair when the output is confined; about $2^{112}$ iterations find one right pair, the quadratic speed-up of Kaplan et al., and six pairs cost about $2^{116}$ queries. In Q1 the pairs must be collected classically, $2^{196}$ texts as before; a quantum computer cannot amplify data it does not hold.
-- **Key recovery.** The guesses above become Grover searches: $2^{60}$ for the 120-bit outer guesses, $2^{92}$ for the 184-bit ones, with the same six right pairs as the filter. The remaining 288 key bits cost $2^{144}$ Grover iterations, each deriving the whitening and checking one block. That final step dominates the quantum work: about $2^{144}$ in both Q1 and Q2, against $2^{256}$ for key search on the deployed scheme and $2^{128}$ for AES-256; in Q1 the $2^{196}$ classical queries are the larger cost. The core on its own is therefore a 288-bit cipher under this attack, not a 512-bit one.
-- **Deployed scheme.** Both the classical data and the superposition queries have to go to one fixed permutation. Block $i$ of a file is encrypted by $G_i$, which depends on the salt and the block index and is used once; another file has another salt and so another family. The attacker never obtains two pairs of any $G_i$ and cannot choose the input difference between $G_i$ and $G_j$, since $\Delta_i\oplus\Delta_j$ is unknown. The differential attack gets one query per instance and needs $2^{116}$; it does not start. If an implementation ever fixed the salt and the IV (deterministic encryption), the first block would be a fixed permutation of $m_0$ and the "bare core" rows would apply to it, $2^{144}$ in Q2.
+- **Data model.** The texts are chosen but not adaptive: a structure is fixed in advance. They must all go through one instance of $G$.
+- **Assumption.** The 256 word permutations are taken to be independent and random. The attack uses no property of DES, and a different 64-bit cipher in its place would change only the size of the guess.
+- **Deployed scheme.** A structure needs texts whose inputs to the core agree in 1984 chosen bits. The input of block $i$ is $x_i\oplus\Delta_i$ with a secret uniform $\Delta_i$ that is used once (section 5.2), so two blocks agree there with probability $2^{-1984}$, in one file or across files. The attack has one text per instance and needs $2^{46}$; it does not start. If an implementation ever fixed the salt and the IV (deterministic encryption), the first blocks of all files would be texts of one fixed permutation of $m_0$, and every row of the table above would apply to them.
+
+The bare core is therefore not a 512-bit cipher and not a 256-bit one. With one key and many blocks, the way a block cipher is normally used, it would be weaker than AES-256 classically and against a quantum computer. It is not a weak cipher in practical terms either: $2^{47}$ chosen blocks under one mask and $2^{153}$ work are beyond any computer, which is what makes the core a second line of defence (section 5.7). These are the cheapest attacks found in this review; it does not claim that there are no cheaper ones.
 
 ### 6.3 The core without the tweak: linear approximations
 
-A linear trail likewise needs at least one active DES word in every layer. The best 16-round DES approximation has bias about $2^{-23}$. By the piling-up lemma, eight layers give a bias of at most about $2^{7}\cdot 2^{-8\cdot 23} = 2^{-177}$, needing roughly $2^{354}$ known pairs of the bare $G$, and only if the masks could be chained through the stay sets of the permutations, which Matsui's masks cannot be assumed to do.
+A linear trail needs at least one active DES word in every layer. The best 16-round DES approximation has bias $1.49\cdot 2^{-24}$, about $2^{-23.4}$ (Matsui 1993, cited from memory). By the piling-up lemma, eight layers give a bias of at most about $2^{7}\cdot 2^{-8\cdot 23.4} \approx 2^{-180}$, needing roughly $2^{360}$ known texts of the bare $G$, and only if the masks could be chained through the stay sets of the permutations, which Matsui's masks cannot be assumed to do.
 
-- **Quantum.** Kaplan et al. give a Q2 linear distinguisher with about $\varepsilon^{-1}$ queries for bias $\varepsilon$, against $\varepsilon^{-2}$ classically, by amplitude estimation; again nothing in Q1. With $\varepsilon \le 2^{-177}$ the Q2 distinguisher needs about $2^{177}$ superposition queries, which already exceeds Grover on the whole key, and it presupposes a linear mask that chains through the 32-bit stay sets of seven permutations, which has not been shown to exist for DES's best approximations. Key recovery on top of it meets the same doubling cone as the differential attack. The differential route at $2^{144}$ dominates, so linear cryptanalysis is not the limiting attack on the core in any model.
-- **Deployed scheme.** A known pair is a pair of some $G_i$, used once; the whitening fixes a per-instance sign that the attacker cannot align across instances. Not applicable.
+- **Quantum.** Kaplan et al. give a Q2 linear distinguisher with about $\varepsilon^{-1}$ queries for bias $\varepsilon$, against $\varepsilon^{-2}$ classically, by amplitude estimation; again nothing in Q1. With $\varepsilon \le 2^{-180}$ the Q2 distinguisher needs about $2^{180}$ superposition queries, and it presupposes a linear mask that chains through the 32-bit stay sets of seven permutations, which has not been shown to exist for DES's best approximations. The structure of section 6.2 is cheaper by far, so linear cryptanalysis is not the limiting attack on the core in any model.
+- **Deployed scheme.** This is the one kind of attack that the tweak does not remove, and earlier revisions were wrong to call it not applicable. For an approximation of $G$ with input mask $\alpha$ and output mask $\beta$, the quantity $\alpha\cdot x_i\oplus\beta\cdot c_i$, which the attacker can compute, has the bias of the approximation with the sign $(-1)^{(\alpha\oplus\beta)\cdot\Delta_i}$. For $\alpha\ne\beta$ that sign is a fresh random bit for every block and the bias averages out. For $\alpha = \beta$ the tweak cancels: the bias is the same for every block of a file, with a sign fixed by that file's $W_0$ and $W_8$. These equal-mask approximations are exactly the leak that section 5.2 identifies. The bound above applies to them, with the further condition that the mask is the same on both sides: a bias of at most $2^{-180}$ needs $2^{360}$ blocks of one file, and a file is limited by RAM. The leak exists and is of no practical size.
 
 ### 6.4 Slide and related-key attacks
 
@@ -284,22 +371,25 @@ Anand et al. show that CBC and XTS are not IND-qCPA secure from a standard-secur
 2. The salt is fresh per encryption, so every query, superposition or not, meets a fresh family $\{G_i\}$ and a fresh whitening. The IND-qCPA counterexamples and the Simon attacks all query one fixed keyed function many times.
 3. The IV is random and 2048 bits wide.
 
-What the Q2 security of the deployed scheme then rests on is that $G_i$ behaves as a strong pseudorandom permutation under a *single* superposition query. That is a weaker requirement than the quantum-secure PRP assumption of Anand et al., but it has not been shown for this core, and section 6.2 shows that under *many* queries to one instance the core does not reach its generic bound. The honest statement is: the scheme's quantum security beyond Grover rests on never reusing an instance, which the file format enforces, and not on a proven property of $G$. Standard AES-GCM and CBC-based schemes are likewise not secure against superposition queries; the sensible assumption for both is that no such oracle exists.
+What the Q2 security of the deployed scheme then rests on is that $G_i$ behaves as a strong pseudorandom permutation under a *single* superposition query. That is a weaker requirement than the quantum-secure PRP assumption of Anand et al., but it has not been shown for this core, and section 6.2 shows that under *many* queries to one instance the core is far below its generic bound, classically already. The honest statement is: the scheme's quantum security beyond Grover rests on never reusing an instance, which the file format enforces, and not on a proven property of $G$. Standard AES-GCM and CBC-based schemes are likewise not secure against superposition queries; the sensible assumption for both is that no such oracle exists.
 
 ### 6.7 Summary and a design remark
 
-| Attack | Bare core, classical | Bare core, best quantum model | Deployed scheme | Limiting factor |
+| Attack | Bare core, classical | Bare core, quantum | Deployed scheme | Limiting factor |
 |---|---|---|---|---|
-| Lane-confined differential | $2^{196}$ texts, $2^{288}$ work | $2^{144}$ work, $2^{116}$ Q2 queries | not applicable | needs two pairs of one instance |
-| Linear | $2^{354}$ pairs, if a chaining mask exists | $2^{177}$ Q2 queries, same proviso | not applicable | dominated by the differential |
-| Slide (all variants) | no self-similarity | no self-similarity | not applicable | layer index in the whitening, independent keys |
-| Simon on whitening or tweak | — | reduces to Grover on $K$, $2^{256}$ | $2^{256}$ | inner whitening between nonlinear layers |
-| Mode-level Q2 | — | not applicable | one query per instance | fresh salt and IV per encryption |
-| Generic key search | $2^{512}$ | $2^{256}$ (Grover) | $2^{256}$ | 512-bit key |
+| Half-word structure (6.2) | distinguisher $2^{57}$ texts; key recovery $2^{47}$ texts, $2^{153}$ work | $2^{47}$ classical texts, $2^{94}$ work (Q1) | not applicable | needs about $2^{46}$ texts of one instance that agree in 1984 input bits |
+| Single-word differential (6.2) | $2^{154}$ texts for one right pair | superseded | not applicable | same |
+| Linear (6.3) | $2^{360}$ texts, if a chaining mask exists | $2^{180}$ Q2 queries, same proviso | equal masks only: $2^{360}$ blocks of one file | bias of eight DES layers |
+| Slide, all variants (6.4) | no self-similarity | no self-similarity | not applicable | layer index in the whitening, independent keys |
+| Simon on whitening or tweak (6.5) | — | reduces to Grover on $K$, $2^{256}$ | $2^{256}$ | inner whitening between nonlinear layers |
+| Mode-level Q2 (6.6) | — | not applicable | one query per instance | fresh salt and IV per encryption |
+| Generic key search | $2^{512}$ | $2^{256}$ (Grover) | $2^{256}$ | 512-bit HMAC key |
 
-The lane-confined differential is the only sub-generic structure found in this analysis, and it comes from a single fact: $P_s$ moves exactly half of each word, so a word-confined difference survives a layer with probability $2^{-32}$. A permutation that spread each word over four or eight words per layer would cut that to $2^{-48}$ or $2^{-56}$, giving trails of $2^{-336}$ or $2^{-392}$ over seven layers and pushing the Q2 distinguisher on the bare core to about $2^{168}$ or $2^{196}$ queries; it would also widen the backward cone, so each peeled layer would cost more key material, and shorten full diffusion to three or two layers. None of this changes the bound of the deployed scheme, which is $2^{512}$ classically and $2^{256}$ quantumly with or without it, because the tweak and the randomisation already deny the attacker a second pair of any instance. The nibble swap is therefore kept, and the randomisation is enforced in code (section 6.1) rather than left to convention.
+The half-word structure is the weakest point found, and it has one cause: a swap moves exactly half of a 64-bit word, and the butterfly order of the strides keeps the two halves of a word apart for five layers. Each branch then runs through a chain of 32-bit halves, and 32 bits collide at a rate of $2^{-32}$. A larger word, or a mixing step that brings the two halves together earlier, would change this; either one is a different cipher with a different file format that needs its own analysis, and the figures of earlier revisions for wider swaps are withdrawn, since they were derived for the single-word differential only.
 
-All figures in this section are heuristic trail counts and cost models on a custom construction assuming independent layers, not proofs.
+None of this changes the bound of the deployed scheme, which is $2^{512}$ classically and $2^{256}$ against a quantum computer because the tweak and the randomisation deny the attacker a second text of any instance. The nibble swap is therefore kept, and the randomisation is enforced in code (section 6.1) rather than left to convention. The randomisation is what the stated level depends on. Behind it the core is a second line of defence at about $2^{153}$, not at $2^{512}$ (section 5.7).
+
+All figures in this section are heuristic counts and cost models on a custom construction assuming independent layers, not proofs.
 
 ## 7. Equal plaintext blocks
 
@@ -355,11 +445,11 @@ Passphrase derivation:
 
 The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to the 2048-bit cipher: $G_i(x) = G(x\oplus\Delta_i)\oplus\Delta_i$ with $\Delta_i$ a PRF of key, salt and block index. The choices behind it:
 
-- **Same mask on both sides.** Because $\Delta_i$ is applied at the input and at the output, the masks cancel if $G$ is weak: with $G=\mathrm{id}$ the scheme would output $u_i$ in clear. The XEX security proof requires $G$ to be a strong pseudorandom permutation. So the DES layers remain the thing an attacker has to break; the tweak is not a stream cipher laid over a decorative core. Conversely, a construction that masked only one side would be equivalent to counter-mode HMAC output XORed onto the data, and its security would no longer depend on $G$ at all.
+- **Same mask on both sides.** Because $\Delta_i$ is applied at the input and at the output, the masks cancel if $G$ does nothing: with $G=\mathrm{id}$ the scheme would output $u_i$ in clear. The core is therefore necessary. It is not, however, the thing an attacker has to break, as earlier revisions said. The XEX proof requires a strong pseudorandom permutation because it lets a tweak be used for many blocks; here every mask is used once, and then the scheme needs much less of $G$: only that $G(y)\oplus y$ at a secret random $y$ looks random (section 5.2). A construction that masked one side only would be counter-mode HMAC output XORed onto the data, and its security would not depend on $G$ at all. With both sides masked it depends on $G$ a little, and on HMAC-SHA-512 for the rest. In return the core keeps every mask out of sight: an attacker sees $G(y)\oplus y$ and never a $\Delta_i$, where the one-sided construction would show its HMAC output to anyone with known plaintext (section 5.7).
 - **Secret, not public, masks.** A public per-block value (a counter, a hash of the index) would leave $G$'s input and output differences known to the attacker and change nothing. The mask must be a PRF of the key.
 - **Independent masks, not a geometric sequence.** XTS derives its masks as $\Delta_i = \Delta_0\cdot\alpha^i$ in $\mathrm{GF}(2^{128})$, so that consecutive masks are related by a public linear map. Here every $\Delta_i$ is a fresh PRF output, so $\Delta_i\oplus\Delta_j$ is unknown for every pair. This costs four HMAC calls per block instead of one multiplication, and it is why section 6.1 can say that no two blocks have a known difference, and why no Simon-type attack finds a linear relation between masks (section 6.5).
-- **Salt in the tweak and the whitening.** The salt is random per file and authenticated. Feeding it to both PRFs means that two files made with the same key file share no mask at all, so blocks at equal positions in different files are as unrelated as blocks in one file. In phrase mode the salt already changes $K$; including it again is harmless.
-- **Domain separation.** The labels `SillyDES 5.2.0 white`, `SillyDES 5.2.0 tweak` and `SillyDES 5.2.0 mac` differ in their first bytes, so the three PRF uses under $K$ can never produce the same output for related inputs.
+- **Salt in the tweak and the whitening.** The salt is random per file and authenticated. Feeding it to both PRFs means that two files made with the same key file share no mask at all unless their salts are equal (probability $2^{-128}$ per pair, section 5.2), so blocks at equal positions in different files are as unrelated as blocks in one file. In phrase mode the salt already changes $K$; including it again is harmless.
+- **Domain separation.** The labels `SillyDES 5.2.0 white`, `SillyDES 5.2.0 tweak` and `SillyDES 5.2.0 mac` differ in their last word, and the three inputs have different lengths, so no two PRF uses under $K$ ever have the same input.
 - **Chaining retained.** CBC inside the tweak costs one XOR and makes $c_i$ depend on the whole message prefix (section 7).
 - **Cost.** About 14 percent of the running time: 16 MiB takes 1.22 s each way, 256 DES operations and 8 SHA-512 compressions per block **(measured)**.
 - **Derived from the same key as the layers.** Masks that were independent keys would be stripped by Grover-meets-Simon in Q2 and the attack would continue against the inner cascade. Because the masks are PRF outputs of $K$, the "inner key" of that attack is $K$ itself (section 6.5). This is an observation, not a proof, and no file-encryption attacker has a superposition oracle anyway.
@@ -387,26 +477,43 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 
 | Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | SillyDES 5.2.0, key file |
 |---|---|---|
-| Classical key search | $2^{256}$ | $2^{512}$ (heuristic, section 5.2) |
+| Classical key search | $2^{256}$ | $2^{512}$, the key length of HMAC-SHA-512 (heuristic, section 5.2) |
 | Quantum key search (Q1) | $2^{128}$ iterations | $2^{256}$ for the cipher and for the MAC (heuristic, section 5.4) |
 | Overall quantum level | about $2^{128}$ (limited by the 128-bit tag or 256-bit MAC key) | about $2^{256}$ (heuristic) |
+| The block cipher on its own: one key, many blocks, no per-block mask | $2^{256}$ classically, $2^{128}$ quantum; no attack on the full cipher in a usable model | $2^{47}$ chosen texts and $2^{153}$ work classically, $2^{94}$ quantum (section 6.2). The scheme never uses the core this way |
+| What the level rests on | the block cipher | HMAC-SHA-512 as a PRF, and a mask that is never used twice; behind them the DES core as a second line at about $2^{153}$ (section 5.7) |
 | Superposition queries (Q2) | not secure; assumed not to exist | one query per instance; rests on never reusing an instance (section 6.6) |
 | Throughput on this CPU | 1.8 GB/s (CBC), 9.2 GB/s (GCM) **(measured)** | about 13 MB/s **(measured)**, roughly 100 to 700 times slower |
 
-AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With the 512-bit cipher key and the HMAC-SHA-512 MAC, this scheme's modelled quantum cost is $2^{256}$ in key-file mode, twice the exponent. That is a larger margin than any standardised AES variant offers; AES has no 512-bit key, and a cascade of AES-256 would not supply one, since quantum claw finding attacks cascades (section 5.1). The margin, however, is a cost model for a custom, unreviewed construction, and a $2^{128}$ level is already out of reach for any foreseeable quantum computer. The scheme's extra margin therefore has little practical value, while it is two to three orders of magnitude slower.
+AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With the 512-bit key and the HMAC-SHA-512 MAC, this scheme's modelled quantum cost is $2^{256}$ in key-file mode, twice the exponent. AES has no 512-bit key, and a cascade of AES-256 would not supply one, since quantum claw finding attacks cascades (section 5.1).
+
+Three things qualify that margin. It is a cost model for a custom, unreviewed construction. It comes from HMAC-SHA-512 and not from DES: the DES core is the weaker block cipher of the two by a wide margin, and the scheme reaches its level only because it never gives the core two texts under one mask. What the core adds is a second line of defence and the hiding of the HMAC outputs (section 5.7). And a $2^{128}$ level is already out of reach for any foreseeable quantum computer, so the extra margin has little practical value, while the scheme is two to three orders of magnitude slower.
 
 ## 11. Recommendations
 
-1. **Get the construction reviewed**, or use a standard cipher, before relying on it. The bounds in sections 5 and 6 come from cost models and heuristic trail counting, not from proofs, and that applies to the classical and the quantum figures alike. AES-256 gives a reviewed $2^{128}$ post-quantum level, which is already beyond any foreseeable quantum computer (section 10).
-2. **Keep the data-at-rest threat model.** The analysis finds structure in the bare core only under an adaptive chosen-plaintext oracle, classical or in superposition (section 6.2), and the tweak removes even that; neither scenario applies to encrypting a file. No file-encryption attacker has a superposition oracle; the same assumption is made for AES-GCM.
+1. **Get the construction reviewed**, or use a standard cipher, before relying on it. The bounds in sections 5 and 6 come from cost models and heuristic counting, not from proofs, and that applies to the classical and the quantum figures alike. This revision is an example of why: it lowered the estimate for the bare core from $2^{288}$ to $2^{153}$ with a structure that the earlier analysis had missed, and another reader may find more. AES-256 gives a reviewed $2^{128}$ post-quantum level, which is already beyond any foreseeable quantum computer (section 10).
+2. **Keep the data-at-rest threat model.** The structure in the bare core needs chosen plaintexts under one permutation instance (section 6.2), and the tweak denies that; encrypting a file offers no such oracle and no superposition oracle either. The same assumption about superposition queries is made for AES-GCM.
 3. **Use a key file or a random phrase from a password manager.** In phrase mode the limit is the phrase entropy, not the cipher, and Grover halves it (section 8). The 20-character minimum assumes random characters; English text needs about 100 characters for the same 128 bits and 170 to 250 for the 256 bits that $2^{128}$ quantum security needs.
-4. **Keep the tweak and the random salt and IV mandatory.** The core on its own does not reach its generic bound, classically or quantumly (sections 6.2 and 6.7); the scheme does because no permutation instance is ever used twice. The sealing routine enforces this (section 6.1) and the unit tests check it. Do not add a variant that fixes the salt or the IV, for deterministic output or for deduplication: it reopens the differential attack on the first block, at $2^{144}$ in Q2.
-5. **Leave the core as it is.** Spreading each word over four or eight words per layer instead of two would remove the only sub-generic trail found, but only for the bare core; the deployed bound stays at $2^{512}$ classically and $2^{256}$ quantumly either way (section 6.7). The change is not worth a format break on its own.
+4. **Keep the tweak and the random salt and IV mandatory. The stated level depends on them.** The core on its own is weaker than AES-256 (section 6.2); the scheme reaches its bound only because no permutation instance is ever used twice. The core behind the masks is a second line of defence, not a substitute for them (section 5.7). The sealing routine enforces this (section 6.1) and the unit tests check it. Do not add a variant that fixes the salt or the IV, for deterministic output or for deduplication: the first blocks of such files would be open to key recovery with $2^{47}$ chosen texts and $2^{153}$ work, or $2^{94}$ with a quantum computer.
+5. **Leave the core as it is.** A linear layer without the half-word bottleneck would make the bare core stronger, but the deployed bound stays at $2^{512}$ classically and $2^{256}$ against a quantum computer either way (section 6.7), and a new core is a new cipher. The change is not worth a format break on its own.
+6. **Describe the strength as what it is.** The key length is that of HMAC-SHA-512, and the DES layers add nothing provable to it (sections 5.2 and 14). Statements that the eight DES keys or the cascade give 512 bits should be avoided in the documentation. What can be said of the DES core with the block expansion is that it is necessary, that it is a second line of defence at about $2^{153}$, and that it hides the HMAC outputs (section 5.7).
+7. **At the next format change, separate the keys.** Derive the DES keys and the HMAC key for whitening and tweak from $K$ with labels of their own, so that no key bytes are used by two primitives (section 5.2). There is no known attack on the present arrangement; the change would only make the argument cleaner.
+8. **Do not count on more than about $2^{64}$ files under one key file.** Beyond that a repeated 128-bit salt is expected (section 5.2). No realistic use comes near it.
 
 ## 12. Experiments run
 
+The rows marked *reassessment* were run for the review of November 2026 with two programs in [tools/](tools/): [core_structure.cpp](tools/core_structure.cpp) walks two texts through the real layers with the project's `Des` and `SillyDesCipher`, and [core_model.cpp](tools/core_model.cpp) is a scaled model of the core. Both stop with an error when a figure leaves the range that section 6.2 predicts, and both have a control. They are built and run with `cmake -S . -B build -DSILLYDES_ANALYSIS_TOOLS=ON` and `cmake --build build --target check_analysis`; the figures are the same on every system, because the random numbers do not depend on the library. All other rows are carried over from the release run of 5.2.2; the code of the program has not changed since.
+
 | Check | Result |
 |---|---|
+| *Reassessment.* Real DES and cipher class, 400 random keys, salts, words and halves: two texts of one structure whose outputs of layer 0 agree in one nibble half (section 6.2) | words that differ at the input of layers 0 to 7: 1, 1, 2, 4, 8, 16, 32, 32 in every case; at the input of layer 6 the difference of every word lies in one nibble half; the walk gives the same block as `encrypt_block` |
+| *Reassessment.* The same with 400 pairs that differ in both nibble halves, as a control | 1, 2, 4, 8, 16, 32, 32, 32 words, and both halves of all 32 words at the input of layer 6 |
+| *Reassessment.* Scaled model (32 words of 16 bits, an independent random permutation for every layer and word, the same swaps), all $2^{16}$ texts of one structure, three keys | words that vary after layers 0 to 7: 1, 2, 4, 8, 16, 32, 32, 32; pairs with an equal word after layer 6: 33.7 times the random rate (predicted 36); after layer 7: 1.43 times (predicted 1.48) |
+| *Reassessment.* Same model, $2^{16}$ random texts in place of a structure, as a control | 0.999 and 1.000 times the random rate after layers 6 and 7 |
+| *Reassessment.* Same model, an eighth of the structure ($2^{13}$ texts) | the factor after layer 6 is the same, 33.6 |
+| *Reassessment.* Same model, guess of the first layer's word: pairs with an equal ciphertext word that share a nibble half under the guess | right guess 258000 to 281000; 50 wrong guesses per key, at most 12100 |
+| *Reassessment.* Same model, guess of the last layer's two words: pairs with an equal rebuilt word of layer 6 | right guess 733000 to 1280000; 20 wrong guesses per key, at most 41300 |
+| *Reassessment.* Same model: a difference in one word is in one word again after a swap | 0.00767, that is $2^{-7}$, where the stay set alone gives $2^{-8}$ |
 | `cmake --preset ci`, build and `ctest --preset ci` (unit tests and end-to-end tests) | pass |
 | $P_s$ involution and byte-lane preservation, $s = 16 \dots 256$, random blocks | true |
 | Stay set size per word per $P_s$, both halves | 32 bits in every case |
@@ -461,3 +568,127 @@ AES-256 already reaches the highest NIST post-quantum category, $2^{128}$. With 
 | Small file, phrase, Argon2id against Argon2i (6 passes), Intel Core Ultra 7 265, Linux | 1.75 s against 7.50 s, 2.0 GiB peak memory for both |
 | 16 MiB file | 1.22 s encrypt, 1.23 s decrypt (about 13 MB/s); 2.01 s with the table-based DES of 5.02 |
 | OpenSSL 3.5.5 on the same CPU (AES-NI) | AES-256-CBC 1.8 GB/s, AES-256-GCM 9.2 GB/s |
+
+## 13. DES itself
+
+Sections 2 to 12 treat DES as a random permutation per key. This section says what is known about the real cipher, how each known property meets the scheme, and what the scheme actually needs from it. The results quoted are the standard ones of the open literature and are cited from memory, not checked against the papers for this revision.
+
+### 13.1 The cipher and this implementation
+
+DES (FIPS 46, 1977, developed at IBM from Lucifer) is a Feistel network of 16 rounds on a 64-bit block with a 56-bit key. A round expands the 32-bit right half to 48 bits, XORs a 48-bit round key, passes the result through eight S-boxes of 6 input and 4 output bits, permutes the 32 output bits and XORs them into the left half. Every round key is a selection of 48 of the 56 key bits: the key schedule only rotates and selects, so it is linear. The initial and final permutations are fixed and have no cryptographic effect. The key is written as 8 bytes of which the lowest bit of each is ignored.
+
+[src/des.cpp](src/des.cpp) is this cipher and nothing else: no round, table or schedule was changed, so the published analysis applies as it stands. It is bitsliced over the 32 words of a block (the technique of Biham, 1997), with the S-boxes as generated boolean circuits, and is checked against the FIPS 46 tables for all $8\times 64$ S-box inputs and against four published vectors in both directions (section 12).
+
+### 13.2 What is known about DES
+
+| Property or attack | Result |
+|---|---|
+| Exhaustive key search | $2^{56}$ keys, $2^{55}$ with the complementation property. Done by a purpose-built machine in 56 hours in 1998 (EFF "Deep Crack") and in 22 hours in 1999; on 120 low-cost FPGAs for about 10000 US dollars in 2006 (COPACOBANA, about a week on average). Today it is a matter of days on rented hardware |
+| Differential cryptanalysis | $2^{47}$ chosen plaintexts for all 16 rounds (Biham and Shamir, 1992). The best characteristics repeat a two-round pattern of probability about $1/234$: $2^{-47.2}$ over 13 rounds, $2^{-55.1}$ over 15. The S-boxes were designed against this attack (Coppersmith, 1994) |
+| Linear cryptanalysis | $2^{43}$ known plaintexts (Matsui, 1993 and 1994), the first attack on full DES carried out in practice. Best 16-round approximation: bias $1.49\cdot 2^{-24}$. Later work lowered the computation, not the data. DES was not designed against it |
+| Davies' attack | about $2^{50}$ known plaintexts (Biham and Biryukov, 1997) |
+| Complementation | $D_{\bar k}(\bar x) = \overline{D_k(x)}$ for every key and block |
+| Weak keys | 4 weak keys ($D_k$ is its own inverse and has $2^{32}$ fixed points), 6 pairs of semi-weak keys ($D_{k_1}$ inverts $D_{k_2}$), 48 possibly weak keys with four different round keys |
+| Group structure | DES is not a group (Campbell and Wiener, 1992): two DES encryptions in a row are in general not one DES encryption under a third key, and the group generated by the DES permutations is far larger than the set of keys |
+| Block length | 64 bits: in the usual modes collisions between blocks appear after about $2^{32}$ blocks, 32 GiB (the Sweet32 attack on Triple DES in TLS, Bhargavan and Leurent, 2016) |
+| Multiple encryption | Double DES: meet-in-the-middle at about $2^{57}$. Triple DES with three keys: $2^{112}$ by meet-in-the-middle, about $2^{90}$ with $2^{32}$ known texts (Lucks, 1998) |
+| Quantum | Grover's algorithm finds a DES key in about $2^{28}$ iterations. No quantum attack on the structure of DES beyond the generic ones is known to me |
+| Status | FIPS 46-3 was withdrawn in 2005. NIST disallows Triple DES for encryption after 2023 (SP 800-131A revision 2). DES is not an approved algorithm anywhere, so nothing built on it can be |
+
+In almost fifty years no attack on the 16 rounds has been found that is cheaper than a key search in practice: the analytic attacks need $2^{43}$ texts or more under one key. The weaknesses of DES are its key length and its block length, not its internal design.
+
+### 13.3 How each property meets this scheme
+
+| DES property | In the bare core | In the deployed scheme |
+|---|---|---|
+| 56-bit key | A single DES word could be searched in $2^{56}$ if its input and output were visible. They never are: a whitening word stands on each side, so a layer key is guessed together with at least one of them, 120 bits ($2^{119}$ cases). That is the size of the guess in the attack of section 6.2 | no guess can be tested without all of $K$ (section 5.2) |
+| 64-bit block | The cause of the weakness in section 6.2: a half word has 32 bits, and 32 bits collide at a rate of $2^{-32}$ | hidden by the tweak; equal ciphertext words occur at the random rate and say nothing (section 8) |
+| Complementation | one bit off every guess of a layer key with its whitening word (section 5.3) | none: complementing $K$ changes every mask |
+| Weak and semi-weak keys | The whitening between the layers stops $D_k\circ D_k$ from cancelling, and the layer index in the whitening makes equal keys give different layers (section 6.4). A weak layer is still an involution with many fixed points, which is no feature | refused when encrypting (section 5.3) |
+| Differential properties | not used by the cheapest attack. The only assumption is that a whitened DES word sends a difference into a fixed 32-bit set at the random rate; the best DES characteristics, at $2^{-55}$, add nothing to a rate of $2^{-32}$ | not applicable |
+| Linear properties | bias $2^{-23.4}$ per layer, at most $2^{-180}$ over eight (section 6.3) | the only statistic of the core that the scheme exposes, and far too small |
+| Not a group | eight layers do not collapse into fewer | same |
+| Linear key schedule | no exposure: the eight layer keys are independent bytes, not derived from one another | same |
+| Table lookups in software | none: the implementation is bitsliced and has no key- or data-dependent branch or address (section 8) | same |
+
+### 13.4 What the scheme needs from DES
+
+- **Deployed scheme.** Only that the eight layers do not cancel against the tweak: $G(y)\oplus y$ at a secret random $y$ must look random (section 5.2). Every known attack on DES needs input and output of a DES word, or many texts under one key, and the scheme provides neither. The 56-bit key of DES is therefore not a weak point of the deployed scheme. For the same reason DES is not the source of the 512-bit level: a much simpler permutation in place of the eight layers would satisfy this one requirement as well. It would not give what section 5.7 lists besides: a linear map, for one, would let an attacker with known plaintext compute every mask, and would be no defence at all if a mask were repeated.
+- **Bare core.** That the 256 whitened DES words behave as independent random permutations. The real DES is believed to be good enough for that, and the attack of section 6.2 does not doubt it: the attack is generic and would work with any 64-bit block cipher in the same network, at a cost that grows with the key length of that cipher. A stronger cipher in place of DES would raise the guess from 120 bits; it would not remove the structure, which belongs to the word size and the swap.
+- **What DES costs.** Speed (about 13 MB/s, section 10), a 64-bit word that makes the core weak, and a primitive that no standard approves any more. What it gives is long study: unlike the construction around it, DES itself has been examined for half a century.
+
+
+## 14. Randomised cascades: Gaži and Tessaro, and what the theory says here
+
+Key-length extension asks how to build a cipher with a long key from a block cipher with a short one. The paper that introduced a two-cipher cascade with key whitening between the calls is *Efficient and Optimally Secure Key-Length Extension for Block Ciphers via Randomized Cascading* by Peter Gaži and Stefano Tessaro (EUROCRYPT 2012; full version IACR ePrint 2012/158). Key whitening as such is older: DESX (Rivest, 1984) XORs a key before and after one DES call, and Kilian and Rogaway analysed it in 1996. What Gaži and Tessaro added is the cascade of two calls with the whitening inside it, a proof, and a matching attack. The statements below were checked against the full text of that paper and against the abstracts of the three that follow it.
+
+### 14.1 What the paper shows
+
+**Model.** The block cipher $E$ with $\kappa$-bit keys and $n$-bit blocks is ideal: an independent random permutation for every key, which the attacker can only query. The attacker also queries the construction under a secret key, in both directions, as often as he likes, up to its whole codebook of $2^n$ texts. Security is the number of queries to $E$ that he needs to tell the construction from a random permutation. For DES, $\kappa = 56$ and $n = 64$.
+
+**Construction.** The double XOR-cascade is
+
+$$\mathrm{2XOR}_{k,z}(m) = E_{\tilde k}\big(E_k(m\oplus z)\oplus z\big),$$
+
+with a $\kappa$-bit key $k$, one $n$-bit whitening key $z$ that is used twice, and $\tilde k$ derived from $k$ by a fixed change such as flipping one bit. There is no whitening after the second call. The key has $\kappa + n$ bits, 120 for DES. A variant takes an independent second key.
+
+**Results.**
+
+- 2XOR is secure up to about $2^{\kappa + n/2}$ queries to $E$ (their Theorem 3: the advantage is at most $4\,(q/2^{\kappa+n/2})^{2/3}$). For DES that is $2^{88}$, with two calls, where triple encryption with three calls was proven only to about $2^{78}$ and is attacked at $2^{90}$.
+- This is the best that two calls can do. Every two-call construction of a natural class, which includes every way of whitening a cascade of length two with any amount of key, is distinguished with $2^{\kappa+n/2}$ queries to $E$ and $2^n$ texts. One call never gives more than $2^{\max(\kappa,n)}$, however much key it uses.
+- Where the whitening sits matters. $E_{k_2}(E_{k_1}(m\oplus z_1))\oplus z_2$, with whitening only outside, falls to a meet-in-the-middle with $2^{\max(\kappa,n)}$ queries. The whitening has to stand between the calls.
+- No construction in this model exceeds $2^{\kappa+n}$: that many queries tabulate $E$ completely. For DES the ceiling is $2^{120}$.
+
+**Later work.**
+
+- Gaži, *Plain versus Randomized Cascading-Based Key-Length Extension for Block Ciphers* (CRYPTO 2013; ePrint 2013/019): a plain cascade of length $\ell$ is attacked with about $2^{\kappa+\frac{\ell-1}{\ell+1}n}$ queries for odd $\ell$ and $2^{\kappa+\frac{\ell-2}{\ell}n}$ for even $\ell$; the XOR-cascade is proven secure up to the same figures, and up to $2^{\kappa+\frac{\ell-1}{\ell}n}$ for $\ell = 3, 4$; every sequential construction with $\ell$ calls is attacked with about $2^{\kappa+\frac{\ell-1}{\ell}n}$. The paper concludes that XOR-cascades are the better trade and should be preferred to plain ones.
+- Lee, *Towards Key-Length Extension with Optimal Security: Cascade Encryption and Xor-cascade Encryption* (EUROCRYPT 2013; ePrint 2015/205): the XOR-cascade of length $\ell$ is secure up to $2^{\kappa+n-\frac{8}{\ell}(\frac n2+2)}$, which approaches the ceiling as $\ell$ grows. The abstract states the ceiling in so many words: $\kappa + n$ bits is the most that key-length extension of one block cipher can reach.
+- Gaži, Lee, Seurin, Steinberger and Tessaro, *Relaxing Full-Codebook Security: A Refined Analysis of Key-Length Extension Schemes* (FSE 2015; ePrint 2015/397): with $q_c$ texts of the construction and $q_e$ queries to $E$, the XOR-cascade with $r$ calls is secure as long as $q_c\, q_e^{\,r} \ll 2^{r(\kappa+n)}$, which matches Gaži's attack. Less data means more security.
+- Jaeger, Song and Tessaro, *Quantum Key-length Extension* (TCC 2021; ePrint 2021/579) treat the single whitened call (FX) and double encryption against quantum attackers. I know of no quantum analysis of the randomised cascade itself.
+
+For DES parameters, in bits (the logarithm of the number of DES queries):
+
+| Construction | DES calls | Proven | Best attack |
+|---|---|---|---|
+| DES | 1 | 56 | 56 |
+| DESX | 1 | 60 | 64 |
+| Double encryption | 2 | 56 | 56 |
+| Triple encryption | 3 | 78 | 90 |
+| 2XOR (Gaži and Tessaro) | 2 | 88 | 88 |
+| XOR-cascade of length 3 | 3 | 98.7 | 98.7 |
+| XOR-cascade of length 4 | 4 | 104 | 104 |
+| XOR-cascade of length 8, whole codebook | 8 | 112 | 112 |
+| Any construction from DES | any | at most 120 | 120 |
+
+The rows for DESX and for double and triple encryption are from the table and the text of the 2012 paper; the rows for lengths 3, 4 and 8 are the formulas above with $\kappa = 56$, $n = 64$. The papers differ in detail (how many whitening keys there are, and whether the calls use related or independent keys), so the rows show the order of magnitude and are not a statement about one exact construction.
+
+### 14.2 The core of SillyDES as a randomised cascade
+
+Follow one 64-bit word through the core and ignore, for a moment, that the swaps exchange half of it with other words. It passes eight DES calls with a 64-bit whitening word XORed before each and one after the last:
+
+$$x \;\mapsto\; D_{k_7}\big(\cdots D_{k_1}(D_{k_0}(x\oplus W_0[w])\oplus W_1[w])\cdots\oplus W_7[w]\big)\oplus W_8[w].$$
+
+That is an XOR-cascade of length 8, with the whitening between the calls, where the theory says it must be, and at both ends as in DESX. In this sense the core is a member of the family that Gaži and Tessaro founded. It differs from their construction in four ways:
+
+| | 2XOR and its successors | SillyDES core |
+|---|---|---|
+| Block | $n = 64$ bits, one word | 2048 bits: 32 such words, coupled by the swaps |
+| Keys | one cipher key, the others derived from it; one or a few whitening keys | eight independent DES keys; nine whitening blocks of 2048 bits, all derived from the same 512 bits by HMAC |
+| Cipher | ideal | DES, which has the complementation property and weak keys |
+| Use | one key, up to $2^{64}$ texts | in the deployed scheme, one text per instance |
+
+### 14.3 What follows for this scheme
+
+1. **The theory supports the whitening.** A plain cascade of eight is attacked by meet-in-the-middle (section 5.1); with whitening between the calls the attack is gone, and the proven level of an XOR-cascade is above that of any plain cascade of the same length. The qualitative claim of section 5.1 has a proof behind it, in the ideal-cipher model.
+
+2. **The theory caps the cascade at 120 bits.** No arrangement of DES calls, of any length and with any amount of whitening key, is secure beyond $2^{120}$ DES evaluations in this model, because that many evaluations tabulate DES. The 18432 bits of whitening and the 448 DES key bits of the core do not move that ceiling. The $2^{512}$ of this scheme can therefore not be a result of key-length extension of DES, and it is not: it is the key length of HMAC-SHA-512 (section 5.2). Anything above 120 bits is a statement about computing time or about another primitive, which these proofs do not cover.
+
+3. **The theory explains why data matters.** With the whole codebook, a word-wise cascade of length 8 stands at 112 bits. By the bound $q_c\,q_e^{\,8}\ll 2^{960}$ it stands at about 114 bits against $2^{47}$ texts and at the ceiling of 120 against a single text. The deployed scheme gives one text per instance, the most favourable end of that scale. This agrees with section 6.1: the cascade is not where the deployed scheme is weak. It does not make the cascade stronger than 120 bits.
+
+4. **The theory does not cover the swaps, and the swaps are where the core is weak.** The proofs are for one 64-bit word. The attack of section 6.2 works on the coupling between words, which the model above ignores. Counted the way the theory counts, that attack stays within the bounds: it uses $2^{47}$ texts and at most $2^{120}$ different DES evaluations, since it tries every key of one layer on at most every input. Its $2^{153}$ is the computing time on top. So the wide block did not make the cascade weaker than the theory allows, and it did not make it stronger either: 2048 bits of block and eight layers bought diffusion (section 4), not key length.
+
+5. **The efficiency lesson points the other way.** Gaži and Tessaro reach 88 bits with two DES calls per word. This core spends eight calls per word for a level that the theory caps at 120 and that section 6.2 puts at about 153 bits of computing time and $2^{47}$ texts. If the aim were a DES-based cipher with a proof, 2XOR or an XOR-cascade of length 3 or 4 would give more per call; none of them would come near the range of AES-256, and all of them keep the 64-bit block of DES with its limit of $2^{32}$ blocks.
+
+6. **Quantum attackers.** The papers above are classical, except the last, which does not treat cascades with whitening inside. What is known for whitening against quantum attackers is in section 6.5: outer whitening keys are stripped by Simon's algorithm when superposition queries are available. For this scheme the quantum figure is again Grover on the HMAC key.
+
+In one sentence: the work of Gaži and Tessaro shows that the core is the right kind of construction for extending the key of DES, and at the same time that no such construction can be the reason for a 512-bit claim. In this scheme that claim rests on HMAC-SHA-512 and on never using a mask twice.

@@ -10,6 +10,31 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+**File format: unchanged (5.2.0).** The program is unchanged; this is documentation and two tools.
+
+### Added
+
+- [ANALYSIS.md](ANALYSIS.md) was reassessed against the code. It now covers DES itself (section 13)
+  and the theory of key-length extension by randomised cascades, from Gazi and Tessaro
+  (EUROCRYPT 2012) onwards (section 14). What it finds:
+  - a file costs about 2^512 operations to open without the key, 2^256 on a quantum computer. This is
+    the key length of HMAC-SHA-512, which makes the whitening, the tweak and the authentication key;
+  - the eight DES layers on their own, with one key for many blocks, are weaker than AES-256 (about
+    2^153 operations with 2^47 chosen blocks, about 2^94 on a quantum computer). The program never
+    uses them that way: the tweak and the random salt and IV give every block its own instance of the
+    cipher, and that rule is what the strength depends on;
+  - a cascade of DES cannot be proven stronger than about 2^120 DES operations, however long it is.
+- `tools/core_structure.cpp` and `tools/core_model.cpp`, the measurements behind section 6.2 of the
+  analysis, with the CMake option `SILLYDES_ANALYSIS_TOOLS`, the target `check_analysis` and the test
+  `analysis_check`. They are not part of a normal build.
+
+### Changed
+
+- README sections 2 and 3, SECURITY.md and STRUCTURE.md say where the strength comes from and that
+  the cipher core must not be used without the tweak or with a fixed salt or IV.
+- The fourth byte of the container header is 0x20 (32) in format 5.2.0; README section 4 and the
+  diagram in STRUCTURE.md section 6.1 give that value.
+
 ## [5.2.2] - 2026-11-24
 
 **File format: unchanged (5.2.0).** Files written by 5.2.1 and by 5.2.2 open in each other, with a

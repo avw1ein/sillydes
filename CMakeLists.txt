@@ -29,6 +29,7 @@ option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and 
 set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; - is an ad hoc signature, a Developer ID name signs for distribution")
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
+option(SILLYDES_ANALYSIS_TOOLS "Add the target check_analysis and the test analysis_check: the measurements behind ANALYSIS.md section 6.2 (tools/core_structure.cpp, tools/core_model.cpp)" OFF)
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
     "Directory with the Unicode data files of the pinned version (tools/fetch_ucd.sh fills it); adds the targets regenerate_unicode and check_unicode and the test unicode_check")
 
@@ -132,6 +133,20 @@ if(SILLYDES_REGENERATE_SBOX)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_BINARY_DIR}/des_sbox_ct.h ${CMAKE_CURRENT_SOURCE_DIR}/src/des_sbox_ct.h
     DEPENDS gen_des_sbox
     COMMENT "Regenerating src/des_sbox_ct.h"
+    VERBATIM)
+endif()
+
+# The measurements that ANALYSIS.md section 6.2 rests on. They test the analysis, not the program,
+# so they are not part of a normal build.
+if(SILLYDES_ANALYSIS_TOOLS)
+  add_executable(core_structure EXCLUDE_FROM_ALL tools/core_structure.cpp)
+  target_link_libraries(core_structure PRIVATE sillydes_core)
+  add_executable(core_model EXCLUDE_FROM_ALL tools/core_model.cpp)
+  add_custom_target(check_analysis
+    COMMAND core_structure
+    COMMAND core_model
+    DEPENDS core_structure core_model
+    COMMENT "Checking the structure of the cipher core (ANALYSIS.md section 6.2)"
     VERBATIM)
 endif()
 
@@ -262,5 +277,10 @@ if(SILLYDES_BUILD_TESTS)
   if(SILLYDES_REGENERATE_UNICODE)
     add_test(NAME unicode_check
       COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target check_unicode --config $<CONFIG>)
+  endif()
+
+  if(SILLYDES_ANALYSIS_TOOLS)
+    add_test(NAME analysis_check
+      COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target check_analysis --config $<CONFIG>)
   endif()
 endif()
