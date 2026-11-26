@@ -10,6 +10,12 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+## [5.2.4] - 2026-11-26
+
+**File format: unchanged (5.2.0).** Files written by 5.2.3 and by 5.2.4 open in each other, with a
+key file or a phrase. The program is that of 5.2.3 with its own version number; this release has
+documentation and a third analysis tool.
+
 ### Documentation
 
 - [ANALYSIS.md](ANALYSIS.md) says what the nibble swaps are worth to the core on its own: the amount and
@@ -27,6 +33,9 @@ the section of the tag's version as the text of the GitHub Release.
   the best attack found on the layers costs about that much.
 - The analysis check (`-DSILLYDES_ANALYSIS_TOOLS=ON`, target `check_analysis`) has a third program,
   [core_scale.cpp](tools/core_scale.cpp), and new measurements in the other two (TESTING.md).
+- [STRUCTURE.md](STRUCTURE.md) section 10 and `.github/copilot-instructions.md` hold the rule for all
+  documents: they state what is known, and a figure is replaced in every place that names it.
+- `PORTPLAN.md` is deleted; TESTING.md does not refer to it.
 
 ## [5.2.3] - 2026-11-25
 
@@ -312,7 +321,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.3...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.4...HEAD
+[5.2.4]: https://github.com/avw1ein/sillydes/compare/v5.2.3...v5.2.4
 [5.2.3]: https://github.com/avw1ein/sillydes/compare/v5.2.2...v5.2.3
 [5.2.2]: https://github.com/avw1ein/sillydes/compare/v5.2.1...v5.2.2
 [5.2.1]: https://github.com/avw1ein/sillydes/compare/v5.2.0...v5.2.1

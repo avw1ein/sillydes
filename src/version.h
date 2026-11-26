@@ -4,7 +4,7 @@
 #pragma once
 
 // The program. Changes with every release.
-#define PACKAGE_VERSION "5.2.3"
+#define PACKAGE_VERSION "5.2.4"
 
 // The file format, named after the release that introduced it. FORMAT_NAME is hashed into the
 // keys and written in the e-mail tags, and MAGIC starts every container, so changing either one
