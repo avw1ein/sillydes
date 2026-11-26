@@ -28,7 +28,7 @@ standard.**
 
 The strength rests on two things: HMAC-SHA-512 with a 512-bit key, which makes the whitening, the
 tweak and the authentication key, and a tweak, salt and IV that are never used twice, so that every
-block has its own instance of the cipher. The eight DES layers without them are weaker than AES-256
+block has its own instance of the cipher. The eight DES layers without them are below AES-128
 (ANALYSIS.md, section 6.2). The program draws the salt and the IV itself for every file and has no
 option to fix them; code that reuses the cipher core without the tweak, or with a fixed salt or IV,
 is outside what is described here.

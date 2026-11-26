@@ -14,7 +14,19 @@ the section of the tag's version as the text of the GitHub Release.
 
 - [ANALYSIS.md](ANALYSIS.md) says what the nibble swaps are worth to the core on its own: the amount and
   the kind of data that an attacker needs of one instance, not computing time or memory (sections 1, 5.7
-  and 14.3).
+  and 14.3). That data is a number of blocks under one instance, not the size of a file: a file of any size
+  gives each instance one block.
+- The figures for the eight DES layers on their own, with one key for many blocks, are: told from a random
+  permutation with about 2^45 chosen blocks, and key recovery with about 2^45 chosen blocks and about 2^120
+  DES operations for each layer, about 2^63 on a quantum computer. That is below AES-128 and out of reach in
+  practice. The last layer and the swap before it map two words onto two words, so two blocks that agree in
+  two ciphertext words show which first-layer guess is right (ANALYSIS.md, section 6.2; README, section 2).
+  The program never uses the layers this way, and nothing in the program or the file format changes.
+- ANALYSIS.md section 14.4 treats the wide block and the limit of 2^120 DES operations that the theory of
+  cascades sets: no construction from DES passes it, no other theory found gives a wide block more, and
+  the best attack found on the layers costs about that much.
+- The analysis check (`-DSILLYDES_ANALYSIS_TOOLS=ON`, target `check_analysis`) has a third program,
+  [core_scale.cpp](tools/core_scale.cpp), and new measurements in the other two (TESTING.md).
 
 ## [5.2.3] - 2026-11-25
 
@@ -44,13 +56,12 @@ this release also has documentation and two tools.
 
 ### Added
 
-- [ANALYSIS.md](ANALYSIS.md) was reassessed against the code. It now covers DES itself (section 13)
-  and the theory of key-length extension by randomised cascades, from Gazi and Tessaro
-  (EUROCRYPT 2012) onwards (section 14). What it finds:
+- [ANALYSIS.md](ANALYSIS.md) covers DES itself (section 13) and the theory of key-length extension by
+  randomised cascades, from Gazi and Tessaro (EUROCRYPT 2012) onwards (section 14). What it finds:
   - a file costs about 2^512 operations to open without the key, 2^256 on a quantum computer. This is
     the key length of HMAC-SHA-512, which makes the whitening, the tweak and the authentication key;
-  - the eight DES layers on their own, with one key for many blocks, are weaker than AES-256 (about
-    2^153 operations with 2^47 chosen blocks, about 2^94 on a quantum computer). The program never
+  - the eight DES layers on their own, with one key for many blocks, are below AES-128 (about
+    2^120 DES operations with 2^45 chosen blocks, about 2^63 on a quantum computer). The program never
     uses them that way: the tweak and the random salt and IV give every block its own instance of the
     cipher, and that rule is what the strength depends on;
   - a cascade of DES cannot be proven stronger than about 2^120 DES operations, however long it is.
