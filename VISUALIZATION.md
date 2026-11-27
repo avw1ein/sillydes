@@ -1,4 +1,4 @@
-# SillyDES 5.2.5 in pictures: one block, layer by layer
+# SillyDES 5.2.6 in pictures: one block, layer by layer
 
 This document draws what happens to a single 256-byte block on its way from plaintext to ciphertext. It shows *where* every byte comes from and *where* it goes; the reasons why the construction is built this way are in [ANALYSIS.md](ANALYSIS.md), and the code that does it is described in [STRUCTURE.md](STRUCTURE.md). Only encryption is drawn: decryption is the same ladder climbed downwards. All positions and offsets were read from [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp).
 

@@ -1,4 +1,4 @@
-# SillyDES 5.2.5: tests, verification and CI
+# SillyDES 5.2.6: tests, verification and CI
 
 What is tested, how, why each test is built the way it is, and what the tests cannot show. For the
 code layout see [STRUCTURE.md](STRUCTURE.md); for the cryptographic reasoning,
