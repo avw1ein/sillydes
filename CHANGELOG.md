@@ -10,6 +10,30 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+## [5.2.5] - 2026-11-27
+
+**File format: unchanged (5.2.0).** Files written by 5.2.4 and by 5.2.5 open in each other, with a
+key file or a phrase. The program differs from 5.2.4 in its usage text only; this release also has
+documentation and a benchmark tool.
+
+### Changed
+
+- The usage text credits the Unicode Character Database next to the MIT License: the tables for the
+  canonical form of a phrase come from it, Copyright (c) 1991-2026 Unicode, Inc., under the Unicode
+  License v3 (LICENSE.Unicode).
+
+### Documentation
+
+- [ANALYSIS.md](ANALYSIS.md) gives the time of one key guess: the tag check of the smallest file takes
+  about 120 times as long as an AES-256 trial, about 7 bits on a classical key search (sections 1, 5.4
+  and 10.3). The new tool [guess_cost.cpp](tools/guess_cost.cpp) (`-DSILLYDES_GUESS_COST=ON`, target
+  `guess_cost`; x86-64 with AES-NI and the OpenSSL 3 development files of the system) measures it.
+- README section 2 is written for a first reading: what you get and what you pay, where the strength
+  comes from, the known downsides of DES with what SillyDES does about each, what the DES layers add,
+  and which costs fall on the user and which on an attacker. The features list, the Ethics section and
+  section 4 say the same: guessing is expensive, encryption is slow, the comparison with AES-256 holds
+  for a key file of random keys, and DES is not a group.
+
 ## [5.2.4] - 2026-11-26
 
 **File format: unchanged (5.2.0).** Files written by 5.2.3 and by 5.2.4 open in each other, with a
@@ -321,7 +345,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.4...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.5...HEAD
+[5.2.5]: https://github.com/avw1ein/sillydes/compare/v5.2.4...v5.2.5
 [5.2.4]: https://github.com/avw1ein/sillydes/compare/v5.2.3...v5.2.4
 [5.2.3]: https://github.com/avw1ein/sillydes/compare/v5.2.2...v5.2.3
 [5.2.2]: https://github.com/avw1ein/sillydes/compare/v5.2.1...v5.2.2
