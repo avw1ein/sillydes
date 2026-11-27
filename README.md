@@ -1,4 +1,4 @@
-# SillyDES 5.2.4
+# SillyDES 5.2.5
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).
@@ -48,7 +48,7 @@ Features:
 - Linux, macOS and Windows (x86-64 and arm64), one file format: files made on one system open on every other.
 - Self-contained: DES, SHA-512, HMAC, BLAKE2b, Argon2id and CRC-32 are implemented from their standards, with no external cryptographic library.
 - Easy to use.
-- Slow! Which is good!
+- Expensive to guess: every guess at a phrase costs 2 GiB of memory and about 2 seconds. Encryption itself is slow, about 13 MB/s (section 2.5).
 
 ---
 
@@ -62,7 +62,7 @@ The first experiments with block expansion, the idea this project is built aroun
 
 Technology does not choose its users. Strong encryption protects people, and it can also shield people who do harm. That tension is why this section exists.
 
-If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, opening a SillyDES file without the key costs at least as much as breaking AES-256. That strength comes from the 512-bit key of HMAC-SHA-512 and from giving every block its own instance of the cipher, not from the DES layers alone; these are estimates, not a review. Strength was the goal from the first version on, and for a long time I was not comfortable publishing a tool like this as a private person. With quantum computers on the horizon and encryption increasingly seen as a matter of human rights, I came to see it differently and decided to finish it and put it out.
+If the estimates in [ANALYSIS.md](ANALYSIS.md) hold, opening a SillyDES file without the key costs at least as much as breaking AES-256 when the file was made with a key file of random keys; with a phrase, the phrase sets the limit (section 7). That strength comes from the 512-bit key of HMAC-SHA-512 and from giving every block its own instance of the cipher, not from the DES layers alone; these are estimates, not a review. Strength was the goal from the first version on, and for a long time I was not comfortable publishing a tool like this as a private person. With quantum computers on the horizon and encryption increasingly seen as a matter of human rights, I came to see it differently and decided to finish it and put it out.
 
 ---
 
@@ -163,22 +163,67 @@ Files in older formats cannot be read, and releases before 5.2.0 cannot read thi
 
 ## 2. Why use SillyDES?
 
-At this moment a single DES encryption can be cracked in a few hours (minutes?). You need a good computer to do it, but... The next step in line is triple DES (DES3). This is also within reach of modern computers. That's why some of us want something stronger than DES or triple DES, and SillyDES is one way to build it out of DES. In return you have to be more patient, because it is slower: modern CPUs accelerate AES, and nothing accelerates SillyDES. The slowness does not make the keys harder to find, because a guessed key can be checked on the authentication tag of a file without running the cipher. What an attacker pays for is the number of keys, and with a phrase the 2 GiB of Argon2 for every guess (section 7).
+### 2.1 In short
 
-The eight keys feed eight DES layers. Between the layers the block is XORed with a 2048-bit whitening, and every block of a file gets its own 2048-bit tweak; both are made from every bit of every key with HMAC-SHA-512. Without them, a meet-in-the-middle attack on a cascade of eight ciphers would need about 2^224 operations. With them nothing can be tested with a part of the key, so the best known approach to a file is to try all 2^512 key values.
+What you get, with a key file of random keys:
 
-Where that strength comes from matters for how the program may be used:
+- **A 512-bit key.** The best approach known is to try every key: about 2^512 guesses, or about 2^256 steps on a quantum computer (Grover's algorithm). For AES-256 the figures are 2^256 and 2^128.
+- **Authentication.** A file that was changed, damaged or opened with the wrong key is refused before anything is decrypted.
+- **Expensive guessing.** One guess at a key file takes about 120 times as long as a guess at an AES-256 key; one guess at a phrase takes 2 GiB of memory and about 2 seconds (section 2.5).
 
-- **The key length is that of HMAC-SHA-512.** The figure 2^512 is the cost of finding the 64 key bytes from which HMAC-SHA-512 makes the whitening, the tweak and the authentication key. The DES layers do not add to it. The theory of such cascades agrees: however many DES steps and however much whitening, a cascade of DES cannot be proven stronger than about 2^120 DES operations ([ANALYSIS.md](ANALYSIS.md), section 14).
-- **Every block must have its own tweak.** The eight DES layers on their own, used as an ordinary block cipher with one key for many blocks, are below AES-128: about 2^120 DES operations with 2^45 chosen blocks, and about 2^63 on a quantum computer (ANALYSIS.md, section 6.2). SillyDES never uses them that way. The tweak, the random salt and the random IV give every block of every file its own instance of the cipher, and an attacker who gets only one block per instance has nothing to compare. The stated strength depends on this rule, which is why no option switches the randomness off (section 4).
-- **DES is neither the weak point nor the source of the 512 bits.** No input or output of a DES step is ever visible, so the short key of DES gives an attacker nothing to search (ANALYSIS.md, section 13).
-- **The DES layers with the block expansion are not decoration.** They do three things (ANALYSIS.md, section 5.7). Without them the tweak, which is XORed in before and after, would cancel and leave the plaintext. They are a cipher in their own right: block expansion takes DES from 2^56 to the 2^120 operations and 2^45 chosen blocks named above, which is more than triple DES (2^112) and less than AES-128 (2^128), so if a tweak were ever used twice the data would still be behind a cipher of that strength. And they hide the HMAC values: someone who knows the plaintext still never sees a whitening or a tweak, only what the DES layers make of them, so an attack on HMAC-SHA-512 that needs its outputs has nothing to start from. The two parts cover each other: the tweak keeps the DES layers from ever seeing two related blocks, and the DES layers keep the tweak from ever being seen. The figure 2^120 is the best attack found, not a proof that there is no better one; it is also the most that the theory of such cascades allows (ANALYSIS.md, section 14.4).
+What you pay:
 
-These are estimates, not proofs, and the construction has not been reviewed by others. They also assume random keys; how to get them is the subject of section 7.
+- **Speed.** About 13 MB/s, 100 to 700 times slower than AES on the same computer.
+- **Review.** SillyDES is a hobby project. Its figures are estimates from [ANALYSIS.md](ANALYSIS.md), not proofs, and nobody else has reviewed the construction.
 
-Don't think single DES is bad just because it can be cracked. In the end every code can be cracked; it's just a matter of resources. DES has been studied for almost 50 years. Its security properties, including the shortcomings, are well known. This is the reason why DES can be used as a building block for something stronger. Instead of beginning from scratch, SillyDES can rely on all that is known about DES; [ANALYSIS.md](ANALYSIS.md), section 13, lists it and says what each known property means here.
+If you need a standard, reviewed cipher, use AES-256. Its 2^128 against a quantum computer is already beyond any foreseeable machine.
 
-Is SillyDES an invention? It's more a matter of creativity. It mostly uses well-known techniques to reach its goal. You should see it as an interface to DES. The creativity is in the block expansion technique that makes multiple DES iterations worthwhile. The result is a block cipher that is wider and slower than DES. Both work in the defender's favour.
+### 2.2 Where the strength comes from
+
+Two things carry it:
+
+- **HMAC-SHA-512 under all 512 key bits.** From the 64 key bytes and the random salt of a file, HMAC-SHA-512 makes the whitening between the DES layers, a tweak for every block and the key of the authentication tag. Each of them depends on every key bit, so no part of the key can be tested on its own: a guess needs all 512 bits and is checked on the tag. The figure 2^512 is the key length of HMAC-SHA-512.
+- **One cipher instance per block.** The tweak, the random salt and the random IV give every block of every file its own instance of the cipher, so an attacker never gets two blocks of one instance to compare. The stated strength depends on this rule, which is why no option switches the randomness off (section 4).
+
+### 2.3 Why DES, and what is done about its known downsides
+
+DES has been studied for almost fifty years, so its downsides are known precisely, and because of them no standard approves DES any more: FIPS 46-3 was withdrawn in 2005, and NIST disallows triple DES for encryption after 2023. SillyDES is built so that each of these downsides is mitigated:
+
+| Known downside of DES | What SillyDES does about it |
+|---|---|
+| 56-bit key: a key search takes days on rented hardware | No input or output of a DES step is ever visible, because a whitening sits on each side of it, so a single DES key cannot be searched on its own. A guess is tested with all 512 bits or not at all. |
+| 64-bit block: after about 2^32 blocks (32 GiB) under one key, repeated blocks appear and leak data (the Sweet32 attack on triple DES) | A block of 2048 bits, and every block has its own tweak, so equal pieces of ciphertext say nothing. |
+| Differential and linear cryptanalysis: 2^47 chosen or 2^43 known blocks under one key | Every cipher instance encrypts one block. |
+| Meet-in-the-middle on a cascade: eight DES layers without the whitening would fall at about 2^224 operations | The whitening between the layers is made from all key bits, so no half of the key can be tested on its own. |
+| Weak and semi-weak keys | Refused when encrypting (section 7); the whitening keeps one layer from undoing another. |
+| Complementation: complementing key and block complements the output, which halves a key search | Complementing the key changes every whitening and tweak, so a search gains nothing. |
+| Timing leaks of DES in software through table lookups | DES is bitsliced: no memory access and no branch depends on the key or the data. |
+
+DES is also not a group: two DES encryptions in a row are in general not one DES encryption under a third key, so eight layers do not collapse into fewer.
+
+This does not make SillyDES an approved cipher: nothing built on DES can be, and the construction has had no outside review. [ANALYSIS.md](ANALYSIS.md), section 13, lists what is known about DES and what each property means here.
+
+### 2.4 What the DES layers add
+
+The 2^512 comes from HMAC-SHA-512, not from DES. The eight DES layers with the block expansion still do three things ([ANALYSIS.md](ANALYSIS.md), section 5.7):
+
+- **They are necessary.** The tweak is XORed in before and after the layers; with nothing between, the two would cancel and leave the plaintext.
+- **They are a second line of defence.** Used on their own as an ordinary block cipher, with one key for many blocks, the layers with the block expansion take about 2^120 DES operations and 2^45 chosen blocks to break, about 2^63 on a quantum computer (ANALYSIS.md, section 6.2). That is more than triple DES (2^112) and less than AES-128 (2^128), and it is the most that the theory of DES cascades allows (ANALYSIS.md, section 14). SillyDES never uses the layers that way, but if a tweak were ever used twice, the data would still be behind a cipher of that strength.
+- **They keep the HMAC values out of sight.** Someone who knows the plaintext still never sees a whitening or a tweak, only what the DES layers make of them, so an attack on HMAC-SHA-512 that needs its outputs has nothing to start from.
+
+The two parts cover each other: the tweak keeps the DES layers from ever seeing two related blocks, and the DES layers keep the tweak from ever being seen.
+
+### 2.5 What "slow" means
+
+| | Cost | Who pays |
+|---|---|---|
+| Encrypting and decrypting | about 13 MB/s; AES has its own instructions in modern CPUs, DES has none | you. An attacker never runs the cipher, because a guess is checked on the tag |
+| One guess at a key file | about 1.5 microseconds for the tag check of the smallest file, about 120 times an AES-256 guess (ANALYSIS.md, section 5.4) | the attacker, a little: about 7 bits on top of the 512 |
+| One guess at a phrase | Argon2id with 2 GiB of memory and about 2 seconds, for every guess | the attacker, a lot. It is what protects a phrase, which holds far fewer bits than a key file (section 7) |
+
+### 2.6 Limits
+
+The figures are estimates, not proofs, and the construction has not been reviewed by others. The 2^120 of section 2.4 is the cheapest attack found, not a proof that nothing cheaper exists. All figures assume random keys; with a phrase, the phrase sets the strength (section 7).
 
 ---
 
@@ -208,7 +253,7 @@ Encryption is performed in sixteen steps.
 
 Block expansion swaps the upper 4 bits of a byte in the first half block with the lower 4 bits of the corresponding byte in the second half block. Thus, to decrypt the first half block, you must include the second half block as well, and vice versa.
 
-Although DES is supposed to have a multiplying property, SillyDES doesn't rely on it. Block expansion inputs new data in each 64-bit block before a new encryption is done.
+DES is not a group: two DES encryptions in a row are in general not one DES encryption under a third key, so the layers do not collapse into fewer. Block expansion also feeds new data into each 64-bit block before the next encryption.
 
 ```
 Step  0: Rounding the file size up to a multiple of 256 bytes.
@@ -220,8 +265,7 @@ Step  0: Rounding the file size up to a multiple of 256 bytes.
          unique to that block, and goes through steps 1-16. The
          same tweak is XORed into the result. This is Cipher
          Block Chaining (CBC) around the whole cipher, with a
-         different cipher instance for every block, so no two
-         blocks are ever encrypted by the same permutation.
+         different cipher instance for every block.
 Step  1: Block expansion 2048 bits.
 Step  2: Whitening 1, DES encryption with key1.
 Step  3: Block expansion 128 bits.

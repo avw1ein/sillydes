@@ -30,6 +30,7 @@ set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; -
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
 option(SILLYDES_ANALYSIS_TOOLS "Add the target check_analysis and the test analysis_check: the measurements behind ANALYSIS.md sections 6.2 and 14.4 (tools/core_structure.cpp, tools/core_model.cpp, tools/core_scale.cpp)" OFF)
+option(SILLYDES_GUESS_COST "Add the target guess_cost (tools/guess_cost.cpp): the time of one key guess against SillyDES and AES-256, ANALYSIS.md section 5.4. Needs x86-64 with AES-NI and the OpenSSL 3 development files of the system" OFF)
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
     "Directory with the Unicode data files of the pinned version (tools/fetch_ucd.sh fills it); adds the targets regenerate_unicode and check_unicode and the test unicode_check")
 
@@ -150,6 +151,18 @@ if(SILLYDES_ANALYSIS_TOOLS)
     DEPENDS core_structure core_model core_scale
     COMMENT "Checking the structure of the cipher core (ANALYSIS.md section 6.2)"
     VERBATIM)
+endif()
+
+if(SILLYDES_GUESS_COST)
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    message(FATAL_ERROR "SILLYDES_GUESS_COST needs x86-64 with AES-NI")
+  endif()
+  find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+  add_executable(guess_cost EXCLUDE_FROM_ALL tools/guess_cost.cpp)
+  target_link_libraries(guess_cost PRIVATE sillydes_core OpenSSL::Crypto)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(guess_cost PRIVATE -maes -mssse3)
+  endif()
 endif()
 
 if(SILLYDES_REGENERATE_UNICODE)

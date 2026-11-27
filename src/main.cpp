@@ -56,7 +56,10 @@ void usage()
     " every layer. Output is authenticated (HMAC-SHA-512).\n"
     "*SillyDES is free software released under the MIT License (see the LICENSE file),\n"
     " and provided as is. Andy van Wezel makes no claims and offers no warranties\n"
-    " of any sort with SillyDES.\n");
+    " of any sort with SillyDES.\n"
+    "*The Unicode tables that bring a phrase into its canonical form are derived from\n"
+    " the Unicode Character Database, Copyright (c) 1991-2026 Unicode, Inc., and are\n"
+    " released under the Unicode License v3 (see the LICENSE.Unicode file).\n");
 }
 
 // argv[0] is the program name; the arguments are UTF-8 (the platform's entry point converts them).

@@ -1,4 +1,4 @@
-# Mathematical analysis of SillyDES 5.2.4
+# Mathematical analysis of SillyDES 5.2.5
 
 This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
@@ -24,7 +24,7 @@ This analyses the wrapping scheme around DES and, in section 13, DES itself. In 
 | Speed | 1 MiB in 0.09 s each way; 16 MiB in 1.22 s each way, about 13 MB/s; phrase mode adds 1.8 s **(measured)** |
 | DES itself | 56-bit key, 64-bit block. Exhaustive search has been practical since 1998; differential and linear cryptanalysis need $2^{47}$ chosen and $2^{43}$ known texts. None of it applies here, because no input or output of a DES word is ever visible. DES is not the weak point of the scheme and not the source of its key length (section 13) |
 | Key-length extension theory | In the ideal-cipher model a cascade of DES with whitening can be proven secure up to at most $2^{120}$ DES evaluations, whatever its length and key size (Gaži and Tessaro 2012 and later work). The theory supports whitening between the layers and locates the $2^{512}$ figure with HMAC, not with the cascade (section 14). The wide block does not move that ceiling, and the cheapest attack found on the bare core costs about as much (section 14.4) |
-| Against AES-256 | about $2^{256}$ quantum for key search and MAC against $2^{128}$ for AES-256, heuristic, unreviewed and owed to HMAC-SHA-512; the block cipher on its own is in the range of AES-128; 100 to 700 times slower (section 10) |
+| Against AES-256 | about $2^{256}$ quantum for key search and MAC against $2^{128}$ for AES-256, heuristic, unreviewed and owed to HMAC-SHA-512; the block cipher on its own is in the range of AES-128; one key guess takes about 120 times as long as an AES-256 trial (section 5.4); 100 to 700 times slower (section 10) |
 
 The argument has two parts, and it is worth keeping them apart. The key-search bound is a statement about HMAC-SHA-512: whitening, tweak and MAC key are pseudorandom functions of **all** 512 key bits, so nothing an attacker computes can be checked against a part of the key. The resistance to structural attacks is a statement about use: no permutation instance is ever used for more than one block, so the attacks that break the bare core have no data to work on. The DES layers with the block expansion sit between the two. They are not the source of the 512-bit level, and on their own they are far below it (section 6.2). They are not decoration either: without them the tweak would cancel, they are a cipher of about $2^{120}$ in their own right, and they keep every HMAC output out of an attacker's sight (section 5.7). Both parts hold for a quantum attacker as well as a classical one.
 
@@ -189,6 +189,8 @@ With no partial-key test (section 5.2), the quantum generic attack is Grover ove
 | Key bits | 256 | 512 (448 DES bits, 64 bits that only feed whitening and tweak) | 512 |
 | Grover iterations | $2^{128}$ | $2^{256}$ | $2^{256}$ |
 | Cost per iteration | one AES-256 circuit | the tag check: HMAC-SHA-512 for the MAC key and over the file, 12 SHA-512 compressions for the smallest file. The cipher is not needed; through it the test would cost 256 DES circuits and 40 HMAC-SHA-512 computations | one circuit |
+
+**Time per guess.** A guess costs more here than against AES-256. On the CPU of section 12, one tag check of the smallest file (600 bytes) with OpenSSL's SHA-512 takes 1.49 µs, and one AES-256 trial, key expansion and one block with AES-NI, takes 12.5 ns: about 120 times, or $2^{7}$ **(measured)**. The tag covers the whole file, so the check of a longer file takes longer. For a classical search this adds about 7 bits: $2^{512}$ guesses at $2^{7}$ AES trials each against $2^{256}$ AES trials. Neither test needs memory to speak of, about 1 KB for SHA-512 and 240 bytes of round keys for AES. In phrase mode the time per guess is set by Argon2id (section 8).
 
 AES-256 key search is NIST's reference for its highest post-quantum category (category 5). Without the whitening the cascade would be near $2^{149}$ by claw finding (section 5.1), which is another reason to keep it.
 
@@ -488,6 +490,7 @@ The tweak is the XEX construction (Rogaway, 2004; the core of XTS) applied to th
 | Criterion | AES-256-GCM or AES-256-CBC + HMAC-SHA256 | SillyDES 5.2.0, key file |
 |---|---|---|
 | Classical key search | $2^{256}$ | $2^{512}$, the key length of HMAC-SHA-512 (heuristic, section 5.2) |
+| Time for one classical key guess on this CPU | 12.5 ns, key expansion and one block with AES-NI **(measured)** | 1.49 µs, the tag check of a 600-byte file, about 120 times as long (section 5.4) **(measured)** |
 | Quantum key search (Q1) | $2^{128}$ iterations | $2^{256}$ for the cipher and for the MAC (heuristic, section 5.4) |
 | Overall quantum level | about $2^{128}$ (limited by the 128-bit tag or 256-bit MAC key) | about $2^{256}$ (heuristic) |
 | The block cipher on its own: one key, many blocks, no per-block mask | $2^{256}$ classically, $2^{128}$ quantum; no attack on the full cipher in a usable model | $2^{45}$ chosen texts and $2^{120}$ work classically, $2^{63}$ quantum (section 6.2). The scheme never uses the core this way |
@@ -512,7 +515,7 @@ Three things qualify that margin. It is a cost model for a custom, unreviewed co
 
 ## 12. Experiments run
 
-The rows marked *tools* were run with three programs in [tools/](tools/): [core_structure.cpp](tools/core_structure.cpp) walks two texts through the real layers with the project's `Des` and `SillyDesCipher`, [core_model.cpp](tools/core_model.cpp) is a scaled model of the core with 16-bit words, and [core_scale.cpp](tools/core_scale.cpp) counts the pairs of section 6.2 in the same network with 24-bit and 32-bit words. All three stop with an error when a figure leaves the range that sections 6.2 and 14.4 predict, and all three have a control. They are built and run with `cmake -S . -B build -DSILLYDES_ANALYSIS_TOOLS=ON` and `cmake --build build --target check_analysis`; the figures are the same on every system, because the random numbers do not depend on the library. All other rows are from the release run of 5.2.2. The cipher, the key derivation and the file format of 5.2.4 are the same; the program differs from 5.2.2 in the handling of the output file and of the prompt.
+The rows marked *tools* were run with three programs in [tools/](tools/): [core_structure.cpp](tools/core_structure.cpp) walks two texts through the real layers with the project's `Des` and `SillyDesCipher`, [core_model.cpp](tools/core_model.cpp) is a scaled model of the core with 16-bit words, and [core_scale.cpp](tools/core_scale.cpp) counts the pairs of section 6.2 in the same network with 24-bit and 32-bit words. All three stop with an error when a figure leaves the range that sections 6.2 and 14.4 predict, and all three have a control. They are built and run with `cmake -S . -B build -DSILLYDES_ANALYSIS_TOOLS=ON` and `cmake --build build --target check_analysis`; the figures are the same on every system, because the random numbers do not depend on the library. The row on one key guess comes from [guess_cost.cpp](tools/guess_cost.cpp) (`-DSILLYDES_GUESS_COST=ON`, target `guess_cost`), a benchmark against OpenSSL 3.5.5 that does not run the program. All other rows are from the release run of 5.2.2. The cipher, the key derivation and the file format of 5.2.4 are the same; the program differs from 5.2.2 in the handling of the output file and of the prompt.
 
 | Check | Result |
 |---|---|
@@ -585,6 +588,7 @@ The rows marked *tools* were run with three programs in [tools/](tools/): [core_
 | Small file, phrase, Argon2id against Argon2i (6 passes), Intel Core Ultra 7 265, Linux | 1.75 s against 7.50 s, 2.0 GiB peak memory for both |
 | 16 MiB file | 1.22 s encrypt, 1.23 s decrypt (about 13 MB/s); 2.01 s with the table-based DES of 5.02 |
 | OpenSSL 3.5.5 on the same CPU (AES-NI) | AES-256-CBC 1.8 GB/s, AES-256-GCM 9.2 GB/s |
+| One key guess on one core of the same CPU, [guess_cost.cpp](tools/guess_cost.cpp): an AES-256 trial (key expansion and one block with AES-NI intrinsics, eight keys interleaved, checked against OpenSSL); the tag check of a 600-byte file (HMAC-SHA-512 for the MAC key and for the tag, OpenSSL 3.5.5's SHA-512, checked against the program's `Hmac512`) | 12.5 ns; 1.49 µs |
 
 ## 13. DES itself
 
