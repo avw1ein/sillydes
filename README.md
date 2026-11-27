@@ -1,4 +1,4 @@
-# SillyDES 5.2.5
+# SillyDES 5.2.6
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).
@@ -208,7 +208,7 @@ This does not make SillyDES an approved cipher: nothing built on DES can be, and
 The 2^512 comes from HMAC-SHA-512, not from DES. The eight DES layers with the block expansion still do three things ([ANALYSIS.md](ANALYSIS.md), section 5.7):
 
 - **They are necessary.** The tweak is XORed in before and after the layers; with nothing between, the two would cancel and leave the plaintext.
-- **They are a second line of defence.** Used on their own as an ordinary block cipher, with one key for many blocks, the layers with the block expansion take about 2^120 DES operations and 2^45 chosen blocks to break, about 2^63 on a quantum computer (ANALYSIS.md, section 6.2). That is more than triple DES (2^112) and less than AES-128 (2^128), and it is the most that the theory of DES cascades allows (ANALYSIS.md, section 14). SillyDES never uses the layers that way, but if a tweak were ever used twice, the data would still be behind a cipher of that strength.
+- **They are a second line of defence.** This is a fallback, not the strength of a SillyDES file, which is that of section 2.1. Used on their own as an ordinary block cipher, with one key for many blocks, the layers with the block expansion take about 2^120 DES operations and 2^45 chosen blocks to break, about 2^63 on a quantum computer (ANALYSIS.md, section 6.2); that is the cheapest attack found on them. It is more than triple DES (2^112) and less than AES-128 (2^128), and it is the most that the theory of DES cascades allows (ANALYSIS.md, section 14). SillyDES never uses the layers that way, but if a tweak were ever used twice, the data would still be behind a cipher of that strength.
 - **They keep the HMAC values out of sight.** Someone who knows the plaintext still never sees a whitening or a tweak, only what the DES layers make of them, so an attack on HMAC-SHA-512 that needs its outputs has nothing to start from.
 
 The two parts cover each other: the tweak keeps the DES layers from ever seeing two related blocks, and the DES layers keep the tweak from ever being seen.
@@ -223,7 +223,7 @@ The two parts cover each other: the tweak keeps the DES layers from ever seeing 
 
 ### 2.6 Limits
 
-The figures are estimates, not proofs, and the construction has not been reviewed by others. The 2^120 of section 2.4 is the cheapest attack found, not a proof that nothing cheaper exists. All figures assume random keys; with a phrase, the phrase sets the strength (section 7).
+The figures in this section are estimates from [ANALYSIS.md](ANALYSIS.md), not proofs, and the construction has not been reviewed by others. They hold for a key file of random keys; with a phrase, the phrase sets the strength (section 7).
 
 ---
 
