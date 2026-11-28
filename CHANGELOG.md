@@ -17,7 +17,9 @@ the section of the tag's version as the text of the GitHub Release.
   attacker: one tag per file, on a message that nobody can choose. The cheapest one that reaches the
   content of a file is the key search of section 5.4. README section 2.4 refers to it.
 - ANALYSIS.md section 15 lists the papers, books and standards that the analysis cites, with the
-  sections that cite them.
+  sections that cite them, and in 15.3 the four statements that name no work, with what is known of
+  each: quantum claw finding, the DES key search of 1999, the DES keys with few round keys, and
+  Welch's t-test.
 
 ## [5.2.6] - 2026-11-27
 
