@@ -1,6 +1,6 @@
 # Mathematical analysis of SillyDES 5.2.6
 
-This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
+This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Section 15 lists the literature cited. Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
 ## 1. Summary
 
@@ -822,3 +822,71 @@ So texts times evaluations is about $2^{165}$ for the first attack, texts times 
 **What follows.** The swaps do not move the bound. No construction from DES passes $2^{120}$ in this model, no other theory found gives a wide block more, and the cheapest attack found on the core costs about $2^{120}$ in computing time. Counted in DES evaluations the core stands above a single word of the cascade with little data and below it with much. What the swaps buy is the kind and the amount of data that an attacker needs (section 5.7), and the deployed scheme gives him one text per instance.
 
 In one sentence: the work of Gaži and Tessaro shows that the core is the right kind of construction for extending the key of DES, and at the same time that no such construction can be the reason for a 512-bit claim. In this scheme that claim rests on HMAC-SHA-512 and on never using a mask twice.
+
+## 15. References
+
+The works that this analysis cites, with the sections that cite them. How far the statements taken from a work were checked against it is said in the section that cites it. The data of the papers were checked against bibliographic records (Crossref, and CiNii for Kuwakado and Morii), those of the book against a library catalogue, the ePrint numbers against the IACR ePrint archive, and the RFCs against the RFC Editor.
+
+### 15.1 Papers and books
+
+- Anand, Targhi, Tabia and Unruh. *Post-Quantum Security of the CBC, CFB, OFB, CTR, and XTS Modes of Operation.* PQCrypto 2016, pp. 44-63. [doi:10.1007/978-3-319-29360-8_4](https://doi.org/10.1007/978-3-319-29360-8_4). Sections 6 and 6.6.
+- Bellare. *New Proofs for NMAC and HMAC: Security Without Collision-Resistance.* CRYPTO 2006, pp. 602-619. [doi:10.1007/11818175_36](https://doi.org/10.1007/11818175_36). ePrint 2006/043. Section 5.8.
+- Bhargavan and Leurent. *On the Practical (In-)Security of 64-bit Block Ciphers: Collision Attacks on HTTP over TLS and OpenVPN.* ACM CCS 2016, pp. 456-467. [doi:10.1145/2976749.2978423](https://doi.org/10.1145/2976749.2978423). The Sweet32 attack. Sections 8 and 13.2.
+- Biham. *A Fast New DES Implementation in Software.* Fast Software Encryption 1997, pp. 260-272. [doi:10.1007/BFb0052352](https://doi.org/10.1007/BFb0052352). Section 13.1.
+- Biham and Biryukov. *An Improvement of Davies' Attack on DES.* Journal of Cryptology 10(3), 1997, pp. 195-205. [doi:10.1007/s001459900027](https://doi.org/10.1007/s001459900027). Section 13.2.
+- Biham and Shamir. *Differential Cryptanalysis of the Full 16-round DES.* CRYPTO '92, pp. 487-496. [doi:10.1007/3-540-48071-4_34](https://doi.org/10.1007/3-540-48071-4_34). Section 13.2.
+- Bonnetain, Hosoyamada, Naya-Plasencia, Sasaki and Schrottenloher. *Quantum Attacks Without Superposition Queries: The Offline Simon's Algorithm.* ASIACRYPT 2019, pp. 552-583. [doi:10.1007/978-3-030-34578-5_20](https://doi.org/10.1007/978-3-030-34578-5_20). Sections 6 and 6.5.
+- Bonnetain, Naya-Plasencia and Schrottenloher. *On Quantum Slide Attacks.* Selected Areas in Cryptography, SAC 2019, pp. 492-519. [doi:10.1007/978-3-030-38471-5_20](https://doi.org/10.1007/978-3-030-38471-5_20). Sections 6 and 6.4.
+- Campbell and Wiener. *DES is not a Group.* CRYPTO '92, pp. 512-520. [doi:10.1007/3-540-48071-4_36](https://doi.org/10.1007/3-540-48071-4_36). Section 13.2.
+- Cogliati, Dodis, Katz, Lee, Steinberger, Thiruvengadam and Zhang. *Provable Security of (Tweakable) Block Ciphers Based on Substitution-Permutation Networks.* CRYPTO 2018, pp. 722-753. [doi:10.1007/978-3-319-96884-1_24](https://doi.org/10.1007/978-3-319-96884-1_24). Section 14.4.
+- Coppersmith. *The Data Encryption Standard (DES) and its strength against attacks.* IBM Journal of Research and Development 38(3), 1994, pp. 243-250. [doi:10.1147/rd.383.0243](https://doi.org/10.1147/rd.383.0243). Section 13.2.
+- Coron, Dodis, Mandal and Seurin. *A Domain Extender for the Ideal Cipher.* TCC 2010, pp. 273-289. [doi:10.1007/978-3-642-11799-2_17](https://doi.org/10.1007/978-3-642-11799-2_17). ePrint 2009/356. Section 14.4.
+- Dinur and Leurent. *Improved Generic Attacks against Hash-Based MACs and HAIFA.* CRYPTO 2014, pp. 149-168. [doi:10.1007/978-3-662-44371-2_9](https://doi.org/10.1007/978-3-662-44371-2_9). ePrint 2014/441. Section 5.8.
+- Dodis, Katz, Steinberger, Thiruvengadam and Zhang. *Provable Security of Substitution-Permutation Networks.* ePrint 2017/016. Section 14.4.
+- Electronic Frontier Foundation. *Cracking DES: Secrets of Encryption Research, Wiretap Politics & Chip Design.* 1998, ISBN 1-56592-520-3. The machine "Deep Crack". Section 13.2.
+- Gaži. *Plain versus Randomized Cascading-Based Key-Length Extension for Block Ciphers.* CRYPTO 2013, pp. 551-570. [doi:10.1007/978-3-642-40041-4_30](https://doi.org/10.1007/978-3-642-40041-4_30). ePrint 2013/019. Section 14.1.
+- Gaži, Lee, Seurin, Steinberger and Tessaro. *Relaxing Full-Codebook Security: A Refined Analysis of Key-Length Extension Schemes.* Fast Software Encryption 2015, pp. 319-341. [doi:10.1007/978-3-662-48116-5_16](https://doi.org/10.1007/978-3-662-48116-5_16). ePrint 2015/397. Sections 14.1, 14.3 and 14.4.
+- Gaži, Pietrzak and Rybár. *The Exact PRF-Security of NMAC and HMAC.* CRYPTO 2014, pp. 113-130. [doi:10.1007/978-3-662-44371-2_7](https://doi.org/10.1007/978-3-662-44371-2_7). ePrint 2014/578. Section 5.8.
+- Gaži and Tessaro. *Efficient and Optimally Secure Key-Length Extension for Block Ciphers via Randomized Cascading.* EUROCRYPT 2012, pp. 63-80. [doi:10.1007/978-3-642-29011-4_6](https://doi.org/10.1007/978-3-642-29011-4_6). ePrint 2012/158. Sections 1 and 14.
+- Grover. *A fast quantum mechanical algorithm for database search.* STOC '96, pp. 212-219. [doi:10.1145/237814.237866](https://doi.org/10.1145/237814.237866). Section 2 and throughout.
+- Guo, Peyrin, Sasaki and Wang. *Updates on Generic Attacks against HMAC and NMAC.* CRYPTO 2014, pp. 131-148. [doi:10.1007/978-3-662-44371-2_8](https://doi.org/10.1007/978-3-662-44371-2_8). Section 5.8.
+- Hosoyamada and Iwata. *On Tight Quantum Security of HMAC and NMAC in the Quantum Random Oracle Model.* CRYPTO 2021, pp. 585-615. [doi:10.1007/978-3-030-84242-0_21](https://doi.org/10.1007/978-3-030-84242-0_21). ePrint 2021/774. Section 5.8.
+- Hosoyamada and Sasaki. *Quantum Collision Attacks on Reduced SHA-256 and SHA-512.* CRYPTO 2021, pp. 616-646. [doi:10.1007/978-3-030-84242-0_22](https://doi.org/10.1007/978-3-030-84242-0_22). ePrint 2021/292. Section 5.8.
+- Jaeger, Song and Tessaro. *Quantum Key-Length Extension.* TCC 2021, pp. 209-239. [doi:10.1007/978-3-030-90459-3_8](https://doi.org/10.1007/978-3-030-90459-3_8). ePrint 2021/579. Section 14.1.
+- Kaplan, Leurent, Leverrier and Naya-Plasencia. *Breaking Symmetric Cryptosystems Using Quantum Period Finding.* CRYPTO 2016, pp. 207-237. [doi:10.1007/978-3-662-53008-5_8](https://doi.org/10.1007/978-3-662-53008-5_8). Sections 6, 6.4 and 6.5.
+- Kaplan, Leurent, Leverrier and Naya-Plasencia. *Quantum Differential and Linear Cryptanalysis.* IACR Transactions on Symmetric Cryptology 2016(1), pp. 71-94. [doi:10.46586/tosc.v2016.i1.71-94](https://doi.org/10.46586/tosc.v2016.i1.71-94). Sections 6 and 6.3.
+- Khovratovich, Rechberger and Savelieva. *Bicliques for Preimages: Attacks on Skein-512 and the SHA-2 Family.* Fast Software Encryption 2012, pp. 244-263. [doi:10.1007/978-3-642-34047-5_15](https://doi.org/10.1007/978-3-642-34047-5_15). Section 5.8.
+- Kilian and Rogaway. *How to Protect DES Against Exhaustive Key Search.* CRYPTO '96, pp. 252-267. [doi:10.1007/3-540-68697-5_20](https://doi.org/10.1007/3-540-68697-5_20). Sections 14 and 14.4.
+- Kumar, Paar, Pelzl, Pfeiffer and Schimmler. *Breaking Ciphers with COPACOBANA – A Cost-Optimized Parallel Code Breaker.* CHES 2006, pp. 101-118. [doi:10.1007/11894063_9](https://doi.org/10.1007/11894063_9). Section 13.2.
+- Kuwakado and Morii. *Security on the quantum-type Even-Mansour cipher.* International Symposium on Information Theory and its Applications, ISITA 2012, pp. 312-316. Sections 6 and 6.5.
+- Leander and May. *Grover Meets Simon – Quantumly Attacking the FX-construction.* ASIACRYPT 2017, pp. 161-178. [doi:10.1007/978-3-319-70697-9_6](https://doi.org/10.1007/978-3-319-70697-9_6). Sections 6 and 6.5.
+- Lecomte, Maillard, Moran, Renault and Smith. *Soft Analytical Side-Channel Attacks on SHA-2 and HMAC.* IACR Transactions on Cryptographic Hardware and Embedded Systems 2026(3), pp. 1205-1227. [doi:10.46586/tches.v2026.i3.1205-1227](https://doi.org/10.46586/tches.v2026.i3.1205-1227). ePrint 2026/2071. Section 5.8.
+- Lee. *Towards Key-Length Extension with Optimal Security: Cascade Encryption and Xor-cascade Encryption.* EUROCRYPT 2013, pp. 405-425. [doi:10.1007/978-3-642-38348-9_25](https://doi.org/10.1007/978-3-642-38348-9_25). ePrint 2015/205. Section 14.1.
+- Leurent, Peyrin and Wang. *New Generic Attacks against Hash-Based MACs.* ASIACRYPT 2013, pp. 1-20. [doi:10.1007/978-3-642-42045-0_1](https://doi.org/10.1007/978-3-642-42045-0_1). ePrint 2014/406. Section 5.8.
+- Li, Liu and Wang. *New Records in Collision Attacks on SHA-2.* EUROCRYPT 2024, pp. 158-186. [doi:10.1007/978-3-031-58716-0_6](https://doi.org/10.1007/978-3-031-58716-0_6). ePrint 2024/349. Section 5.8.
+- Lucks. *Attacking Triple Encryption.* Fast Software Encryption 1998, pp. 239-253. [doi:10.1007/3-540-69710-1_16](https://doi.org/10.1007/3-540-69710-1_16). Section 13.2.
+- Matsui. *Linear Cryptanalysis Method for DES Cipher.* EUROCRYPT '93, pp. 386-397. [doi:10.1007/3-540-48285-7_33](https://doi.org/10.1007/3-540-48285-7_33). Sections 6.3 and 13.2.
+- Matsui. *The First Experimental Cryptanalysis of the Data Encryption Standard.* CRYPTO '94, pp. 1-11. [doi:10.1007/3-540-48658-5_1](https://doi.org/10.1007/3-540-48658-5_1). Section 13.2.
+- Peyrin, Sasaki and Wang. *Generic Related-Key Attacks for HMAC.* ASIACRYPT 2012, pp. 580-597. [doi:10.1007/978-3-642-34961-4_35](https://doi.org/10.1007/978-3-642-34961-4_35). ePrint 2012/684. Section 5.8.
+- Preneel and van Oorschot. *MDx-MAC and Building Fast MACs from Hash Functions.* CRYPTO '95, pp. 1-14. [doi:10.1007/3-540-44750-4_1](https://doi.org/10.1007/3-540-44750-4_1). Section 5.8.
+- Rivest. DESX, 1984. Not published by its author; described and analysed by Kilian and Rogaway. Section 14.
+- Rogaway. *Efficient Instantiations of Tweakable Blockciphers and Refinements to Modes OCB and PMAC.* ASIACRYPT 2004, pp. 16-31. [doi:10.1007/978-3-540-30539-2_2](https://doi.org/10.1007/978-3-540-30539-2_2). The XEX construction. Section 9.
+- Shor. *Polynomial-Time Algorithms for Prime Factorization and Discrete Logarithms on a Quantum Computer.* SIAM Journal on Computing 26(5), 1997, pp. 1484-1509. [doi:10.1137/S0097539795293172](https://doi.org/10.1137/S0097539795293172). Section 2.
+- Simon. *On the Power of Quantum Computation.* SIAM Journal on Computing 26(5), 1997, pp. 1474-1483. [doi:10.1137/S0097539796298637](https://doi.org/10.1137/S0097539796298637). Sections 2, 6 and 6.5.
+- Song and Yun. *Quantum Security of NMAC and Related Constructions.* CRYPTO 2017, pp. 283-309. [doi:10.1007/978-3-319-63715-0_10](https://doi.org/10.1007/978-3-319-63715-0_10). Section 5.8.
+- Tessaro and Thiruvengadam. *Provable Time-Memory Trade-Offs: Symmetric Cryptography Against Memory-Bounded Adversaries.* TCC 2018, pp. 3-32. [doi:10.1007/978-3-030-03807-6_1](https://doi.org/10.1007/978-3-030-03807-6_1). Section 14.4.
+
+### 15.2 Standards and specifications
+
+- FIPS PUB 46. *Data Encryption Standard.* National Bureau of Standards, 1977. Sections 12 and 13.1.
+- FIPS PUB 46-3. *Data Encryption Standard (DES).* National Institute of Standards and Technology, 1999. Section 13.2.
+- FIPS PUB 180-4. *Secure Hash Standard (SHS).* National Institute of Standards and Technology, 2015. [doi:10.6028/NIST.FIPS.180-4](https://doi.org/10.6028/NIST.FIPS.180-4). SHA-512. Section 5.8.
+- FIPS PUB 197. *Advanced Encryption Standard (AES).* National Institute of Standards and Technology, 2001. [doi:10.6028/NIST.FIPS.197](https://doi.org/10.6028/NIST.FIPS.197). Section 10.
+- IEEE Std 1619-2007. *IEEE Standard for Cryptographic Protection of Data on Block-Oriented Storage Devices.* [doi:10.1109/IEEESTD.2008.4493450](https://doi.org/10.1109/IEEESTD.2008.4493450). The XTS mode. Sections 6.6 and 9.
+- NIST. *Submission Requirements and Evaluation Criteria for the Post-Quantum Cryptography Standardization Process.* 2016. The security categories. Sections 5.4 and 10.3.
+- NIST SP 800-131A Revision 2. Barker and Roginsky. *Transitioning the Use of Cryptographic Algorithms and Key Lengths.* 2019. [doi:10.6028/NIST.SP.800-131Ar2](https://doi.org/10.6028/NIST.SP.800-131Ar2). Section 13.2.
+- RFC 2104. Krawczyk, Bellare and Canetti. *HMAC: Keyed-Hashing for Message Authentication.* 1997. Section 2 and throughout.
+- RFC 4231. Nystrom. *Identifiers and Test Vectors for HMAC-SHA-224, HMAC-SHA-256, HMAC-SHA-384, and HMAC-SHA-512.* 2005. Sections 5.8 and 12.
+- RFC 7693. Saarinen and Aumasson. *The BLAKE2 Cryptographic Hash and Message Authentication Code (MAC).* 2015. Section 12.
+- RFC 9106. Biryukov, Dinu, Khovratovich and Josefsson. *Argon2 Memory-Hard Function for Password Hashing and Proof-of-Work Applications.* 2021. Sections 1, 8 and 12.
+- The Unicode Standard, Version 18.0.0, with Unicode Standard Annex #15, *Unicode Normalization Forms.* The Unicode Consortium. Section 8.

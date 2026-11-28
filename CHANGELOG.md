@@ -16,6 +16,8 @@ the section of the tag's version as the text of the GitHub Release.
   those on SHA-512 itself, with what each costs and needs, and sets them against what a file gives an
   attacker: one tag per file, on a message that nobody can choose. The cheapest one that reaches the
   content of a file is the key search of section 5.4. README section 2.4 refers to it.
+- ANALYSIS.md section 15 lists the papers, books and standards that the analysis cites, with the
+  sections that cite them.
 
 ## [5.2.6] - 2026-11-27
 
