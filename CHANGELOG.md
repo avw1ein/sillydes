@@ -10,6 +10,13 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+### Documentation
+
+- [ANALYSIS.md](ANALYSIS.md) section 5.8 lists the published attacks on HMAC-SHA-512, generic ones and
+  those on SHA-512 itself, with what each costs and needs, and sets them against what a file gives an
+  attacker: one tag per file, on a message that nobody can choose. The cheapest one that reaches the
+  content of a file is the key search of section 5.4. README section 2.4 refers to it.
+
 ## [5.2.6] - 2026-11-27
 
 **File format: unchanged (5.2.0).** Files written by 5.2.5 and by 5.2.6 open in each other, with a

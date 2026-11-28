@@ -18,7 +18,7 @@ This analyses the wrapping scheme around DES and, in section 13, DES itself. In 
 | What the DES core contributes | Not the 512-bit level. It is necessary, since without it the tweak cancels; it is a second line of defence at about $2^{120}$ should a mask ever repeat; and it keeps every whitening and tweak value out of sight, so that HMAC-SHA-512 cannot be attacked through known outputs. The masks and the core cover each other's weak side (section 5.7) |
 | Chaining | CBC around all layers with a random 256-byte IV, inside the tweak |
 | Randomisation | Salt, IV and padding are random and drawn inside the sealing routine only, with error 14 if the generator fails: equal messages give unrelated ciphertexts **(measured)**; two files made with one key file share no whitening and no tweak |
-| Integrity | HMAC-SHA-512 (512-bit key, 512-bit tag) over header and ciphertext, verified before decryption; $2^{256}$ Grover iterations for the MAC key or a forgery |
+| Integrity | HMAC-SHA-512 (512-bit key, 512-bit tag) over header and ciphertext, verified before decryption; $2^{256}$ Grover iterations for the MAC key or a forgery. The published classical forgery attacks on HMAC need tagged messages of about $2^{256}$ SHA-512 blocks or more under one MAC key, with messages of the attacker's choice among them; the format gives one tag per file, on a message that nobody can choose (section 5.8) |
 | Passphrase | Argon2id (2 GiB, 1 pass, 4 lanes, RFC 9106 first recommendation), random salt; optionally Argon2i (2 GiB, 6 passes, 4 lanes) against cache observers; strength is the phrase entropy, halved by Grover |
 | 64-bit word collisions | occur at the random rate (about $2^{30}$ blocks) and carry no information, because the tweak masks every ciphertext word with a block-specific secret (section 8) |
 | Speed | 1 MiB in 0.09 s each way; 16 MiB in 1.22 s each way, about 13 MB/s; phrase mode adds 1.8 s **(measured)** |
@@ -154,7 +154,7 @@ Under the PRF assumption the DES layers are therefore not what an attacker has t
 
 **What the argument rests on.**
 
-- **The PRF assumption.** The generic attacks on HMAC-SHA-512 are a search over its 512-bit key and collisions in its 512-bit chaining state, which need about $2^{256}$ queries under one key. A file of $n$ blocks makes $36 + 4n$ queries.
+- **The PRF assumption.** The generic attacks on HMAC-SHA-512 are a search over its 512-bit key and collisions in its 512-bit chaining state, which need about $2^{256}$ queries under one key. A file of $n$ blocks makes $36 + 4n$ queries. Section 5.8 lists the published attacks on HMAC-SHA-512 and what each of them needs.
 - **One key for two primitives.** The same 64 bytes key HMAC and the DES layers. No interaction between SHA-512 and DES is known, and no output of a DES word is ever visible unmasked, but a proof would want separate keys. A later format could derive the DES keys from $K$ with a label of their own at no cost.
 - **One use per mask.** The mask depends on the salt and the block index. The salt has 128 bits, so two files made with one key file share a salt with probability $2^{-128}$ per pair, and about $2^{64}$ files are needed before one such pair is expected. Blocks at equal positions of those two files would be two texts of one instance, with an input difference that the two random IVs make random. That is far from the $2^{45}$ chosen texts that section 6.2 needs, but it is where the statement "one text per instance" ends.
 - **The core under many texts.** With many texts of one fixed instance the argument does not apply, and the core falls well below $2^{512}$ (section 6.2). The figure rests on the tweak and on the randomisation, not on the core.
@@ -200,7 +200,7 @@ The cipher key is not the only 512-bit quantity. Where the quantum bound of the 
 |---|---|---|
 | Cipher key | $2^{256}$ iterations | Grover on 512 bits; the key length is that of HMAC-SHA-512 (section 5.2) |
 | MAC key | $2^{256}$ iterations | HMAC-SHA-512 key is 512 bits, derived from the keys or the passphrase |
-| Tag forgery | $2^{256}$ iterations | 512-bit tag |
+| Tag forgery | $2^{256}$ iterations | 512-bit tag; the classical forgery attacks and what they need are in section 5.8 |
 | **Whole scheme, key file** | **about $2^{256}$** | limited by the cipher and MAC keys, which are both 512 bits |
 
 - A 256-bit MAC key and tag, such as HMAC-SHA256, would limit the whole scheme to $2^{128}$, the same as AES-256 with HMAC-SHA256 or GCM. The 512-bit MAC key and tag give authentication the same quantum cost as encryption. Both the whitening and the MAC use HMAC-SHA-512; BLAKE2b is used only inside Argon2id, on the passphrase path.
@@ -268,13 +268,71 @@ The consequence is a second line of defence. If a mask were ever used twice, thr
 
 In this scheme an attack on HMAC-SHA-512 that starts from known outputs has nothing to start from; it would first have to get through the DES layers in the setting where they are strongest, one text per instance. The limits of the statement:
 
-- Under the PRF assumption of section 5.2 this adds nothing, because that assumption already allows the attacker to see outputs. It matters only if HMAC-SHA-512 has a weakness that needs known outputs, and none is known. HMAC-SHA-512 is by far the better studied of the two parts.
+- Under the PRF assumption of section 5.2 this adds nothing, because that assumption already allows the attacker to see outputs. It matters only if HMAC-SHA-512 has a weakness that needs known outputs, and none is known (section 5.8). HMAC-SHA-512 is by far the better studied of the two parts.
 - It is an observation about what is visible, not a proof.
 - The tag is a visible HMAC output, but under the MAC key and not under $K$. In key-file mode the MAC key is itself an HMAC output under $K$ that is used as a key and never shown; in phrase mode it is independent of $K$.
 
 **What cannot be said.** That DES with the block expansion makes the 512-bit key space, or the $2^{512}$ level. The 448 DES key bits are part of the 512, but the size of a key space is not the cost of searching it: no cascade of DES can be shown secure beyond $2^{120}$ DES operations (section 14), the core falls at about that figure, and a guess of the key is tested on the tag without the core (section 5.4).
 
 **Taken together.** The two parts cover each other's weak side. The masks see to it that the core never gets two related blocks, which is where the core is weak. The core sees to it that no mask is ever visible, so that the scheme does not lean on HMAC-SHA-512 in its most exposed form, and it stands behind the masks as a cipher of about $2^{120}$ should one of them ever repeat. The 512-bit key length is carried by HMAC-SHA-512; the DES core with the block expansion turns it into a cipher in which neither a mask nor any input or output of a DES word can be seen.
+
+### 5.8 Attacks on HMAC-SHA-512
+
+A key guess is tested on the tag (section 5.4), and whitening, tweak and MAC key are outputs of HMAC-SHA-512. This section says what the scheme gives an attacker of HMAC-SHA-512 to work with, which attacks on it are published, and what each of them needs. The results are quoted from the abstracts of the papers named and, for Preneel and van Oorschot, Guo et al. and Khovratovich et al., from their text.
+
+**What an attacker has.** HMAC-SHA-512 runs under two keys. Each has 64 bytes, less than the 128-byte block of SHA-512, so it is used as it is.
+
+| | Under $K$ | Under $K_{mac}$ |
+|---|---|---|
+| Calls | $36 + 4n$ for a file of $n$ blocks; in key-file mode one more, for the MAC key | one per file |
+| Input | a label, the salt and counters, 18 to 45 bytes | header and ciphertext, 536 bytes or more |
+| Who chooses the input | nobody: the labels are fixed and the salt is random | nobody: it begins with the random salt and IV, 2176 bits, and goes on with ciphertext |
+| Output | never visible: whitening and tweak stay inside the core (section 5.7), and the MAC key is used as a key | the tag, visible |
+| Files under one key | key-file mode: all files made with that key file. Phrase mode: one, because the salt of the file enters Argon2 | the same |
+
+An attacker therefore has tags, one for each file, on messages that nobody chose, and no other output. Having plaintext of his choice encrypted does not change that: salt and IV are drawn inside the sealing routine, and every ciphertext block is $x_i\oplus F(y_i)$ at a point $y_i$ that he does not know (section 5.2).
+
+**Generic attacks.** These hold for HMAC with any hash function of the same construction. $l$ is the length of the chaining state and $n$ that of the tag, both 512 bits here.
+
+| Attack | Cost | Needs | Gives |
+|---|---|---|---|
+| Key search (section 5.4) | $2^{512}$ guesses; $2^{256}$ Grover iterations | one file | the key |
+| Guessing a tag | one success in $2^{512}$ attempts | the key holder's program to judge every attempt | one accepted file |
+| Collision in the chaining state (Preneel and van Oorschot, CRYPTO 1995) | $\sqrt2\cdot 2^{l/2}$, about $2^{256.5}$, tagged messages under one MAC key | known messages for the collision, then a few tags on messages of the attacker's choice | a valid tag on a message that the key holder did not tag |
+| Selective forgery (Guo, Peyrin, Sasaki and Wang, CRYPTO 2014) | about $2^{l/2} = 2^{256}$ computations, which meets the proven bound | tags on chosen messages | a valid tag on a message that the attacker named beforehand |
+| State recovery, and telling HMAC-SHA-512 from HMAC with an ideal compression function (Leurent, Peyrin and Wang, ASIACRYPT 2013; ePrint 2014/406) | about $2^{l/2} = 2^{256}$ computations | tags on chosen messages | the chaining state after a message |
+| Universal forgery (Guo et al.) | about $2^{3l/4} = 2^{384}$ computations | tags on chosen messages | a valid tag on a message that someone else chose |
+| Internal keys from a table (Guo et al.) | a table that takes $2^{l} = 2^{512}$ work once; then about $2^{2l/3} = 2^{341}$ for the outer and $2^{3l/4} = 2^{384}$ for the inner key of each MAC key | tags on chosen messages | the two internal keys of one MAC key, with which tags can be computed |
+| The same with short messages (Dinur and Leurent, CRYPTO 2014; ePrint 2014/441) | above $2^{l/2}$ and below $2^{l}$, by a trade-off with the message length | tags on chosen messages | state recovery and universal forgery for hash functions that limit the length of a message. SHA-512 limits it to $2^{128}$ bits |
+| Related keys (Peyrin, Sasaki and Wang, ASIACRYPT 2012; ePrint 2012/684) | about $2^{n/2} = 2^{256}$ queries | a key as long as the block of the hash function, and tags under a second key in a fixed relation to the first | a distinguisher and forgeries |
+| Superposition queries (Hosoyamada and Iwata, CRYPTO 2021; ePrint 2021/774) | about $2^{n/3} = 2^{171}$ quantum queries, proven tight with the compression function as a random oracle | the keyed function as a quantum oracle (Q2) | tells HMAC from a random function |
+
+**How they meet the scheme.**
+
+- **Number of tags.** Up to the birthday bound, $2^{l/2}$ queries, HMAC is proven to be a pseudorandom function if the compression function of the hash is one (Bellare, CRYPTO 2006, ePrint 2006/043; Gaži, Pietrzak and Rybár, CRYPTO 2014, ePrint 2014/578, with a bound that they show to be tight). Every classical attack in the table below the first two rows therefore needs tagged messages that add up to about $2^{256}$ blocks of SHA-512 or more under one MAC key, $2^{263}$ bytes. In phrase mode a MAC key tags one file. In key-file mode it tags the files made with that key file, and one key file serves for about $2^{64}$ files (section 11, item 8); among $2^{64}$ files of any length two equal tags occur with probability about $2^{-384}$.
+- **Chosen messages.** Each of the same attacks also needs tags on messages that the attacker put together. The scheme makes no such tag. A message under the MAC key begins with 2176 random bits, so a given message comes out of the sealing routine with probability at most $2^{-2176}$ per file.
+- **Known messages alone.** Two files with equal tags would show a collision and no more. A file joined from the head of one file and the tail of another has a valid tag when the chaining states of the two agree at the joint. That has probability about $2^{-512}$ and cannot be seen from outside, so it is a guess of the same kind as guessing the tag.
+- **Under $K$.** All of these attacks work from tags. Under $K$ no output is visible, so they have nothing to work from (section 5.7).
+- **Related keys.** The keys have 64 bytes and the block of SHA-512 has 128, and no key of the scheme stands in a fixed relation to another.
+- **Quantum attackers.** Files are classical data, so the setting is Q1 and no quantum oracle exists. Song and Yun (CRYPTO 2017) prove that HMAC is a pseudorandom function against quantum queries as well if the compression function is one. What remains is Grover on the key, $2^{256}$ iterations (section 5.4).
+- **What a forgery would be worth.** None of the forgery attacks gives $K$ or a plaintext. In key-file mode the MAC key is an HMAC output under $K$, and finding $K$ from it is the key search again. A forger could have ciphertext of his making decrypted by the key holder, which the tag check otherwise prevents (section 5.2).
+
+**SHA-512 itself.** SHA-512 has 80 steps. The published attacks on the hash function reach:
+
+| Attack | Steps of 80 |
+|---|---|
+| Collision | 28 in practice, 31 in theory (Li, Liu and Wang, EUROCRYPT 2024; ePrint 2024/349) |
+| Collision with a quantum computer | 39 (Hosoyamada and Sasaki, CRYPTO 2021; ePrint 2021/292) |
+| Preimage | 50, at $2^{511.5}$; 57 for the compression function alone (Khovratovich, Rechberger and Savelieva, FSE 2012) |
+
+The proofs named above ask of the compression function that it is a pseudorandom function. They do not ask that collisions are hard to find (Bellare, 2006). A search of the literature for this revision found no attack on HMAC-SHA-512 or on HMAC-SHA-256 with the full hash function that costs less than the generic ones.
+
+**Beside the mathematics.**
+
+- **A phrase.** In phrase mode a guess of the phrase is tested on the tag after one run of Argon2. The tag is only the test; the cost is that of the phrase (section 8).
+- **Measurements of the machine.** Lecomte, Maillard, Moran, Renault and Smith (TCHES 2026; ePrint 2026/2071) describe a key recovery for HMAC-SHA-256 from side-channel measurements that needs neither control nor knowledge of the input, and evaluate it with an electromagnetic probe on a microcontroller. Such an attack needs a probe at the processor while it computes. The HMAC of this program is its own SHA-512 ([src/sha512.cpp](src/sha512.cpp)), checked against RFC 4231 (section 12) and for timing, branches and memory addresses that depend on a secret (section 8). Those checks do not cover power or electromagnetic measurements.
+
+**Taken together.** The cheapest published attack on HMAC-SHA-512 that reaches the content of a file is the key search of section 5.4: $2^{512}$ guesses, or $2^{256}$ Grover iterations. Everything published below that figure is a forgery or a distinguisher. It needs tagged messages of about $2^{256}$ SHA-512 blocks or more under one MAC key, with messages of the attacker's choice among them, or else a quantum oracle for the keyed function. The file format gives one tag per file, on a message that nobody can choose.
 
 ## 6. Differential, linear, slide and period-finding attacks
 
