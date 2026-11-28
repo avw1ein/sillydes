@@ -14,7 +14,7 @@
 //     those pairs of texts share a half of the output of layer 0;
 //   - how a guess of the first layer's word, and of the last layer's two words, is told from wrong ones;
 //   - how often a difference in one word is in one word again after a swap;
-//   - for section 14.4, the guesses when only one value in f of the layer cipher may be evaluated: how
+//   - for section 12.4, the guesses when only one value in f of the layer cipher may be evaluated: how
 //     many more texts make up for the smaller table. Here the first layer is a small keyed cipher
 //     (a 4-bit key and a 16-bit whitening word) and every one of its 2^20 guesses is tried.
 // The predictions scale with the half word h (here 2^8, in the cipher 2^32): 5h times the random rate
@@ -174,7 +174,7 @@ bool shares_half(uint16_t a, uint16_t b)
   return (d & 0xF0F0) == 0 || (d & 0x0F0F) == 0;
 }
 
-// ---- Counted in evaluations of the layer cipher (ANALYSIS.md section 14.4) ----
+// ---- Counted in evaluations of the layer cipher (ANALYSIS.md section 12.4) ----
 // The attacker's table of the layer cipher holds one value in f: those with the low bits zero.
 
 enum { KEYBITS = 4, KEYS = 1 << KEYBITS };
@@ -439,6 +439,6 @@ int main()
     check(ok, "the last two layers with a part of the table: f^6 times the texts do not make up for a table of 1/f");
   }
 
-  if (!failures) printf("ok: the scaled model shows what ANALYSIS.md sections 6.2 and 14.4 predict\n");
+  if (!failures) printf("ok: the scaled model shows what ANALYSIS.md sections 6.2 and 12.4 predict\n");
   return failures ? 1 : 0;
 }

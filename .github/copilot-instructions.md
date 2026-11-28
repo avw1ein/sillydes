@@ -14,7 +14,7 @@ an earlier text said.
   documents for the old figure before you finish.
 - The changelog says what a release contains and what it changes in the program and its files. It does not
   say what a document claimed before.
-- Where a measurement comes from (which release, which tool) is a fact, not history. It stays, in section 12
+- Where a measurement comes from (which release, which tool) is a fact, not history. It stays, in section 14
   of ANALYSIS.md.
 - In your answers to the user you may say what you changed. In the files you may not.
 

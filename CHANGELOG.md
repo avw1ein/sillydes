@@ -22,6 +22,9 @@ the section of the tag's version as the text of the GitHub Release.
   Welch's t-test.
 - ANALYSIS.md opens with a table of contents that links to every section and subsection.
 - In ANALYSIS.md every citation in sections 1 to 14 links to its entry in section 15.
+- ANALYSIS.md has DES itself and the theory of randomised cascades as sections 11 and 12, followed by the
+  recommendations (section 13) and the experiments (section 14). The references to them in the other
+  documents, in the build and in the analysis tools follow.
 
 ## [5.2.6] - 2026-11-27
 
@@ -69,7 +72,7 @@ documentation and a third analysis tool.
 
 - [ANALYSIS.md](ANALYSIS.md) says what the nibble swaps are worth to the core on its own: the amount and
   the kind of data that an attacker needs of one instance, not computing time or memory (sections 1, 5.7
-  and 14.3). That data is a number of blocks under one instance, not the size of a file: a file of any size
+  and 12.3). That data is a number of blocks under one instance, not the size of a file: a file of any size
   gives each instance one block.
 - The figures for the eight DES layers on their own, with one key for many blocks, are: told from a random
   permutation with about 2^45 chosen blocks, and key recovery with about 2^45 chosen blocks and about 2^120
@@ -77,7 +80,7 @@ documentation and a third analysis tool.
   practice. The last layer and the swap before it map two words onto two words, so two blocks that agree in
   two ciphertext words show which first-layer guess is right (ANALYSIS.md, section 6.2; README, section 2).
   The program never uses the layers this way, and nothing in the program or the file format changes.
-- ANALYSIS.md section 14.4 treats the wide block and the limit of 2^120 DES operations that the theory of
+- ANALYSIS.md section 12.4 treats the wide block and the limit of 2^120 DES operations that the theory of
   cascades sets: no construction from DES passes it, no other theory found gives a wide block more, and
   the best attack found on the layers costs about that much.
 - The analysis check (`-DSILLYDES_ANALYSIS_TOOLS=ON`, target `check_analysis`) has a third program,
@@ -114,8 +117,8 @@ this release also has documentation and two tools.
 
 ### Added
 
-- [ANALYSIS.md](ANALYSIS.md) covers DES itself (section 13) and the theory of key-length extension by
-  randomised cascades, from Gazi and Tessaro (EUROCRYPT 2012) onwards (section 14). What it finds:
+- [ANALYSIS.md](ANALYSIS.md) covers DES itself (section 11) and the theory of key-length extension by
+  randomised cascades, from Gazi and Tessaro (EUROCRYPT 2012) onwards (section 12). What it finds:
   - a file costs about 2^512 operations to open without the key, 2^256 on a quantum computer. This is
     the key length of HMAC-SHA-512, which makes the whitening, the tweak and the authentication key;
   - the eight DES layers on their own, with one key for many blocks, are below AES-128 (about

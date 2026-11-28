@@ -81,7 +81,7 @@ Read the section that matches the file you are about to change before you change
 - SECURITY.md: what is protected, what is not, what is unverified.
 - STRUCTURE.md: sections 2, 11 and 12 when the platform layer or the hardening changes.
 - TESTING.md: the test and job tables, new rules and findings.
-- ANALYSIS.md: section 8 (per-system hygiene, resource check, measurements) and section 12 (experiments).
+- ANALYSIS.md: section 8 (per-system hygiene, resource check, measurements) and section 14 (experiments).
 - CHANGELOG.md: under `[Unreleased]`; the release entry later begins with a bold line saying whether the
   file format changed.
 - Memories: only durable facts (commands, conventions), and replace outdated ones.

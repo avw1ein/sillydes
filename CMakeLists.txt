@@ -29,7 +29,7 @@ option(SILLYDES_CODESIGN "macOS: sign the program with the hardened runtime and 
 set(SILLYDES_CODESIGN_IDENTITY "-" CACHE STRING "macOS: the codesign identity; - is an ad hoc signature, a Developer ID name signs for distribution")
 option(SILLYDES_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC and Clang)" OFF)
 option(SILLYDES_REGENERATE_SBOX "Add the target regenerate_sbox, which rewrites src/des_sbox_ct.h" OFF)
-option(SILLYDES_ANALYSIS_TOOLS "Add the target check_analysis and the test analysis_check: the measurements behind ANALYSIS.md sections 6.2 and 14.4 (tools/core_structure.cpp, tools/core_model.cpp, tools/core_scale.cpp)" OFF)
+option(SILLYDES_ANALYSIS_TOOLS "Add the target check_analysis and the test analysis_check: the measurements behind ANALYSIS.md sections 6.2 and 12.4 (tools/core_structure.cpp, tools/core_model.cpp, tools/core_scale.cpp)" OFF)
 option(SILLYDES_GUESS_COST "Add the target guess_cost (tools/guess_cost.cpp): the time of one key guess against SillyDES and AES-256, ANALYSIS.md section 5.4. Needs x86-64 with AES-NI and the OpenSSL 3 development files of the system" OFF)
 set(SILLYDES_REGENERATE_UNICODE "" CACHE PATH
     "Directory with the Unicode data files of the pinned version (tools/fetch_ucd.sh fills it); adds the targets regenerate_unicode and check_unicode and the test unicode_check")
@@ -137,7 +137,7 @@ if(SILLYDES_REGENERATE_SBOX)
     VERBATIM)
 endif()
 
-# The measurements that ANALYSIS.md sections 6.2 and 14.4 rest on. They test the analysis, not the program,
+# The measurements that ANALYSIS.md sections 6.2 and 12.4 rest on. They test the analysis, not the program,
 # so they are not part of a normal build.
 if(SILLYDES_ANALYSIS_TOOLS)
   add_executable(core_structure EXCLUDE_FROM_ALL tools/core_structure.cpp)

@@ -20,7 +20,7 @@ Released under the MIT License (see [LICENSE](LICENSE)).
 9. [Error levels](#9-error-levels)
 10. [Disclaimer](#10-disclaimer)
 
-What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning, [STRUCTURE.md](STRUCTURE.md) for the code layout, [TESTING.md](TESTING.md) for the tests and the CI, and [SECURITY.md](SECURITY.md) for the threat model and how to report a problem. The analysis in ANALYSIS.md was last done by Claude Fable 5.2 (Anthropic), working from the source code and from measurements that can be repeated (section 12 there); it is not an independent human review.
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md). See also [VISUALIZATION.md](VISUALIZATION.md) for diagrams of one block going through the cipher, [ANALYSIS.md](ANALYSIS.md) for the security reasoning, [STRUCTURE.md](STRUCTURE.md) for the code layout, [TESTING.md](TESTING.md) for the tests and the CI, and [SECURITY.md](SECURITY.md) for the threat model and how to report a problem. The analysis in ANALYSIS.md was last done by Claude Fable 5.2 (Anthropic), working from the source code and from measurements that can be repeated (section 14 there); it is not an independent human review.
 
 ---
 
@@ -201,14 +201,14 @@ DES has been studied for almost fifty years, so its downsides are known precisel
 
 DES is also not a group: two DES encryptions in a row are in general not one DES encryption under a third key, so eight layers do not collapse into fewer.
 
-This does not make SillyDES an approved cipher: nothing built on DES can be, and the construction has had no outside review. [ANALYSIS.md](ANALYSIS.md), section 13, lists what is known about DES and what each property means here.
+This does not make SillyDES an approved cipher: nothing built on DES can be, and the construction has had no outside review. [ANALYSIS.md](ANALYSIS.md), section 11, lists what is known about DES and what each property means here.
 
 ### 2.4 What the DES layers add
 
 The 2^512 comes from HMAC-SHA-512, not from DES. The eight DES layers with the block expansion still do three things ([ANALYSIS.md](ANALYSIS.md), section 5.7):
 
 - **They are necessary.** The tweak is XORed in before and after the layers; with nothing between, the two would cancel and leave the plaintext.
-- **They are a second line of defence.** This is a fallback, not the strength of a SillyDES file, which is that of section 2.1. Used on their own as an ordinary block cipher, with one key for many blocks, the layers with the block expansion take about 2^120 DES operations and 2^45 chosen blocks to break, about 2^63 on a quantum computer (ANALYSIS.md, section 6.2); that is the cheapest attack found on them. It is more than triple DES (2^112) and less than AES-128 (2^128), and it is the most that the theory of DES cascades allows (ANALYSIS.md, section 14). SillyDES never uses the layers that way, but if a tweak were ever used twice, the data would still be behind a cipher of that strength.
+- **They are a second line of defence.** This is a fallback, not the strength of a SillyDES file, which is that of section 2.1. Used on their own as an ordinary block cipher, with one key for many blocks, the layers with the block expansion take about 2^120 DES operations and 2^45 chosen blocks to break, about 2^63 on a quantum computer (ANALYSIS.md, section 6.2); that is the cheapest attack found on them. It is more than triple DES (2^112) and less than AES-128 (2^128), and it is the most that the theory of DES cascades allows (ANALYSIS.md, section 12). SillyDES never uses the layers that way, but if a tweak were ever used twice, the data would still be behind a cipher of that strength.
 - **They keep the HMAC values out of sight.** Someone who knows the plaintext still never sees a whitening or a tweak, only what the DES layers make of them, so an attack on HMAC-SHA-512 that needs its outputs has nothing to start from. The one HMAC value that can be seen is the tag at the end of a file. The published attacks on HMAC-SHA-512 that cost less than trying every key give neither the key nor the content of a file. The ones that forge a tag need about 2^256 blocks of tagged messages under one key, with messages of the attacker's choice among them, and a file gives one tag, on a message that nobody can choose (ANALYSIS.md, section 5.8).
 
 The two parts cover each other: the tweak keeps the DES layers from ever seeing two related blocks, and the DES layers keep the tweak from ever being seen.
