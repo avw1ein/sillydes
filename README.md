@@ -1,4 +1,4 @@
-# SillyDES 5.2.6
+# SillyDES 5.2.7
 
 Copyright (C) by Andy van Wezel, 1993 - 1994, 2026.
 Released under the MIT License (see [LICENSE](LICENSE)).

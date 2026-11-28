@@ -10,6 +10,12 @@ the section of the tag's version as the text of the GitHub Release.
 
 ## [Unreleased]
 
+## [5.2.7] - 2026-11-28
+
+**File format: unchanged (5.2.0).** Files written by 5.2.6 and by 5.2.7 open in each other, with a
+key file or a phrase. The program is that of 5.2.6 with its own version number; this release has
+documentation.
+
 ### Documentation
 
 - [ANALYSIS.md](ANALYSIS.md) section 5.8 lists the published attacks on HMAC-SHA-512, generic ones and
@@ -373,7 +379,8 @@ read by earlier releases.
 - Constant-time bitsliced DES; every generated S-box circuit is tested against the FIPS 46 tables.
 - The user's data is kept in one buffer, processed in place and wiped after use.
 
-[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.6...HEAD
+[Unreleased]: https://github.com/avw1ein/sillydes/compare/v5.2.7...HEAD
+[5.2.7]: https://github.com/avw1ein/sillydes/compare/v5.2.6...v5.2.7
 [5.2.6]: https://github.com/avw1ein/sillydes/compare/v5.2.5...v5.2.6
 [5.2.5]: https://github.com/avw1ein/sillydes/compare/v5.2.4...v5.2.5
 [5.2.4]: https://github.com/avw1ein/sillydes/compare/v5.2.3...v5.2.4

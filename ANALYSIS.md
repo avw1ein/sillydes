@@ -1,4 +1,4 @@
-# Mathematical analysis of SillyDES 5.2.6
+# Mathematical analysis of SillyDES 5.2.7
 
 This analyses the wrapping scheme around DES and, in section 11, DES itself. In sections 2 to 10, 13 and 14 DES is treated as a keyed random permutation on 64-bit words; section 11 says what is known about the real cipher and where that assumption is used. Section 12 relates the scheme to the theory of key-length extension by randomised cascades ([Gaži and Tessaro, 2012](#ref-gazi-tessaro-2012), and the work that followed). Section 15 lists the literature cited. Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 14). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
