@@ -2,6 +2,53 @@
 
 This analyses the wrapping scheme around DES and, in section 13, DES itself. In sections 2 to 12 DES is treated as a keyed random permutation on 64-bit words; section 13 says what is known about the real cipher and where that assumption is used. Section 14 relates the scheme to the theory of key-length extension by randomised cascades (Gaži and Tessaro, 2012, and the work that followed). Section 15 lists the literature cited. Everything below refers to the current code in [src/](src/) (the cipher is in [src/sillydes_cipher.cpp](src/sillydes_cipher.cpp)). Items marked **(measured)** were checked against the built binary or a model run for this revision (section 12). Classical and quantum attackers are treated side by side: each attack is costed classically first and then in the quantum models of section 2. Claims about key-search cost are heuristic arguments about a custom construction that nobody has reviewed.
 
+## Contents
+
+1. [Summary](#1-summary)
+2. [Model](#2-model)
+3. [The expansion permutations](#3-the-expansion-permutations)
+4. [Diffusion](#4-diffusion)
+5. [Key space and generic attacks](#5-key-space-and-generic-attacks)
+    - [5.1 Cascade without whitening](#51-cascade-without-whitening)
+    - [5.2 Whitening and tweak derived from all key bits](#52-whitening-and-tweak-derived-from-all-key-bits)
+    - [5.3 DES-specific properties](#53-des-specific-properties)
+    - [5.4 Quantum key search](#54-quantum-key-search)
+    - [5.5 What this does not show](#55-what-this-does-not-show)
+    - [5.6 Other bounds](#56-other-bounds)
+    - [5.7 What the DES core contributes](#57-what-the-des-core-contributes)
+    - [5.8 Attacks on HMAC-SHA-512](#58-attacks-on-hmac-sha-512)
+6. [Differential, linear, slide and period-finding attacks](#6-differential-linear-slide-and-period-finding-attacks)
+    - [6.1 Why the tweak closes the door](#61-why-the-tweak-closes-the-door)
+    - [6.2 The core without the tweak: half-word structure](#62-the-core-without-the-tweak-half-word-structure)
+    - [6.3 The core without the tweak: linear approximations](#63-the-core-without-the-tweak-linear-approximations)
+    - [6.4 Slide and related-key attacks](#64-slide-and-related-key-attacks)
+    - [6.5 Simon-type attacks on the whitening and the tweak](#65-simon-type-attacks-on-the-whitening-and-the-tweak)
+    - [6.6 The mode under superposition queries](#66-the-mode-under-superposition-queries)
+    - [6.7 Summary and a design remark](#67-summary-and-a-design-remark)
+7. [Equal plaintext blocks](#7-equal-plaintext-blocks)
+8. [Mode properties and key derivation](#8-mode-properties-and-key-derivation)
+9. [The per-block tweak: design rationale](#9-the-per-block-tweak-design-rationale)
+10. [Comparison with AES-256](#10-comparison-with-aes-256)
+    - [10.1 What is compared](#101-what-is-compared)
+    - [10.2 Parameters](#102-parameters)
+    - [10.3 Security levels and speed](#103-security-levels-and-speed)
+11. [Recommendations](#11-recommendations)
+12. [Experiments run](#12-experiments-run)
+13. [DES itself](#13-des-itself)
+    - [13.1 The cipher and this implementation](#131-the-cipher-and-this-implementation)
+    - [13.2 What is known about DES](#132-what-is-known-about-des)
+    - [13.3 How each property meets this scheme](#133-how-each-property-meets-this-scheme)
+    - [13.4 What the scheme needs from DES](#134-what-the-scheme-needs-from-des)
+14. [Randomised cascades: Gaži and Tessaro, and what the theory says here](#14-randomised-cascades-gaži-and-tessaro-and-what-the-theory-says-here)
+    - [14.1 What the paper shows](#141-what-the-paper-shows)
+    - [14.2 The core of SillyDES as a randomised cascade](#142-the-core-of-sillydes-as-a-randomised-cascade)
+    - [14.3 What follows for this scheme](#143-what-follows-for-this-scheme)
+    - [14.4 The wide block and the ceiling](#144-the-wide-block-and-the-ceiling)
+15. [References](#15-references)
+    - [15.1 Papers and books](#151-papers-and-books)
+    - [15.2 Standards and specifications](#152-standards-and-specifications)
+    - [15.3 Statements without a named source](#153-statements-without-a-named-source)
+
 ## 1. Summary
 
 | Property | Result |

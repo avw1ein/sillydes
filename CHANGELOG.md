@@ -20,6 +20,7 @@ the section of the tag's version as the text of the GitHub Release.
   sections that cite them, and in 15.3 the four statements that name no work, with what is known of
   each: quantum claw finding, the DES key search of 1999, the DES keys with few round keys, and
   Welch's t-test.
+- ANALYSIS.md opens with a table of contents that links to every section and subsection.
 
 ## [5.2.6] - 2026-11-27
 
